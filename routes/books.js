@@ -1,4 +1,4 @@
-// routes/books.js
+// routes/books.js with subtopics integration
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
@@ -24,6 +24,13 @@ const {
   updateTopic, 
   deleteTopic 
 } = require('../controllers/topicController');
+const {
+  getSubTopics,
+  getSubTopic,
+  createSubTopic,
+  updateSubTopic,
+  deleteSubTopic
+} = require('../controllers/subtopicController');
 
 // Book routes
 router.route('/')
@@ -54,5 +61,15 @@ router.route('/:bookId/chapters/:chapterId/topics/:id')
   .get(verifyToken, getTopic)
   .put(verifyToken, updateTopic)
   .delete(verifyToken, deleteTopic);
+
+// Subtopic routes
+router.route('/:bookId/chapters/:chapterId/topics/:topicId/subtopics')
+  .get(verifyToken, getSubTopics)
+  .post(verifyToken, createSubTopic);
+
+router.route('/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:id')
+  .get(verifyToken, getSubTopic)
+  .put(verifyToken, updateSubTopic)
+  .delete(verifyToken, deleteSubTopic);
 
 module.exports = router;

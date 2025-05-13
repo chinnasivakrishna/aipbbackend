@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-
 const ChapterSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -30,5 +29,4 @@ const ChapterSchema = new mongoose.Schema({
     default: Date.now
   }
 });
-
 module.exports = mongoose.model('Chapter', ChapterSchema);
