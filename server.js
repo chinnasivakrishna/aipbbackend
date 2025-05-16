@@ -1,5 +1,3 @@
-// Modified server.js with subtopic routes integration
-
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -12,6 +10,8 @@ const userRoutes = require('./routes/user');
 const datastoreRoutess = require('./routes/datastores');
 const bookRoutes = require('./routes/books');
 const subtopicsRoutes = require('./routes/subtopics');
+const qrcodeRoutes = require('./routes/qrcode');
+const pdfSplitsRoutes = require('./routes/pdfSplits');
 
 dotenv.config();
 const app = express();
@@ -36,6 +36,8 @@ app.use('/api/client', clientRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/datastores', datastoreRoutess);
 app.use('/api/books', bookRoutes);
+app.use('/api/qrcode', qrcodeRoutes);
+app.use('/api/books', pdfSplitsRoutes);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
