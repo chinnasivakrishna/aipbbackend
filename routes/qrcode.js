@@ -65,7 +65,7 @@ router.get('/books/:bookId', async (req, res) => {
     };
     
     // Use direct URL string instead of JSON object for the QR code
-    const bookUrl = `http://localhost:3000/book-viewer/${bookId}`;
+    const bookUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}`;
     
     // Generate QR code as data URL with blue color for books
     const qrCodeDataURL = await generateColoredQRCode(bookUrl, '#0047AB');
@@ -191,7 +191,7 @@ router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
     };
     
     // Use direct URL string for the QR code - updated to use the new chapter viewer route
-    const chapterUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}`;
+    const chapterUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}`;
     
     // Generate QR code as data URL with green color for chapters
     const qrCodeDataURL = await generateColoredQRCode(chapterUrl, '#009933');
@@ -344,7 +344,7 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res
     };
     
     // Use direct URL string for the QR code
-    const topicUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}`;
+    const topicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}`;
     
     // Generate QR code as data URL with purple color for topics
     const qrCodeDataURL = await generateColoredQRCode(topicUrl, '#7B68EE');
@@ -515,7 +515,7 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:subtop
     };
     
     // Use direct URL string for the QR code
-    const subtopicUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
+    const subtopicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
     
     // Generate QR code as data URL with orange color for subtopics
     const qrCodeDataURL = await generateColoredQRCode(subtopicUrl, '#FF8C00');
