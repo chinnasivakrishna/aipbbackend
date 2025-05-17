@@ -7,6 +7,20 @@ const Topic = require('../models/Topic');
 const SubTopic = require('../models/SubTopic');
 const DataStore = require('../models/DatastoreItems');
 
+// Helper function to generate colored QR code
+const generateColoredQRCode = async (url, qrColor, size = 300) => {
+  // Generate QR code with custom color
+  return await QRCode.toDataURL(url, {
+    errorCorrectionLevel: 'H',
+    margin: 1,
+    width: size,
+    color: {
+      dark: qrColor,
+      light: '#FFFFFF' // white background
+    }
+  });
+};
+
 // Generate QR code data for a book
 router.get('/books/:bookId', async (req, res) => {
   try {
@@ -51,19 +65,16 @@ router.get('/books/:bookId', async (req, res) => {
     };
     
     // Use direct URL string instead of JSON object for the QR code
-    // This will make QR code scanners recognize it as a URL and open it directly
-    const bookUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}`;
+    const bookUrl = `http://localhost:3000/book-viewer/${bookId}`;
     
-    // Generate QR code as data URL with direct URL string
-    const qrCodeDataURL = await QRCode.toDataURL(bookUrl, {
-      errorCorrectionLevel: 'H',
-      margin: 1,
-      width: 300
-    });
+    // Generate QR code as data URL with blue color for books
+    const qrCodeDataURL = await generateColoredQRCode(bookUrl, '#0047AB');
     
     res.json({
       success: true,
       qrCodeDataURL,
+      qrCodeType: 'book',
+      qrCodeColor: '#0047AB', // Blue
       book: qrMetadata.book,
       chaptersCount: chapters.length,
       datastoreItemsCount: datastoreItems.length
@@ -104,6 +115,7 @@ router.get('/book-data/:bookId', async (req, res) => {
     // Return book data
     res.json({
       success: true,
+      qrCodeType: 'book',
       book: {
         id: book._id,
         title: book.title,
@@ -179,18 +191,16 @@ router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
     };
     
     // Use direct URL string for the QR code - updated to use the new chapter viewer route
-    const chapterUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}`;
+    const chapterUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}`;
     
-    // Generate QR code as data URL
-    const qrCodeDataURL = await QRCode.toDataURL(chapterUrl, {
-      errorCorrectionLevel: 'H',
-      margin: 1,
-      width: 300
-    });
+    // Generate QR code as data URL with green color for chapters
+    const qrCodeDataURL = await generateColoredQRCode(chapterUrl, '#009933');
     
     res.json({
       success: true,
       qrCodeDataURL,
+      qrCodeType: 'chapter',
+      qrCodeColor: '#009933', // Green
       book: qrMetadata.book,
       chapter: qrMetadata.chapter,
       topicsCount: topics.length,
@@ -239,6 +249,7 @@ router.get('/book-data/:bookId/chapters/:chapterId', async (req, res) => {
     
     res.json({
       success: true,
+      qrCodeType: 'chapter',
       book: {
         id: book._id,
         title: book.title,
@@ -262,8 +273,6 @@ router.get('/book-data/:bookId/chapters/:chapterId', async (req, res) => {
     });
   }
 });
-
-// Add these routes to your existing qrcode.js file
 
 // Generate QR code for a topic
 router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res) => {
@@ -335,18 +344,16 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res
     };
     
     // Use direct URL string for the QR code
-    const topicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}`;
+    const topicUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}`;
     
-    // Generate QR code as data URL
-    const qrCodeDataURL = await QRCode.toDataURL(topicUrl, {
-      errorCorrectionLevel: 'H',
-      margin: 1,
-      width: 300
-    });
+    // Generate QR code as data URL with purple color for topics
+    const qrCodeDataURL = await generateColoredQRCode(topicUrl, '#7B68EE');
     
     res.json({
       success: true,
       qrCodeDataURL,
+      qrCodeType: 'topic',
+      qrCodeColor: '#7B68EE', // Purple
       book: qrMetadata.book,
       chapter: qrMetadata.chapter,
       topic: qrMetadata.topic,
@@ -406,6 +413,7 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId', async (req,
     
     res.json({
       success: true,
+      qrCodeType: 'topic',
       book: {
         id: book._id,
         title: book.title,
@@ -507,18 +515,16 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:subtop
     };
     
     // Use direct URL string for the QR code
-    const subtopicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
+    const subtopicUrl = `http://localhost:3000/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
     
-    // Generate QR code as data URL
-    const qrCodeDataURL = await QRCode.toDataURL(subtopicUrl, {
-      errorCorrectionLevel: 'H',
-      margin: 1,
-      width: 300
-    });
+    // Generate QR code as data URL with orange color for subtopics
+    const qrCodeDataURL = await generateColoredQRCode(subtopicUrl, '#FF8C00');
     
     res.json({
       success: true,
       qrCodeDataURL,
+      qrCodeType: 'subtopic',
+      qrCodeColor: '#FF8C00', // Orange
       book: qrMetadata.book,
       chapter: qrMetadata.chapter,
       topic: qrMetadata.topic,
@@ -582,6 +588,7 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:su
     
     res.json({
       success: true,
+      qrCodeType: 'subtopic',
       book: {
         id: book._id,
         title: book.title,
