@@ -1,6 +1,7 @@
 // controllers/adminController.js - Admin controller functions
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
+const User = require('../models/User');
 
 // Generate JWT Token for admin
 const generateAdminToken = (id) => {
@@ -81,6 +82,38 @@ exports.login = async (req, res) => {
     });
   } catch (error) {
     console.error('Admin login error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+// Generate login token for client (admin impersonation)
+exports.generateClientLoginToken = async (req, res) => {
+  try {
+    const clientId = req.params.id;
+    
+    // Find client by ID
+    const client = await User.findById(clientId);
+    if (!client || client.role !== 'client') {
+      return res.status(404).json({ success: false, message: 'Client not found' });
+    }
+    
+    // Generate a short-lived token for this client (e.g., 1 hour)
+    const token = jwt.sign({ id: client._id }, process.env.JWT_SECRET, {
+      expiresIn: '1h'
+    });
+    
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: client._id,
+        name: client.name,
+        email: client.email,
+        role: client.role
+      }
+    });
+  } catch (error) {
+    console.error('Generate client login token error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
