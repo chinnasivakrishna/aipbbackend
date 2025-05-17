@@ -264,7 +264,7 @@ exports.deleteBook = async (req, res) => {
     await Chapter.deleteMany({ book: req.params.id });
     
     // Delete the book
-    await book.remove();
+    await Book.deleteOne({ _id: req.params.id });
     
     return res.status(200).json({
       success: true,

@@ -309,7 +309,7 @@ exports.deleteTopic = async (req, res) => {
     }
     
     // Delete the topic
-    await topic.remove();
+    await Topic.deleteOne({ _id: req.params.id });
     
     return res.status(200).json({
       success: true,

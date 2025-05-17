@@ -11,13 +11,14 @@ const clientRoutes = require('./routes/client');
 const userRoutes = require('./routes/user');
 const datastoreRoutess = require('./routes/datastores');
 const bookRoutes = require('./routes/books');
+const workbookRoutes = require('./routes/workbooks');
 const subtopicsRoutes = require('./routes/subtopics');
 
 dotenv.config();
 const app = express();
 
 app.use(cors({
-  origin: 'https://aipbfrontend.vercel.app',
+  origin: ['https://aipbfrontend.vercel.app'],
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
@@ -36,9 +37,11 @@ app.use('/api/client', clientRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/datastores', datastoreRoutess);
 app.use('/api/books', bookRoutes);
+app.use('/api/workbooks', workbookRoutes);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
+app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 
 app.use((err, req, res, next) => {
   console.error(err.stack);
