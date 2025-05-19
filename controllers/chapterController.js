@@ -109,7 +109,7 @@ exports.createChapter = async (req, res) => {
       });
     }
     
-    const { title, description, order, parentType } = req.body;
+    const { title, description, order } = req.body;
     
     // Get the current maximum order value
     let maxOrder = 0;
@@ -128,7 +128,6 @@ exports.createChapter = async (req, res) => {
       title,
       description,
       book: req.params.bookId,
-      parentType: parentType || 'book', // Set default to 'book' if not provided
       order: order || maxOrder
     });
     
@@ -252,7 +251,7 @@ exports.deleteChapter = async (req, res) => {
     await Topic.deleteMany({ chapter: chapter._id });
     
     // Delete the chapter
-    await Chapter.deleteOne({ _id: req.params.id });
+    await chapter.remove();
     
     return res.status(200).json({
       success: true,

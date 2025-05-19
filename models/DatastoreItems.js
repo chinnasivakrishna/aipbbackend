@@ -15,17 +15,7 @@ const DataStoreItemSchema = new mongoose.Schema({
     type: String,
     default: 'application/octet-stream'
   },
-  // Additional metadata
-  description: {
-    type: String,
-    default: ''
-  },
-  itemType: {
-    type: String,
-    enum: ['file', 'url', 'youtube', 'website', 'text', 'image', 'video', 'pdf'],
-    default: 'file'
-  },
-  // Reference to either a book, chapter, topic, or subtopic for AI Books
+  // Reference to either a book, chapter, topic, or subtopic
   book: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Book',
@@ -44,27 +34,6 @@ const DataStoreItemSchema = new mongoose.Schema({
   subtopic: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'SubTopic',
-    default: null
-  },
-  // References for AI Workbooks
-  workbook: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Workbook',
-    default: null
-  },
-  workbookChapter: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Chapter', // Using same Chapter model with parentType='workbook'
-    default: null
-  },
-  workbookTopic: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'Topic', // Using same Topic model
-    default: null
-  },
-  workbookSubtopic: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'SubTopic', // Using same SubTopic model
     default: null
   },
   user: {

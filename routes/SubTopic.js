@@ -157,7 +157,7 @@ router.delete('/:topicId/subtopics/:subtopicId', verifyToken, async (req, res) =
       return res.status(404).json({ success: false, message: 'Sub-topic not found' });
     }
 
-    await SubTopic.deleteOne({ _id: subtopicId });
+    await subtopic.remove();
     return res.json({ success: true, message: 'Sub-topic deleted successfully' });
   } catch (error) {
     console.error('Error deleting subtopic:', error);
