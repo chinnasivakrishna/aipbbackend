@@ -16,6 +16,7 @@ const pdfSplitsRoutes = require('./routes/pdfSplits');
 dotenv.config();
 const app = express();
 
+
 app.use(cors({
   origin: 'https://aipbfrontend.vercel.app',
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
