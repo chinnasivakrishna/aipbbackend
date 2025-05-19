@@ -1,30 +1,35 @@
 const Chapter = require('../models/Chapter');
-const Book = require('../models/Book');
+const Workbook = require('../models/Workbook');
 const Topic = require('../models/Topic');
+const SubTopic = require('../models/SubTopic');
 
-// @desc    Get all chapters for a book
-// @route   GET /api/books/:bookId/chapters
+// @desc    Get all chapters for a workbook
+// @route   GET /api/workbooks/:workbookId/chapters
 // @access  Private
 exports.getChapters = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
-    const chapters = await Chapter.find({ book: req.params.bookId }).sort('order');
+    // Find chapters where workbook field matches the workbookId
+    const chapters = await Chapter.find({ 
+      workbook: req.params.workbookId,
+      parentType: 'workbook' 
+    }).sort('order');
     
     return res.status(200).json({
       success: true,
@@ -41,30 +46,31 @@ exports.getChapters = async (req, res) => {
 };
 
 // @desc    Get single chapter
-// @route   GET /api/books/:bookId/chapters/:id
+// @route   GET /api/workbooks/:workbookId/chapters/:chapterId
 // @access  Private
 exports.getChapter = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({ 
-      _id: req.params.id,
-      book: req.params.bookId
+      _id: req.params.chapterId,
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -88,33 +94,36 @@ exports.getChapter = async (req, res) => {
 };
 
 // @desc    Create new chapter
-// @route   POST /api/books/:bookId/chapters
+// @route   POST /api/workbooks/:workbookId/chapters
 // @access  Private
 exports.createChapter = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
-    const { title, description, order, parentType } = req.body;
+    const { title, description, order } = req.body;
     
     // Get the current maximum order value
     let maxOrder = 0;
     if (!order) {
-      const lastChapter = await Chapter.findOne({ book: req.params.bookId })
+      const lastChapter = await Chapter.findOne({ 
+        workbook: req.params.workbookId,
+        parentType: 'workbook' 
+      })
         .sort('-order')
         .limit(1);
       
@@ -127,8 +136,8 @@ exports.createChapter = async (req, res) => {
     const chapter = await Chapter.create({
       title,
       description,
-      book: req.params.bookId,
-      parentType: parentType || 'book', // Set default to 'book' if not provided
+      workbook: req.params.workbookId,
+      parentType: 'workbook',
       order: order || maxOrder
     });
     
@@ -154,30 +163,31 @@ exports.createChapter = async (req, res) => {
 };
 
 // @desc    Update chapter
-// @route   PUT /api/books/:bookId/chapters/:id
+// @route   PUT /api/workbooks/:workbookId/chapters/:chapterId
 // @access  Private
 exports.updateChapter = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     let chapter = await Chapter.findOne({
-      _id: req.params.id,
-      book: req.params.bookId
+      _id: req.params.chapterId,
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -188,7 +198,7 @@ exports.updateChapter = async (req, res) => {
     }
     
     // Update fields
-    chapter = await Chapter.findByIdAndUpdate(req.params.id, req.body, {
+    chapter = await Chapter.findByIdAndUpdate(req.params.chapterId, req.body, {
       new: true,
       runValidators: true
     });
@@ -215,30 +225,31 @@ exports.updateChapter = async (req, res) => {
 };
 
 // @desc    Delete chapter
-// @route   DELETE /api/books/:bookId/chapters/:id
+// @route   DELETE /api/workbooks/:workbookId/chapters/:chapterId
 // @access  Private
 exports.deleteChapter = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to delete this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
-      _id: req.params.id,
-      book: req.params.bookId
+      _id: req.params.chapterId,
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -248,11 +259,19 @@ exports.deleteChapter = async (req, res) => {
       });
     }
     
-    // Delete all topics in the chapter
-    await Topic.deleteMany({ chapter: chapter._id });
+    // Find all topics in this chapter to delete associated subtopics
+    const topics = await Topic.find({ chapter: chapter._id });
+    
+    // Delete all topics and subtopics in this chapter
+    for (const topic of topics) {
+      // Delete all subtopics in this topic
+      await SubTopic.deleteMany({ topic: topic._id });
+      // Delete the topic
+      await Topic.deleteOne({ _id: topic._id });
+    }
     
     // Delete the chapter
-    await Chapter.deleteOne({ _id: req.params.id });
+    await Chapter.deleteOne({ _id: chapter._id });
     
     return res.status(200).json({
       success: true,
@@ -265,4 +284,4 @@ exports.deleteChapter = async (req, res) => {
       message: 'Server Error'
     });
   }
-};
+}; 

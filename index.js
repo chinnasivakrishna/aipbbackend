@@ -1,5 +1,4 @@
-// Modified server.js with subtopic routes integration
-
+// Main server entry point
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
@@ -9,14 +8,14 @@ const authRoutes = require('./routes/auth');
 const adminRoutes = require('./routes/admin');
 const clientRoutes = require('./routes/client');
 const userRoutes = require('./routes/user');
-const datastoreRoutess = require('./routes/datastores');
+const datastoreRoutes = require('./routes/datastore');
+const datastoresRoutes = require('./routes/datastores');
 const bookRoutes = require('./routes/books');
-const workbookRoutes = require('./routes/workbooks');
 const subtopicsRoutes = require('./routes/subtopics');
+const workbookRoutes = require('./routes/workbooks');
 
 dotenv.config();
 const app = express();
-
 
 app.use(cors({
   origin: ['https://aipbfrontend.vercel.app'],
@@ -36,7 +35,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/client', clientRoutes);
 app.use('/api/user', userRoutes);
-app.use('/api/datastores', datastoreRoutess);
+app.use('/api/datastore', datastoreRoutes);
+app.use('/api/datastores', datastoresRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/workbooks', workbookRoutes);
 
@@ -52,4 +52,4 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-});
+}); 

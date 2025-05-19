@@ -1,7 +1,7 @@
-// controllers/bookController.js
-const Book = require('../models/Book');
+const Workbook = require('../models/Workbook');
 const Chapter = require('../models/Chapter');
 const Topic = require('../models/Topic');
+const SubTopic = require('../models/SubTopic');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
@@ -9,7 +9,7 @@ const multer = require('multer');
 // Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const uploadDir = 'uploads/covers';
+    const uploadDir = 'uploads/workbook-covers';
     
     // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
     // Create unique filename with timestamp and original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
-    cb(null, `cover-${uniqueSuffix}${ext}`);
+    cb(null, `workbook-cover-${uniqueSuffix}${ext}`);
   }
 });
 
@@ -48,18 +48,18 @@ const upload = multer({
 // Multer upload middleware
 exports.uploadCoverImage = upload.single('coverImage');
 
-// @desc    Get all books
-// @route   GET /api/books
+// @desc    Get all workbooks
+// @route   GET /api/workbooks
 // @access  Private
-exports.getBooks = async (req, res) => {
+exports.getWorkbooks = async (req, res) => {
   try {
-    // Get all books that belong to the requesting user
-    const books = await Book.find({ user: req.user.id });
+    // Get all workbooks that belong to the requesting user
+    const workbooks = await Workbook.find({ user: req.user.id });
     
     return res.status(200).json({
       success: true,
-      count: books.length,
-      books
+      count: workbooks.length,
+      workbooks
     });
   } catch (error) {
     console.error(error);
@@ -70,31 +70,31 @@ exports.getBooks = async (req, res) => {
   }
 };
 
-// @desc    Get single book
-// @route   GET /api/books/:id
+// @desc    Get single workbook
+// @route   GET /api/workbooks/:id
 // @access  Private
-exports.getBook = async (req, res) => {
+exports.getWorkbook = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.id);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     return res.status(200).json({
       success: true,
-      book
+      workbook
     });
   } catch (error) {
     console.error(error);
@@ -105,31 +105,31 @@ exports.getBook = async (req, res) => {
   }
 };
 
-// @desc    Create new book
-// @route   POST /api/books
+// @desc    Create new workbook
+// @route   POST /api/workbooks
 // @access  Private
-exports.createBook = async (req, res) => {
+exports.createWorkbook = async (req, res) => {
   try {
     const { title, description } = req.body;
     
-    // Prepare book data
-    const bookData = {
+    // Prepare workbook data
+    const workbookData = {
       title,
       description,
       user: req.user.id
     };
     
-    // If a file was uploaded, add the path to bookData
+    // If a file was uploaded, add the path to workbookData
     if (req.file) {
-      bookData.coverImage = req.file.path;
+      workbookData.coverImage = req.file.path;
     }
     
-    // Create book
-    const book = await Book.create(bookData);
+    // Create workbook
+    const workbook = await Workbook.create(workbookData);
     
     return res.status(201).json({
       success: true,
-      book
+      workbook
     });
   } catch (error) {
     // If there was an error and a file was uploaded, remove it
@@ -155,25 +155,25 @@ exports.createBook = async (req, res) => {
   }
 };
 
-// @desc    Update book
-// @route   PUT /api/books/:id
+// @desc    Update workbook
+// @route   PUT /api/workbooks/:id
 // @access  Private
-exports.updateBook = async (req, res) => {
+exports.updateWorkbook = async (req, res) => {
   try {
-    let book = await Book.findById(req.params.id);
+    let workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to update this book'
+        message: 'Not authorized to update this workbook'
       });
     }
     
@@ -183,8 +183,8 @@ exports.updateBook = async (req, res) => {
     // If a new cover image was uploaded
     if (req.file) {
       // Delete the old image if it exists
-      if (book.coverImage && fs.existsSync(book.coverImage)) {
-        fs.unlinkSync(book.coverImage);
+      if (workbook.coverImage && fs.existsSync(workbook.coverImage)) {
+        fs.unlinkSync(workbook.coverImage);
       }
       
       // Add new image path
@@ -192,14 +192,14 @@ exports.updateBook = async (req, res) => {
     }
     
     // Update fields
-    book = await Book.findByIdAndUpdate(req.params.id, updateData, {
+    workbook = await Workbook.findByIdAndUpdate(req.params.workbookId, updateData, {
       new: true,
       runValidators: true
     });
     
     return res.status(200).json({
       success: true,
-      book
+      workbook
     });
   } catch (error) {
     // If there was an error and a file was uploaded, remove it
@@ -225,50 +225,58 @@ exports.updateBook = async (req, res) => {
   }
 };
 
-// @desc    Delete book
-// @route   DELETE /api/books/:id
+// @desc    Delete workbook
+// @route   DELETE /api/workbooks/:id
 // @access  Private
-exports.deleteBook = async (req, res) => {
+exports.deleteWorkbook = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.id);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to delete this book'
+        message: 'Not authorized to delete this workbook'
       });
     }
     
     // Delete the cover image if it exists
-    if (book.coverImage && fs.existsSync(book.coverImage)) {
-      fs.unlinkSync(book.coverImage);
+    if (workbook.coverImage && fs.existsSync(workbook.coverImage)) {
+      fs.unlinkSync(workbook.coverImage);
     }
     
-    // Delete all related chapters and topics
-    const chapters = await Chapter.find({ book: req.params.id });
+    // Find all chapters to delete associated topics/subtopics
+    const chapters = await Chapter.find({ workbook: workbook._id });
     
-    // Delete all topics in each chapter
+    // Delete all chapters, topics, and subtopics in this workbook
     for (const chapter of chapters) {
-      await Topic.deleteMany({ chapter: chapter._id });
+      // Find and delete all topics in this chapter
+      const topics = await Topic.find({ chapter: chapter._id });
+      
+      for (const topic of topics) {
+        // Delete all subtopics in this topic
+        await SubTopic.deleteMany({ topic: topic._id });
+        // Delete the topic
+        await Topic.deleteOne({ _id: topic._id });
+      }
+      
+      // Delete the chapter
+      await Chapter.deleteOne({ _id: chapter._id });
     }
     
-    // Delete all chapters
-    await Chapter.deleteMany({ book: req.params.id });
-    
-    // Delete the book
-    await Book.deleteOne({ _id: req.params.id });
+    // Delete the workbook
+    await Workbook.deleteOne({ _id: workbook._id });
     
     return res.status(200).json({
       success: true,
-      message: 'Book deleted successfully'
+      message: 'Workbook deleted successfully'
     });
   } catch (error) {
     console.error(error);
@@ -277,4 +285,4 @@ exports.deleteBook = async (req, res) => {
       message: 'Server Error'
     });
   }
-};
+}; 

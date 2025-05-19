@@ -1,32 +1,33 @@
 const Topic = require('../models/Topic');
 const Chapter = require('../models/Chapter');
-const Book = require('../models/Book');
+const Workbook = require('../models/Workbook');
 
 // @desc    Get all topics for a chapter
-// @route   GET /api/books/:bookId/chapters/:chapterId/topics
+// @route   GET /api/workbooks/:workbookId/chapters/:chapterId/topics
 // @access  Private
 exports.getTopics = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
       _id: req.params.chapterId,
-      book: req.params.bookId
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -53,30 +54,31 @@ exports.getTopics = async (req, res) => {
 };
 
 // @desc    Get single topic
-// @route   GET /api/books/:bookId/chapters/:chapterId/topics/:id
+// @route   GET /api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId
 // @access  Private
 exports.getTopic = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
       _id: req.params.chapterId,
-      book: req.params.bookId
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -87,7 +89,7 @@ exports.getTopic = async (req, res) => {
     }
     
     const topic = await Topic.findOne({
-      _id: req.params.id,
+      _id: req.params.topicId,
       chapter: req.params.chapterId
     });
     
@@ -112,30 +114,31 @@ exports.getTopic = async (req, res) => {
 };
 
 // @desc    Create new topic
-// @route   POST /api/books/:bookId/chapters/:chapterId/topics
+// @route   POST /api/workbooks/:workbookId/chapters/:chapterId/topics
 // @access  Private
 exports.createTopic = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
       _id: req.params.chapterId,
-      book: req.params.bookId
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -190,30 +193,31 @@ exports.createTopic = async (req, res) => {
 };
 
 // @desc    Update topic
-// @route   PUT /api/books/:bookId/chapters/:chapterId/topics/:id
+// @route   PUT /api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId
 // @access  Private
 exports.updateTopic = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
       _id: req.params.chapterId,
-      book: req.params.bookId
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -224,7 +228,7 @@ exports.updateTopic = async (req, res) => {
     }
     
     let topic = await Topic.findOne({
-      _id: req.params.id,
+      _id: req.params.topicId,
       chapter: req.params.chapterId
     });
     
@@ -236,7 +240,7 @@ exports.updateTopic = async (req, res) => {
     }
     
     // Update fields
-    topic = await Topic.findByIdAndUpdate(req.params.id, req.body, {
+    topic = await Topic.findByIdAndUpdate(req.params.topicId, req.body, {
       new: true,
       runValidators: true
     });
@@ -263,30 +267,31 @@ exports.updateTopic = async (req, res) => {
 };
 
 // @desc    Delete topic
-// @route   DELETE /api/books/:bookId/chapters/:chapterId/topics/:id
+// @route   DELETE /api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId
 // @access  Private
 exports.deleteTopic = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.bookId);
+    const workbook = await Workbook.findById(req.params.workbookId);
     
-    if (!book) {
+    if (!workbook) {
       return res.status(404).json({
         success: false,
-        message: 'Book not found'
+        message: 'Workbook not found'
       });
     }
     
-    // Check if book belongs to user
-    if (book.user.toString() !== req.user.id) {
+    // Check if workbook belongs to user
+    if (workbook.user.toString() !== req.user.id) {
       return res.status(403).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Not authorized to access this workbook'
       });
     }
     
     const chapter = await Chapter.findOne({
       _id: req.params.chapterId,
-      book: req.params.bookId
+      workbook: req.params.workbookId,
+      parentType: 'workbook'
     });
     
     if (!chapter) {
@@ -297,7 +302,7 @@ exports.deleteTopic = async (req, res) => {
     }
     
     const topic = await Topic.findOne({
-      _id: req.params.id,
+      _id: req.params.topicId,
       chapter: req.params.chapterId
     });
     
@@ -309,7 +314,7 @@ exports.deleteTopic = async (req, res) => {
     }
     
     // Delete the topic
-    await Topic.deleteOne({ _id: req.params.id });
+    await Topic.deleteOne({ _id: req.params.topicId });
     
     return res.status(200).json({
       success: true,

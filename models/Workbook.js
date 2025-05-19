@@ -1,6 +1,5 @@
 const mongoose = require('mongoose');
-
-const TopicSchema = new mongoose.Schema({
+const WorkbookSchema = new mongoose.Schema({
   title: {
     type: String,
     required: [true, 'Please add a title'],
@@ -12,18 +11,14 @@ const TopicSchema = new mongoose.Schema({
     required: [true, 'Please add a description'],
     maxlength: [1000, 'Description cannot be more than 1000 characters']
   },
-  content: {
+  coverImage: {
     type: String,
-    required: [true, 'Please add content'],
+    default: ''
   },
-  chapter: {
+  user: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Chapter',
+    ref: 'User',
     required: true
-  },
-  order: {
-    type: Number,
-    default: 0
   },
   createdAt: {
     type: Date,
@@ -34,5 +29,4 @@ const TopicSchema = new mongoose.Schema({
     default: Date.now
   }
 });
-
-module.exports = mongoose.model('Topic', TopicSchema);
+module.exports = mongoose.model('Workbook', WorkbookSchema); 
