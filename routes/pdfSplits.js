@@ -28,7 +28,7 @@ router.post('/:bookId/save-split-pdfs', auth.verifyToken, async (req, res) => {
             description: `Chapter covering pages ${split.startPage}-${split.endPage}`,
             book: bookId,
             order: Object.keys(acc).length + 1,
-            parentType: 'Book' // Add parentType field
+            parentType: 'book' // Add parentType field
           },
           topics: [],
           url: split.url
