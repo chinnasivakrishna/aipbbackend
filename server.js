@@ -44,6 +44,7 @@ app.use('/api/client', clientRoutes);
 app.use('/api/user', userRoutes);
 app.use('/api/datastores', datastoreRoutes);
 app.use('/api/datastore', datastoreRoute);
+app.use('/api/books', pdfSplitsRoutes);
 app.use('/api/books', bookRoutes);
 app.use('/api/subtopics', subtopicsRoutes);
 app.use('/api/assets', assetsRoutes);
@@ -53,7 +54,6 @@ app.use('/api/subjective-assets', subjectiveAssetsRoutes);
 app.use('/api/objective-assets', objectiveAssetsRoutes);
 app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
-app.use('/api/books', pdfSplitsRoutes);
 
 
 // Mount subtopics routes with nested path parameters
