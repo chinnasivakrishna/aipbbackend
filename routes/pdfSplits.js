@@ -27,7 +27,8 @@ router.post('/:bookId/save-split-pdfs', auth.verifyToken, async (req, res) => {
             title: split.title,
             description: `Chapter covering pages ${split.startPage}-${split.endPage}`,
             book: bookId,
-            order: Object.keys(acc).length + 1
+            order: Object.keys(acc).length + 1,
+            parentType: 'Book' // Add parentType field
           },
           topics: [],
           url: split.url
@@ -71,7 +72,8 @@ router.post('/:bookId/save-split-pdfs', auth.verifyToken, async (req, res) => {
           description: topicData.description,
           content: `PDF section for ${topicData.title}`,
           chapter: newChapter._id,
-          order: chapterData.topics.indexOf(topicData) + 1
+          order: chapterData.topics.indexOf(topicData) + 1,
+          parentType: 'Chapter' // Add parentType field if Topic model also requires it
         });
         await newTopic.save();
 
