@@ -100,7 +100,7 @@ router.get('/books/:bookId', async (req, res) => {
       });
     }
 
-    const bookUrl = `http://localhost:3000/mobile-asset-view/${bookId}`;
+    const bookUrl = `https://aipbfrontend.vercel.app/mobile-asset-view/${bookId}`;
     const qrCodeDataURL = await generateColoredQRCode(bookUrl, '#0047AB');
 
     res.json({
@@ -186,7 +186,7 @@ router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
       });
     }
 
-    const chapterUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}`;
+    const chapterUrl = `https://aipbfrontend.vercel.app/mobile-asset-view/${bookId}/chapters/${chapterId}`;
     const qrCodeDataURL = await generateColoredQRCode(chapterUrl, '#009933');
 
     res.json({
@@ -282,7 +282,7 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res
       });
     }
 
-    const topicUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}`;
+    const topicUrl = `https://aipbfrontend.vercel.app/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}`;
     const qrCodeDataURL = await generateColoredQRCode(topicUrl, '#7B68EE');
 
     res.json({
@@ -388,7 +388,7 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:subtop
       });
     }
 
-    const subtopicUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
+    const subtopicUrl = `https://aipbfrontend.vercel.app/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
     const qrCodeDataURL = await generateColoredQRCode(subtopicUrl, '#FF8C00');
 
     res.json({
