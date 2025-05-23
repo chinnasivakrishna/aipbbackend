@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+
 const TopicSchema = new mongoose.Schema({
   title: {
     type: String,
@@ -33,4 +34,5 @@ const TopicSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
 module.exports = mongoose.model('Topic', TopicSchema);

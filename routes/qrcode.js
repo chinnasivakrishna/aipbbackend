@@ -5,79 +5,117 @@ const Book = require('../models/Book');
 const Chapter = require('../models/Chapter');
 const Topic = require('../models/Topic');
 const SubTopic = require('../models/SubTopic');
-const DataStore = require('../models/DatastoreItems');
+const Summary = require('../models/Summary');
+const Video = require('../models/Video');
+const PYQ = require('../models/PYQ');
+const QuestionSet = require('../models/QuestionSet');
+const Question = require('../models/Question');
+const ObjectiveQuestion = require('../models/ObjectiveQuestion');
 
 // Helper function to generate colored QR code
 const generateColoredQRCode = async (url, qrColor, size = 300) => {
-  // Generate QR code with custom color
   return await QRCode.toDataURL(url, {
     errorCorrectionLevel: 'H',
     margin: 1,
     width: size,
     color: {
       dark: qrColor,
-      light: '#FFFFFF' // white background
+      light: '#FFFFFF'
     }
   });
 };
 
-// Generate QR code data for a book
+// Helper function to fetch all asset data for an item
+const fetchAssetData = async (itemType, itemId) => {
+  const [summaries, videos, pyqs, questionSets] = await Promise.all([
+    Summary.find({ itemType, itemId }),
+    Video.find({ itemType, itemId, status: 'active' }),
+    PYQ.find({ itemType, itemId }),
+    QuestionSet.find({ [itemType]: itemId, isActive: true })
+  ]);
+
+  // For each question set, fetch the actual questions
+  const questionSetsWithQuestions = await Promise.all(
+    questionSets.map(async (set) => {
+      let questions = [];
+      
+      try {
+        if (set.type === 'objective') {
+          // Fetch objective questions for this set
+          questions = await ObjectiveQuestion.find({ questionSet: set._id });
+        } else if (set.type === 'subjective') {
+          // Fetch subjective questions for this set
+          questions = await Question.find({ questionSet: set._id });
+        }
+      } catch (error) {
+        console.error(`Error fetching questions for set ${set._id}:`, error);
+        questions = []; // Set empty array if fetching fails
+      }
+
+      return {
+        ...set.toObject(),
+        questions: questions,
+        totalQuestions: questions.length
+      };
+    })
+  );
+
+  // Separate question sets into subjective and objective
+  const subjectiveQuestionSets = {
+    L1: questionSetsWithQuestions.filter(qs => qs.type === 'subjective' && qs.level === 'L1'),
+    L2: questionSetsWithQuestions.filter(qs => qs.type === 'subjective' && qs.level === 'L2'),
+    L3: questionSetsWithQuestions.filter(qs => qs.type === 'subjective' && qs.level === 'L3')
+  };
+
+  const objectiveQuestionSets = {
+    L1: questionSetsWithQuestions.filter(qs => qs.type === 'objective' && qs.level === 'L1'),
+    L2: questionSetsWithQuestions.filter(qs => qs.type === 'objective' && qs.level === 'L2'),
+    L3: questionSetsWithQuestions.filter(qs => qs.type === 'objective' && qs.level === 'L3')
+  };
+
+  return {
+    summaries,
+    videos,
+    pyqs,
+    subjectiveQuestionSets,
+    objectiveQuestionSets
+  };
+};
+
+// Generate QR code for a book
 router.get('/books/:bookId', async (req, res) => {
   try {
     const { bookId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
+    const [book, chapters, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.find({ book: bookId }).select('_id title description order').sort('order'),
+      fetchAssetData('book', bookId)
+    ]);
+
     if (!book) {
       return res.status(404).json({ 
         success: false, 
         message: 'Book not found' 
       });
     }
-    
-    // Get all chapters for the book
-    const chapters = await Chapter.find({ book: bookId })
-      .select('_id title description order')
-      .sort('order');
-    
-    // Get all datastore items for the book
-    const datastoreItems = await DataStore.find({ book: bookId })
-      .select('_id name url fileType');
-    
-    // Create data object for QR code metadata (not used in QR code itself)
-    const qrMetadata = {
-      book: {
-        id: book._id,
-        title: book.title,
-        description: book.description
-      },
-      chapters: chapters.map(chapter => ({
-        id: chapter._id,
-        title: chapter.title,
-        description: chapter.description,
-        order: chapter.order
-      })),
-      datastoreItems: datastoreItems.map(item => ({
-        id: item._id,
-        name: item.name,
-        fileType: item.fileType
-      }))
-    };
-    
-    // Use direct URL string instead of JSON object for the QR code
-    const bookUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}`;
-    
-    // Generate QR code as data URL with blue color for books
+
+    const bookUrl = `http://localhost:3000/mobile-asset-view/${bookId}`;
     const qrCodeDataURL = await generateColoredQRCode(bookUrl, '#0047AB');
-    
+
     res.json({
       success: true,
       qrCodeDataURL,
       qrCodeType: 'book',
-      qrCodeColor: '#0047AB', // Blue
-      book: qrMetadata.book,
+      qrCodeColor: '#0047AB',
+      book: {
+        id: book._id,
+        title: book.title,
+        description: book.description,
+        coverImage: book.coverImage
+      },
       chaptersCount: chapters.length,
-      datastoreItemsCount: datastoreItems.length
+      ...assetData
     });
     
   } catch (error) {
@@ -94,25 +132,19 @@ router.get('/book-data/:bookId', async (req, res) => {
   try {
     const { bookId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
+    const [book, chapters, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.find({ book: bookId }).select('_id title description order').sort('order'),
+      fetchAssetData('book', bookId)
+    ]);
+
     if (!book) {
       return res.status(404).json({ 
         success: false, 
         message: 'Book not found' 
       });
     }
-    
-    // Get all chapters for the book
-    const chapters = await Chapter.find({ book: bookId })
-      .select('_id title description order')
-      .sort('order');
-    
-    // Get all datastore items for the book
-    const datastoreItems = await DataStore.find({ book: bookId })
-      .select('_id name url fileType');
-    
-    // Return book data
+
     res.json({
       success: true,
       qrCodeType: 'book',
@@ -123,7 +155,7 @@ router.get('/book-data/:bookId', async (req, res) => {
         coverImage: book.coverImage
       },
       chapters: chapters,
-      datastoreItems: datastoreItems
+      ...assetData
     });
     
   } catch (error) {
@@ -135,39 +167,33 @@ router.get('/book-data/:bookId', async (req, res) => {
   }
 });
 
+// Generate QR code for a chapter
 router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
   try {
     const { bookId, chapterId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topics, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.find({ chapter: chapterId }).select('_id title description order').sort('order'),
+      fetchAssetData('chapter', chapterId)
+    ]);
+
+    if (!book || !chapter) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book or Chapter not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get all topics for the chapter
-    const topics = await Topic.find({ chapter: chapterId })
-      .select('_id title description order')
-      .sort('order');
-    
-    // Get all datastore items for the chapter
-    const datastoreItems = await DataStore.find({ chapter: chapterId })
-      .select('_id name url fileType');
-    
-    // Create data object for QR code metadata
-    const qrMetadata = {
+
+    const chapterUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}`;
+    const qrCodeDataURL = await generateColoredQRCode(chapterUrl, '#009933');
+
+    res.json({
+      success: true,
+      qrCodeDataURL,
+      qrCodeType: 'chapter',
+      qrCodeColor: '#009933',
       book: {
         id: book._id,
         title: book.title
@@ -177,34 +203,8 @@ router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
         title: chapter.title,
         description: chapter.description
       },
-      topics: topics.map(topic => ({
-        id: topic._id,
-        title: topic.title,
-        description: topic.description,
-        order: topic.order
-      })),
-      datastoreItems: datastoreItems.map(item => ({
-        id: item._id,
-        name: item.name,
-        fileType: item.fileType
-      }))
-    };
-    
-    // Use direct URL string for the QR code - updated to use the new chapter viewer route
-    const chapterUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}`;
-    
-    // Generate QR code as data URL with green color for chapters
-    const qrCodeDataURL = await generateColoredQRCode(chapterUrl, '#009933');
-    
-    res.json({
-      success: true,
-      qrCodeDataURL,
-      qrCodeType: 'chapter',
-      qrCodeColor: '#009933', // Green
-      book: qrMetadata.book,
-      chapter: qrMetadata.chapter,
       topicsCount: topics.length,
-      datastoreItemsCount: datastoreItems.length
+      ...assetData
     });
     
   } catch (error) {
@@ -216,37 +216,25 @@ router.get('/books/:bookId/chapters/:chapterId', async (req, res) => {
   }
 });
 
+// Get chapter data when scanned from QR code
 router.get('/book-data/:bookId/chapters/:chapterId', async (req, res) => {
   try {
     const { bookId, chapterId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topics, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.find({ chapter: chapterId }).select('_id title description order content').sort('order'),
+      fetchAssetData('chapter', chapterId)
+    ]);
+
+    if (!book || !chapter) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book or Chapter not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get all topics for the chapter
-    const topics = await Topic.find({ chapter: chapterId })
-      .select('_id title description order content')
-      .sort('order');
-    
-    // Get all datastore items for the chapter
-    const datastoreItems = await DataStore.find({ chapter: chapterId })
-      .select('_id name url fileType');
-    
+
     res.json({
       success: true,
       qrCodeType: 'chapter',
@@ -262,7 +250,7 @@ router.get('/book-data/:bookId/chapters/:chapterId', async (req, res) => {
         order: chapter.order
       },
       topics: topics,
-      datastoreItems: datastoreItems
+      ...assetData
     });
     
   } catch (error) {
@@ -271,7 +259,7 @@ router.get('/book-data/:bookId/chapters/:chapterId', async (req, res) => {
       success: false,
       message: 'Server error fetching chapter data'
     });
-  }
+    }
 });
 
 // Generate QR code for a topic
@@ -279,44 +267,29 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res
   try {
     const { bookId, chapterId, topicId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topic, subtopics, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.findOne({ _id: topicId, chapter: chapterId }),
+      SubTopic.find({ topic: topicId }).select('_id title description order').sort('order'),
+      fetchAssetData('topic', topicId)
+    ]);
+
+    if (!book || !chapter || !topic) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book, Chapter or Topic not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get topic details
-    const topic = await Topic.findOne({ _id: topicId, chapter: chapterId });
-    if (!topic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Topic not found' 
-      });
-    }
-    
-    // Get all subtopics for the topic
-    const subtopics = await SubTopic.find({ topic: topicId })
-      .select('_id title description order')
-      .sort('order');
-    
-    // Get all datastore items for the topic
-    const datastoreItems = await DataStore.find({ topic: topicId })
-      .select('_id name url fileType');
-    
-    // Create data object for QR code metadata
-    const qrMetadata = {
+
+    const topicUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}`;
+    const qrCodeDataURL = await generateColoredQRCode(topicUrl, '#7B68EE');
+
+    res.json({
+      success: true,
+      qrCodeDataURL,
+      qrCodeType: 'topic',
+      qrCodeColor: '#7B68EE',
       book: {
         id: book._id,
         title: book.title
@@ -330,35 +303,8 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId', async (req, res
         title: topic.title,
         description: topic.description
       },
-      subtopics: subtopics.map(subtopic => ({
-        id: subtopic._id,
-        title: subtopic.title,
-        description: subtopic.description,
-        order: subtopic.order
-      })),
-      datastoreItems: datastoreItems.map(item => ({
-        id: item._id,
-        name: item.name,
-        fileType: item.fileType
-      }))
-    };
-    
-    // Use direct URL string for the QR code
-    const topicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}`;
-    
-    // Generate QR code as data URL with purple color for topics
-    const qrCodeDataURL = await generateColoredQRCode(topicUrl, '#7B68EE');
-    
-    res.json({
-      success: true,
-      qrCodeDataURL,
-      qrCodeType: 'topic',
-      qrCodeColor: '#7B68EE', // Purple
-      book: qrMetadata.book,
-      chapter: qrMetadata.chapter,
-      topic: qrMetadata.topic,
       subtopicsCount: subtopics.length,
-      datastoreItemsCount: datastoreItems.length
+      ...assetData
     });
     
   } catch (error) {
@@ -375,42 +321,21 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId', async (req,
   try {
     const { bookId, chapterId, topicId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topic, subtopics, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.findOne({ _id: topicId, chapter: chapterId }),
+      SubTopic.find({ topic: topicId }).select('_id title description order content').sort('order'),
+      fetchAssetData('topic', topicId)
+    ]);
+
+    if (!book || !chapter || !topic) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book, Chapter or Topic not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get topic details
-    const topic = await Topic.findOne({ _id: topicId, chapter: chapterId });
-    if (!topic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Topic not found' 
-      });
-    }
-    
-    // Get all subtopics for the topic
-    const subtopics = await SubTopic.find({ topic: topicId })
-      .select('_id title description order content')
-      .sort('order');
-    
-    // Get all datastore items for the topic
-    const datastoreItems = await DataStore.find({ topic: topicId })
-      .select('_id name url fileType');
-    
+
     res.json({
       success: true,
       qrCodeType: 'topic',
@@ -431,7 +356,7 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId', async (req,
         order: topic.order
       },
       subtopics: subtopics,
-      datastoreItems: datastoreItems
+      ...assetData
     });
     
   } catch (error) {
@@ -448,48 +373,29 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:subtop
   try {
     const { bookId, chapterId, topicId, subtopicId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topic, subtopic, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.findOne({ _id: topicId, chapter: chapterId }),
+      SubTopic.findOne({ _id: subtopicId, topic: topicId }),
+      fetchAssetData('subtopic', subtopicId)
+    ]);
+
+    if (!book || !chapter || !topic || !subtopic) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book, Chapter, Topic or Sub-topic not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get topic details
-    const topic = await Topic.findOne({ _id: topicId, chapter: chapterId });
-    if (!topic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Topic not found' 
-      });
-    }
-    
-    // Get subtopic details
-    const subtopic = await SubTopic.findOne({ _id: subtopicId, topic: topicId });
-    if (!subtopic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Sub-topic not found' 
-      });
-    }
-    
-    // Get all datastore items for the subtopic
-    const datastoreItems = await DataStore.find({ subtopic: subtopicId })
-      .select('_id name url fileType');
-    
-    // Create data object for QR code metadata
-    const qrMetadata = {
+
+    const subtopicUrl = `http://localhost:3000/mobile-asset-view/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
+    const qrCodeDataURL = await generateColoredQRCode(subtopicUrl, '#FF8C00');
+
+    res.json({
+      success: true,
+      qrCodeDataURL,
+      qrCodeType: 'subtopic',
+      qrCodeColor: '#FF8C00',
       book: {
         id: book._id,
         title: book.title
@@ -507,29 +413,7 @@ router.get('/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:subtop
         title: subtopic.title,
         description: subtopic.description
       },
-      datastoreItems: datastoreItems.map(item => ({
-        id: item._id,
-        name: item.name,
-        fileType: item.fileType
-      }))
-    };
-    
-    // Use direct URL string for the QR code
-    const subtopicUrl = `https://aipbfrontend.vercel.app/book-viewer/${bookId}/chapters/${chapterId}/topics/${topicId}/subtopics/${subtopicId}`;
-    
-    // Generate QR code as data URL with orange color for subtopics
-    const qrCodeDataURL = await generateColoredQRCode(subtopicUrl, '#FF8C00');
-    
-    res.json({
-      success: true,
-      qrCodeDataURL,
-      qrCodeType: 'subtopic',
-      qrCodeColor: '#FF8C00', // Orange
-      book: qrMetadata.book,
-      chapter: qrMetadata.chapter,
-      topic: qrMetadata.topic,
-      subtopic: qrMetadata.subtopic,
-      datastoreItemsCount: datastoreItems.length
+      ...assetData
     });
     
   } catch (error) {
@@ -546,46 +430,21 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:su
   try {
     const { bookId, chapterId, topicId, subtopicId } = req.params;
     
-    // Get book details
-    const book = await Book.findById(bookId);
-    if (!book) {
+    const [book, chapter, topic, subtopic, assetData] = await Promise.all([
+      Book.findById(bookId),
+      Chapter.findOne({ _id: chapterId, book: bookId }),
+      Topic.findOne({ _id: topicId, chapter: chapterId }),
+      SubTopic.findOne({ _id: subtopicId, topic: topicId }),
+      fetchAssetData('subtopic', subtopicId)
+    ]);
+
+    if (!book || !chapter || !topic || !subtopic) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Book not found' 
+        message: 'Book, Chapter, Topic or Sub-topic not found' 
       });
     }
-    
-    // Get chapter details
-    const chapter = await Chapter.findOne({ _id: chapterId, book: bookId });
-    if (!chapter) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Chapter not found' 
-      });
-    }
-    
-    // Get topic details
-    const topic = await Topic.findOne({ _id: topicId, chapter: chapterId });
-    if (!topic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Topic not found' 
-      });
-    }
-    
-    // Get subtopic details
-    const subtopic = await SubTopic.findOne({ _id: subtopicId, topic: topicId });
-    if (!subtopic) {
-      return res.status(404).json({ 
-        success: false, 
-        message: 'Sub-topic not found' 
-      });
-    }
-    
-    // Get all datastore items for the subtopic
-    const datastoreItems = await DataStore.find({ subtopic: subtopicId })
-      .select('_id name url fileType');
-    
+
     res.json({
       success: true,
       qrCodeType: 'subtopic',
@@ -609,7 +468,7 @@ router.get('/book-data/:bookId/chapters/:chapterId/topics/:topicId/subtopics/:su
         content: subtopic.content,
         order: subtopic.order
       },
-      datastoreItems: datastoreItems
+      ...assetData
     });
     
   } catch (error) {

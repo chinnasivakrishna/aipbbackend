@@ -9,11 +9,12 @@ const SubTopicSchema = new mongoose.Schema({
   },
   description: {
     type: String,
+    required: [true, 'Please add a description'],
     maxlength: [1000, 'Description cannot be more than 1000 characters']
   },
   content: {
     type: String,
-    default: ''
+    required: [true, 'Please add content'],
   },
   topic: {
     type: mongoose.Schema.Types.ObjectId,

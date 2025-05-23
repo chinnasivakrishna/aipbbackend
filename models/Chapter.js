@@ -13,7 +13,15 @@ const ChapterSchema = new mongoose.Schema({
   },
   book: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'Book',
+    ref: 'Book'
+  },
+  workbook: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Workbook'
+  },
+  parentType: {
+    type: String,
+    enum: ['book', 'workbook'],
     required: true
   },
   order: {
@@ -29,4 +37,5 @@ const ChapterSchema = new mongoose.Schema({
     default: Date.now
   }
 });
+
 module.exports = mongoose.model('Chapter', ChapterSchema);
