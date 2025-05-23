@@ -18,7 +18,7 @@ const subjectiveAssetsRoutes = require('./routes/subjectiveAssets');
 const objectiveAssetsRoutes = require('./routes/objectiveAssets');
 const workbookRoutes = require('./routes/workbooks');
 const qrCodeRoutes = require('./routes/qrcode');
-const pdfSplitsRoutes = require('./routes/pdfSplits')
+const pdfSplitsRoutes = require('./routes/pdfSplits');
 
 dotenv.config();
 const app = express();
