@@ -23,6 +23,7 @@ const workbookRoutes = require('./routes/workbooks');
 const qrCodeRoutes = require('./routes/qrcode');
 const pdfSplitsRoutes = require('./routes/pdfSplits');
 const mobileAuthRoutes = require('./routes/mobileAuth');
+const mobileBooksRoutes = require('./routes/mobileBooks'); // Add mobile books routes
 
 const app = express();
 
@@ -59,6 +60,9 @@ app.use('/api/books', pdfSplitsRoutes);
 
 // Mobile authentication routes
 app.use('/api/mobile-auth', mobileAuthRoutes);
+
+// Mobile books routes
+app.use('/api/mobile-books', mobileBooksRoutes);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
