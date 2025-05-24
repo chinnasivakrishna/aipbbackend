@@ -1,18 +1,16 @@
 // models/MobileUser.js
 const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
 
 const MobileUserSchema = new mongoose.Schema({
   mobile: {
     type: String,
     required: true,
-    unique: true,
     trim: true,
     match: [/^\d{10}$/, 'Please enter a valid 10-digit mobile number']
   },
   isVerified: {
     type: Boolean,
-    default: false
+    default: true // Since we're not using OTP, users are verified by default
   },
   client: {
     type: String,
@@ -24,6 +22,10 @@ const MobileUserSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  lastLoginAt: {
+    type: Date,
+    default: Date.now
+  },
   createdAt: {
     type: Date,
     default: Date.now
@@ -34,9 +36,15 @@ const MobileUserSchema = new mongoose.Schema({
   }
 });
 
+// Create compound index for mobile and client combination
+MobileUserSchema.index({ mobile: 1, client: 1 }, { unique: true });
+
 // Update timestamp on save
 MobileUserSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
+  if (this.isModified('authToken') && this.authToken) {
+    this.lastLoginAt = Date.now();
+  }
   next();
 });
 

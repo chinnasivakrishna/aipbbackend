@@ -57,6 +57,7 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 
+// Mobile authentication routes
 app.use('/api/mobile-auth', mobileAuthRoutes);
 
 // Mount subtopics routes with nested path parameters

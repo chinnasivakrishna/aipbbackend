@@ -2,9 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const MobileUser = require('../models/MobileUser');
-const OTP = require('../models/OTP');
 const UserProfile = require('../models/UserProfile');
-const twilioService = require('../services/twilioService');
 const { generateToken, authenticateMobileUser, checkClientAccess } = require('../middleware/mobileAuth');
 
 // Validation helper
@@ -19,9 +17,9 @@ const validateAgeGroup = (age) => {
   return validAgeGroups.includes(age);
 };
 
-// Route: Send OTP
-// POST /api/mobile-auth/:client/send-otp
-router.post('/:client/send-otp', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
+// Route: Login/Register with Mobile Number
+// POST /api/mobile-auth/:client/login
+router.post('/:client/login', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
   try {
     const { mobile } = req.body;
     const client = req.clientName;
@@ -41,118 +39,24 @@ router.post('/:client/send-otp', checkClientAccess(['kitabai', 'ailisher']), asy
       });
     }
 
-    // Check for recent OTP requests (prevent spam)
-    const recentOTP = await OTP.findOne({
-      mobile,
-      client,
-      createdAt: { $gte: new Date(Date.now() - 60000) } // Within last 1 minute
-    });
-
-    if (recentOTP) {
-      return res.status(429).json({
-        success: false,
-        message: 'Please wait 1 minute before requesting another OTP.'
-      });
-    }
-
-    // Generate and save OTP
-    const otpCode = twilioService.generateOTP();
-    
-    // Remove any existing unused OTPs for this mobile and client
-    await OTP.deleteMany({ mobile, client, isUsed: false });
-
-    const otp = new OTP({
-      mobile,
-      otp: otpCode,
-      client
-    });
-
-    await otp.save();
-
-    // Send OTP via SMS
-    const smsResult = await twilioService.sendOTP(mobile, otpCode, client);
-
-    if (!smsResult.success) {
-      // Remove the OTP if SMS failed
-      await OTP.findByIdAndDelete(otp._id);
-      
-      return res.status(500).json({
-        success: false,
-        message: 'Failed to send OTP. Please try again.'
-      });
-    }
-
-    res.status(200).json({
-      status: 'OTP_SENT',
-      message: 'OTP has been sent to the provided number.',
-      success: true
-    });
-
-  } catch (error) {
-    console.error('Send OTP error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Verify OTP
-// POST /api/mobile-auth/:client/verify-otp
-router.post('/:client/verify-otp', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
-  try {
-    const { mobile, otp } = req.body;
-    const client = req.clientName;
-
-    // Validation
-    if (!mobile || !otp) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mobile number and OTP are required.'
-      });
-    }
-
-    if (!validateMobile(mobile)) {
-      return res.status(400).json({
-        success: false,
-        message: 'Please enter a valid 10-digit mobile number.'
-      });
-    }
-
-    // Find valid OTP
-    const otpRecord = await OTP.findOne({
-      mobile,
-      otp,
-      client,
-      isUsed: false,
-      expiresAt: { $gt: new Date() }
-    });
-
-    if (!otpRecord) {
-      return res.status(400).json({
-        success: false,
-        message: 'Invalid or expired OTP.'
-      });
-    }
-
-    // Mark OTP as used
-    otpRecord.isUsed = true;
-    await otpRecord.save();
-
-    // Find or create mobile user
+    // Check if mobile user exists
     let mobileUser = await MobileUser.findOne({ mobile, client });
     
     if (!mobileUser) {
+      // Create new mobile user
       mobileUser = new MobileUser({
         mobile,
         client,
         isVerified: true
       });
+      await mobileUser.save();
     } else {
-      mobileUser.isVerified = true;
+      // Update verification status if needed
+      if (!mobileUser.isVerified) {
+        mobileUser.isVerified = true;
+        await mobileUser.save();
+      }
     }
-
-    await mobileUser.save();
 
     // Generate auth token
     const token = generateToken(mobileUser._id, mobile, client);
@@ -163,17 +67,37 @@ router.post('/:client/verify-otp', checkClientAccess(['kitabai', 'ailisher']), a
     const profile = await UserProfile.findOne({ userId: mobileUser._id });
     const isProfileComplete = !!profile;
 
-    res.status(200).json({
-      status: 'VERIFIED',
-      success: true,
-      token,
-      is_profile_complete: isProfileComplete,
-      user_id: mobileUser._id,
-      message: 'OTP verified successfully.'
-    });
+    if (isProfileComplete) {
+      // Existing user with complete profile
+      res.status(200).json({
+        status: 'LOGIN_SUCCESS',
+        success: true,
+        token,
+        is_profile_complete: true,
+        user_id: mobileUser._id,
+        message: 'Login successful.',
+        profile: {
+          name: profile.name,
+          age: profile.age,
+          gender: profile.gender,
+          exams: profile.exams,
+          native_language: profile.nativeLanguage
+        }
+      });
+    } else {
+      // New user or user without profile
+      res.status(200).json({
+        status: 'PROFILE_REQUIRED',
+        success: true,
+        token,
+        is_profile_complete: false,
+        user_id: mobileUser._id,
+        message: 'Please complete your profile to continue.'
+      });
+    }
 
   } catch (error) {
-    console.error('Verify OTP error:', error);
+    console.error('Login error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again later.'
@@ -222,6 +146,7 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
 
     // Check if profile already exists
     let profile = await UserProfile.findOne({ userId });
+    let isNewProfile = !profile;
 
     if (profile) {
       // Update existing profile
@@ -246,15 +171,10 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
 
     await profile.save();
 
-    // Send welcome SMS for new profiles
-    if (!profile.createdAt || Math.abs(new Date() - profile.createdAt) < 5000) {
-      await twilioService.sendWelcomeMessage(req.user.mobile, name, client);
-    }
-
     res.status(200).json({
       status: 'PROFILE_SAVED',
       success: true,
-      message: 'User profile saved successfully.',
+      message: isNewProfile ? 'Profile created successfully.' : 'Profile updated successfully.',
       profile: {
         name: profile.name,
         age: profile.age,
@@ -385,6 +305,58 @@ router.post('/:client/logout', checkClientAccess(['kitabai', 'ailisher']), authe
 
   } catch (error) {
     console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Check User Status
+// POST /api/mobile-auth/:client/check-user
+router.post('/:client/check-user', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
+  try {
+    const { mobile } = req.body;
+    const client = req.clientName;
+
+    // Validation
+    if (!mobile) {
+      return res.status(400).json({
+        success: false,
+        message: 'Mobile number is required.'
+      });
+    }
+
+    if (!validateMobile(mobile)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please enter a valid 10-digit mobile number.'
+      });
+    }
+
+    // Check if mobile user exists
+    const mobileUser = await MobileUser.findOne({ mobile, client });
+    
+    if (!mobileUser) {
+      return res.status(200).json({
+        success: true,
+        user_exists: false,
+        message: 'New user. Registration required.'
+      });
+    }
+
+    // Check if profile exists
+    const profile = await UserProfile.findOne({ userId: mobileUser._id });
+    
+    res.status(200).json({
+      success: true,
+      user_exists: true,
+      is_profile_complete: !!profile,
+      message: profile ? 'User exists with complete profile.' : 'User exists but profile incomplete.'
+    });
+
+  } catch (error) {
+    console.error('Check user error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again later.'
