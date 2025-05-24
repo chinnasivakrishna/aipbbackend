@@ -1,22 +1,23 @@
 // middleware/mobileAuth.js
 const jwt = require('jsonwebtoken');
 const MobileUser = require('../models/MobileUser');
+const User = require('../models/User');
 
-// Generate JWT token for mobile users
-const generateToken = (userId, mobile, client) => {
+// Generate JWT token
+const generateToken = (userId, mobile, clientId) => {
   return jwt.sign(
     { 
-      userId,
-      mobile,
-      client,
-      type: 'mobile_user'
+      id: userId, 
+      mobile: mobile,
+      clientId: clientId,
+      type: 'mobile' 
     },
     process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
 };
 
-// Middleware to authenticate mobile users
+// Authenticate mobile user
 const authenticateMobileUser = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
@@ -30,85 +31,102 @@ const authenticateMobileUser = async (req, res, next) => {
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     
-    // Check if it's a mobile user token
-    if (decoded.type !== 'mobile_user') {
+    if (decoded.type !== 'mobile') {
       return res.status(401).json({
         success: false,
         message: 'Invalid token type.'
       });
     }
 
-    // Find the user
-    const user = await MobileUser.findById(decoded.userId);
+    // Check if user exists and token matches
+    const user = await MobileUser.findOne({
+      _id: decoded.id,
+      authToken: token
+    });
+
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Token is valid but user not found.'
+        message: 'Invalid token or user not found.'
       });
     }
 
-    if (!user.isVerified) {
-      return res.status(401).json({
+    // Verify client ID from URL matches user's client
+    const clientIdFromUrl = req.params.clientId;
+    if (clientIdFromUrl && user.clientId !== clientIdFromUrl) {
+      return res.status(403).json({
         success: false,
-        message: 'Mobile number not verified.'
+        message: 'Access denied. Client mismatch.'
       });
     }
 
-    // Add user info to request
     req.user = {
       id: user._id,
       mobile: user.mobile,
-      client: user.client,
-      isVerified: user.isVerified
+      clientId: user.clientId
     };
 
     next();
   } catch (error) {
-    console.error('Auth middleware error:', error);
-    
-    if (error.name === 'JsonWebTokenError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid token.'
-      });
-    }
-    
-    if (error.name === 'TokenExpiredError') {
-      return res.status(401).json({
-        success: false,
-        message: 'Token expired.'
-      });
-    }
-
-    res.status(500).json({
+    console.error('Authentication error:', error);
+    res.status(401).json({
       success: false,
-      message: 'Token verification failed.'
+      message: 'Invalid token.'
     });
   }
 };
 
-// Middleware to check client access
-const checkClientAccess = (allowedClients) => {
-  return (req, res, next) => {
-    const clientFromRoute = req.params.client || req.body.client || req.query.client;
-    
-    if (!clientFromRoute) {
-      return res.status(400).json({
+// Check client access middleware
+const checkClientAccess = (allowedClients = []) => {
+  return async (req, res, next) => {
+    try {
+      const clientId = req.params.clientId;
+      
+      if (!clientId) {
+        return res.status(400).json({
+          success: false,
+          message: 'Client ID is required.'
+        });
+      }
+
+      // Validate client exists and is active
+      const client = await User.findOne({
+        userId: clientId,
+        role: 'client',
+        status: 'active'
+      });
+
+      if (!client) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid client ID or client is not active.'
+        });
+      }
+
+      // If specific clients are allowed, check if current client is in the list
+      // This is kept for backward compatibility but can be removed if not needed
+      if (allowedClients.length > 0) {
+        // For now, we'll allow all valid clients
+        // You can implement specific business logic here if needed
+      }
+
+      // Add client info to request
+      req.clientId = clientId;
+      req.clientInfo = {
+        id: client._id,
+        userId: client.userId,
+        businessName: client.businessName,
+        businessOwnerName: client.businessOwnerName
+      };
+
+      next();
+    } catch (error) {
+      console.error('Client access check error:', error);
+      res.status(500).json({
         success: false,
-        message: 'Client parameter is required.'
+        message: 'Internal server error during client validation.'
       });
     }
-
-    if (!allowedClients.includes(clientFromRoute)) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied for this client.'
-      });
-    }
-
-    // Add client to request for easy access
-    req.clientName = clientFromRoute;
-    next();
   };
 };
 

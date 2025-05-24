@@ -33,10 +33,10 @@ const UserProfileSchema = new mongoose.Schema({
     required: true,
     enum: ['Hindi', 'English', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Odia', 'Malayalam', 'Punjabi', 'Assamese', 'Other']
   },
-  client: {
+  clientId: { // Changed from 'client' to 'clientId'
     type: String,
-    required: true,
-    enum: ['kitabai', 'ailisher']
+    required: true
+    // No enum restriction - will validate against actual client IDs
   },
   isComplete: {
     type: Boolean,

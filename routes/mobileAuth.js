@@ -1,81 +1,61 @@
-// routes/mobileAuth.js
+// routes/mobileAuth.js - Updated with RESTful URLs
 const express = require('express');
 const router = express.Router();
 const MobileUser = require('../models/MobileUser');
 const UserProfile = require('../models/UserProfile');
+const User = require('../models/User');
 const { generateToken, authenticateMobileUser, checkClientAccess } = require('../middleware/mobileAuth');
 
-// Validation helper
-const validateMobile = (mobile) => {
-  const mobileRegex = /^\d{10}$/;
-  return mobileRegex.test(mobile);
-};
-
-// Age group validation helper
-const validateAgeGroup = (age) => {
-  const validAgeGroups = ['<15', '15-18', '19-25', '26-31', '32-40', '40+'];
-  return validAgeGroups.includes(age);
-};
+// Validation helpers
+const validateMobile = (mobile) => /^\d{10}$/.test(mobile);
+const validateAgeGroup = (age) => ['<15', '15-18', '19-25', '26-31', '32-40', '40+'].includes(age);
 
 // Route: Login/Register with Mobile Number
-// POST /api/mobile-auth/:client/login
-router.post('/:client/login', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
+// POST /api/clients/:clientId/mobile/auth/login
+router.post('/login', checkClientAccess(), async (req, res) => {
   try {
     const { mobile } = req.body;
-    const client = req.clientName;
+    const clientId = req.params.clientId;
+    const client = req.clientInfo;
 
-    // Validation
-    if (!mobile) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mobile number is required.'
-      });
-    }
-
-    if (!validateMobile(mobile)) {
+    if (!mobile || !validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
 
-    // Check if mobile user exists
-    let mobileUser = await MobileUser.findOne({ mobile, client });
+    let mobileUser = await MobileUser.findOne({ mobile, clientId });
     
     if (!mobileUser) {
-      // Create new mobile user
       mobileUser = new MobileUser({
         mobile,
-        client,
+        clientId,
         isVerified: true
       });
       await mobileUser.save();
-    } else {
-      // Update verification status if needed
-      if (!mobileUser.isVerified) {
-        mobileUser.isVerified = true;
-        await mobileUser.save();
-      }
+    } else if (!mobileUser.isVerified) {
+      mobileUser.isVerified = true;
+      await mobileUser.save();
     }
 
-    // Generate auth token
-    const token = generateToken(mobileUser._id, mobile, client);
+    const token = generateToken(mobileUser._id, mobile, clientId);
     mobileUser.authToken = token;
     await mobileUser.save();
 
-    // Check if profile exists
     const profile = await UserProfile.findOne({ userId: mobileUser._id });
     const isProfileComplete = !!profile;
 
-    if (isProfileComplete) {
-      // Existing user with complete profile
-      res.status(200).json({
-        status: 'LOGIN_SUCCESS',
-        success: true,
-        token,
-        is_profile_complete: true,
-        user_id: mobileUser._id,
-        message: 'Login successful.',
+    res.status(200).json({
+      status: isProfileComplete ? 'LOGIN_SUCCESS' : 'PROFILE_REQUIRED',
+      success: true,
+      token,
+      is_profile_complete: isProfileComplete,
+      user_id: mobileUser._id,
+      client_id: clientId,
+      client_name: client.businessName,
+      message: isProfileComplete ? 'Login successful.' : 'Please complete your profile to continue.',
+      ...(isProfileComplete && {
         profile: {
           name: profile.name,
           age: profile.age,
@@ -83,18 +63,8 @@ router.post('/:client/login', checkClientAccess(['kitabai', 'ailisher']), async 
           exams: profile.exams,
           native_language: profile.nativeLanguage
         }
-      });
-    } else {
-      // New user or user without profile
-      res.status(200).json({
-        status: 'PROFILE_REQUIRED',
-        success: true,
-        token,
-        is_profile_complete: false,
-        user_id: mobileUser._id,
-        message: 'Please complete your profile to continue.'
-      });
-    }
+      })
+    });
 
   } catch (error) {
     console.error('Login error:', error);
@@ -106,35 +76,28 @@ router.post('/:client/login', checkClientAccess(['kitabai', 'ailisher']), async 
 });
 
 // Route: Create/Update Profile
-// POST /api/mobile-auth/:client/profile
-router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// POST /api/clients/:clientId/mobile/auth/profile
+router.post('/profile', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { name, age, gender, exams, native_language } = req.body;
-    const client = req.clientName;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
+
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
 
     // Validation
     const errors = [];
-    
-    if (!name || name.trim().length === 0) {
-      errors.push('Name is required.');
-    }
-    
-    if (!age || !validateAgeGroup(age)) {
-      errors.push('Please select a valid age group.');
-    }
-    
-    if (!gender || !['Male', 'Female', 'Other'].includes(gender)) {
-      errors.push('Please select a valid gender.');
-    }
-    
-    if (!exams || !Array.isArray(exams) || exams.length === 0) {
-      errors.push('Please select at least one exam.');
-    }
-    
-    if (!native_language) {
-      errors.push('Please select your native language.');
-    }
+    if (!name || name.trim().length === 0) errors.push('Name is required.');
+    if (!age || !validateAgeGroup(age)) errors.push('Please select a valid age group.');
+    if (!gender || !['Male', 'Female', 'Other'].includes(gender)) errors.push('Please select a valid gender.');
+    if (!exams || !Array.isArray(exams) || exams.length === 0) errors.push('Please select at least one exam.');
+    if (!native_language) errors.push('Please select your native language.');
 
     if (errors.length > 0) {
       return res.status(400).json({
@@ -144,12 +107,10 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
       });
     }
 
-    // Check if profile already exists
     let profile = await UserProfile.findOne({ userId });
-    let isNewProfile = !profile;
+    const isNewProfile = !profile;
 
     if (profile) {
-      // Update existing profile
       profile.name = name.trim();
       profile.age = age;
       profile.gender = gender;
@@ -157,7 +118,6 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
       profile.nativeLanguage = native_language;
       profile.updatedAt = new Date();
     } else {
-      // Create new profile
       profile = new UserProfile({
         userId,
         name: name.trim(),
@@ -165,7 +125,7 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
         gender,
         exams,
         nativeLanguage: native_language,
-        client
+        clientId
       });
     }
 
@@ -194,10 +154,19 @@ router.post('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), auth
 });
 
 // Route: Get Profile
-// GET /api/mobile-auth/:client/profile
-router.get('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// GET /api/clients/:clientId/mobile/auth/profile
+router.get('/profile', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
+    const clientId = req.params.clientId;
     const userId = req.user.id;
+
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
 
     const profile = await UserProfile.findOne({ userId }).populate('userId', 'mobile createdAt');
 
@@ -234,14 +203,22 @@ router.get('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authe
 });
 
 // Route: Update Profile
-// PUT /api/mobile-auth/:client/profile
-router.put('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// PUT /api/clients/:clientId/mobile/auth/profile
+router.put('/profile', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { name, age, gender, exams, native_language } = req.body;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
-    const profile = await UserProfile.findOne({ userId });
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
 
+    const profile = await UserProfile.findOne({ userId });
     if (!profile) {
       return res.status(404).json({
         success: false,
@@ -265,7 +242,6 @@ router.put('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authe
     if (native_language !== undefined) profile.nativeLanguage = native_language;
     
     profile.updatedAt = new Date();
-
     await profile.save();
 
     res.status(200).json({
@@ -290,13 +266,16 @@ router.put('/:client/profile', checkClientAccess(['kitabai', 'ailisher']), authe
 });
 
 // Route: Logout (invalidate token)
-// POST /api/mobile-auth/:client/logout
-router.post('/:client/logout', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// POST /api/clients/:clientId/mobile/auth/logout
+router.post('/logout', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
-    // Clear auth token from database
-    await MobileUser.findByIdAndUpdate(userId, { authToken: null });
+    await MobileUser.findOneAndUpdate(
+      { _id: userId, clientId }, 
+      { authToken: null }
+    );
 
     res.status(200).json({
       success: true,
@@ -313,45 +292,39 @@ router.post('/:client/logout', checkClientAccess(['kitabai', 'ailisher']), authe
 });
 
 // Route: Check User Status
-// POST /api/mobile-auth/:client/check-user
-router.post('/:client/check-user', checkClientAccess(['kitabai', 'ailisher']), async (req, res) => {
+// POST /api/clients/:clientId/mobile/auth/check-user
+router.post('/check-user', checkClientAccess(), async (req, res) => {
   try {
     const { mobile } = req.body;
-    const client = req.clientName;
+    const clientId = req.params.clientId;
+    const client = req.clientInfo;
 
-    // Validation
-    if (!mobile) {
-      return res.status(400).json({
-        success: false,
-        message: 'Mobile number is required.'
-      });
-    }
-
-    if (!validateMobile(mobile)) {
+    if (!mobile || !validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
 
-    // Check if mobile user exists
-    const mobileUser = await MobileUser.findOne({ mobile, client });
-    
+    const mobileUser = await MobileUser.findOne({ mobile, clientId });
     if (!mobileUser) {
       return res.status(200).json({
         success: true,
         user_exists: false,
+        client_id: clientId,
+        client_name: client.businessName,
         message: 'New user. Registration required.'
       });
     }
 
-    // Check if profile exists
     const profile = await UserProfile.findOne({ userId: mobileUser._id });
     
     res.status(200).json({
       success: true,
       user_exists: true,
       is_profile_complete: !!profile,
+      client_id: clientId,
+      client_name: client.businessName,
       message: profile ? 'User exists with complete profile.' : 'User exists but profile incomplete.'
     });
 

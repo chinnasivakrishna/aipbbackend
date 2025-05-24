@@ -12,11 +12,10 @@ const MobileUserSchema = new mongoose.Schema({
     type: Boolean,
     default: true // Since we're not using OTP, users are verified by default
   },
-  client: {
+  clientId: { // Changed from 'client' to 'clientId' to match User model
     type: String,
     required: true,
-    enum: ['kitabai', 'ailisher'], // Add more clients as needed
-    default: 'kitabai'
+    // No enum restriction - will validate against actual client IDs from User model
   },
   authToken: {
     type: String,
@@ -36,8 +35,8 @@ const MobileUserSchema = new mongoose.Schema({
   }
 });
 
-// Create compound index for mobile and client combination
-MobileUserSchema.index({ mobile: 1, client: 1 }, { unique: true });
+// Create compound index for mobile and clientId combination
+MobileUserSchema.index({ mobile: 1, clientId: 1 }, { unique: true });
 
 // Update timestamp on save
 MobileUserSchema.pre('save', function(next) {

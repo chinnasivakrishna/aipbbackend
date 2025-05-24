@@ -1,4 +1,4 @@
-// models/Book.js
+// models/Book.js - Updated with additional fields
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -12,6 +12,38 @@ const BookSchema = new mongoose.Schema({
     type: String,
     required: [true, 'Please add a description'],
     maxlength: [1000, 'Description cannot be more than 1000 characters']
+  },
+  author: {
+    type: String,
+    required: [true, 'Please add an author'],
+    trim: true,
+    maxlength: [100, 'Author name cannot be more than 100 characters']
+  },
+  publisher: {
+    type: String,
+    required: [true, 'Please add a publisher'],
+    trim: true,
+    maxlength: [100, 'Publisher name cannot be more than 100 characters']
+  },
+  language: {
+    type: String,
+    required: [true, 'Please select a language'],
+    enum: ['Hindi', 'English', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Odia', 'Malayalam', 'Punjabi', 'Assamese', 'Other'],
+    default: 'English'
+  },
+  rating: {
+    type: Number,
+    min: [0, 'Rating cannot be less than 0'],
+    max: [5, 'Rating cannot be more than 5'],
+    default: 0,
+    set: function(val) {
+      return Math.round(val * 10) / 10; // Round to 1 decimal place
+    }
+  },
+  ratingCount: {
+    type: Number,
+    default: 0,
+    min: [0, 'Rating count cannot be negative']
   },
   coverImage: {
     type: String,
@@ -27,20 +59,16 @@ const BookSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [50, 'Custom category cannot be more than 50 characters'],
-    // This field is used when category is 'Other'
   },
   tags: [{
     type: String,
     trim: true,
     maxlength: [30, 'Tag cannot be more than 30 characters']
   }],
-  client: {
+  clientId: {
     type: String,
-    required: true,
-    enum: ['kitabai', 'ailisher'],
-    default: 'kitabai'
+    required: true
   },
-  // Reference to either regular User or MobileUser
   user: {
     type: mongoose.Schema.Types.ObjectId,
     refPath: 'userType',
@@ -53,7 +81,7 @@ const BookSchema = new mongoose.Schema({
   },
   isPublic: {
     type: Boolean,
-    default: false // Books are private by default
+    default: false
   },
   createdAt: {
     type: Date,
@@ -65,10 +93,13 @@ const BookSchema = new mongoose.Schema({
   }
 });
 
-// Create compound index for client-specific queries
-BookSchema.index({ client: 1, category: 1 });
-BookSchema.index({ client: 1, user: 1 });
-BookSchema.index({ client: 1, tags: 1 });
+// Create compound indexes for efficient queries
+BookSchema.index({ clientId: 1, category: 1 });
+BookSchema.index({ clientId: 1, user: 1 });
+BookSchema.index({ clientId: 1, tags: 1 });
+BookSchema.index({ clientId: 1, rating: -1 });
+BookSchema.index({ clientId: 1, author: 1 });
+BookSchema.index({ clientId: 1, language: 1 });
 
 // Update timestamp on save
 BookSchema.pre('save', function(next) {
@@ -87,10 +118,18 @@ BookSchema.pre('save', function(next) {
   next();
 });
 
-// Virtual to get the effective category (either predefined or custom)
+// Virtual to get the effective category
 BookSchema.virtual('effectiveCategory').get(function() {
   return this.category === 'Other' ? this.customCategory : this.category;
 });
+
+// Method to update rating
+BookSchema.methods.updateRating = function(newRating) {
+  const totalRating = (this.rating * this.ratingCount) + newRating;
+  this.ratingCount += 1;
+  this.rating = totalRating / this.ratingCount;
+  return this.save();
+};
 
 // Ensure virtual fields are serialized
 BookSchema.set('toJSON', { virtuals: true });

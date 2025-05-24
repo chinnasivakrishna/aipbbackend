@@ -1,11 +1,11 @@
-// routes/mobileBooks.js
+// routes/mobileBooks.js - Updated with RESTful URLs and additional book fields
 const express = require('express');
 const router = express.Router();
 const Book = require('../models/Book');
 const { authenticateMobileUser, checkClientAccess } = require('../middleware/mobileAuth');
 
 // Validation helpers
-const validateBookData = (title, description, category, customCategory, tags) => {
+const validateBookData = (title, description, author, publisher, language, category, customCategory, tags, rating) => {
   const errors = [];
   
   if (!title || title.trim().length === 0) {
@@ -22,6 +22,35 @@ const validateBookData = (title, description, category, customCategory, tags) =>
   
   if (description && description.length > 1000) {
     errors.push('Description cannot be more than 1000 characters.');
+  }
+
+  if (!author || author.trim().length === 0) {
+    errors.push('Author is required.');
+  }
+
+  if (author && author.length > 100) {
+    errors.push('Author name cannot be more than 100 characters.');
+  }
+
+  if (!publisher || publisher.trim().length === 0) {
+    errors.push('Publisher is required.');
+  }
+
+  if (publisher && publisher.length > 100) {
+    errors.push('Publisher name cannot be more than 100 characters.');
+  }
+
+  if (!language) {
+    errors.push('Language is required.');
+  }
+
+  const validLanguages = ['Hindi', 'English', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Odia', 'Malayalam', 'Punjabi', 'Assamese', 'Other'];
+  if (language && !validLanguages.includes(language)) {
+    errors.push('Please select a valid language.');
+  }
+
+  if (rating !== undefined && (isNaN(rating) || rating < 0 || rating > 5)) {
+    errors.push('Rating must be between 0 and 5.');
   }
   
   if (!category) {
@@ -47,15 +76,15 @@ const validateBookData = (title, description, category, customCategory, tags) =>
 };
 
 // Route: Create a new book
-// POST /api/mobile-books/:client/create
-router.post('/:client/create', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// POST /api/clients/:clientId/mobile/books
+router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const { title, description, category, customCategory, tags, coverImage, isPublic } = req.body;
-    const client = req.clientName;
+    const { title, description, author, publisher, language, category, customCategory, tags, coverImage, isPublic, rating } = req.body;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
     // Validation
-    const errors = validateBookData(title, description, category, customCategory, tags);
+    const errors = validateBookData(title, description, author, publisher, language, category, customCategory, tags, rating);
     
     if (errors.length > 0) {
       return res.status(400).json({
@@ -69,11 +98,15 @@ router.post('/:client/create', checkClientAccess(['kitabai', 'ailisher']), authe
     const bookData = {
       title: title.trim(),
       description: description.trim(),
+      author: author.trim(),
+      publisher: publisher.trim(),
+      language,
       category,
-      client,
+      clientId,
       user: userId,
       userType: 'MobileUser',
-      isPublic: isPublic || false
+      isPublic: isPublic || false,
+      rating: rating || 0
     };
 
     // Add custom category if category is 'Other'
@@ -95,24 +128,31 @@ router.post('/:client/create', checkClientAccess(['kitabai', 'ailisher']), authe
     await book.save();
 
     // Populate user info for response
-    await book.populate('user', 'mobile client');
+    await book.populate('user', 'mobile clientId');
 
     res.status(201).json({
       success: true,
       message: 'Book created successfully.',
-      book: {
-        id: book._id,
-        title: book.title,
-        description: book.description,
-        category: book.category,
-        customCategory: book.customCategory,
-        effectiveCategory: book.effectiveCategory,
-        tags: book.tags,
-        coverImage: book.coverImage,
-        isPublic: book.isPublic,
-        client: book.client,
-        createdAt: book.createdAt,
-        updatedAt: book.updatedAt
+      data: {
+        book: {
+          id: book._id,
+          title: book.title,
+          description: book.description,
+          author: book.author,
+          publisher: book.publisher,
+          language: book.language,
+          rating: book.rating,
+          ratingCount: book.ratingCount,
+          category: book.category,
+          customCategory: book.customCategory,
+          effectiveCategory: book.effectiveCategory,
+          tags: book.tags,
+          coverImage: book.coverImage,
+          isPublic: book.isPublic,
+          clientId: book.clientId,
+          createdAt: book.createdAt,
+          updatedAt: book.updatedAt
+        }
       }
     });
 
@@ -125,22 +165,22 @@ router.post('/:client/create', checkClientAccess(['kitabai', 'ailisher']), authe
   }
 });
 
-// Route: Get user's books
-// GET /api/mobile-books/:client/my-books
-router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// Route: Get current user's books
+// GET /api/clients/:clientId/mobile/users/me/books
+router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const client = req.clientName;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
-    const { category, tag, page = 1, limit = 10 } = req.query;
+    const { category, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
 
     // Build query
     const query = {
-      client,
+      clientId,
       user: userId,
       userType: 'MobileUser'
     };
 
-    // Add category filter
+    // Add filters
     if (category) {
       if (category === 'Other') {
         query.category = 'Other';
@@ -152,9 +192,50 @@ router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), auth
       }
     }
 
-    // Add tag filter
     if (tag) {
       query.tags = { $in: [tag] };
+    }
+
+    if (author) {
+      query.author = { $regex: author, $options: 'i' };
+    }
+
+    if (language) {
+      query.language = language;
+    }
+
+    if (rating_min || rating_max) {
+      query.rating = {};
+      if (rating_min) query.rating.$gte = parseFloat(rating_min);
+      if (rating_max) query.rating.$lte = parseFloat(rating_max);
+    }
+
+    // Build sort
+    let sortQuery = {};
+    switch (sort) {
+      case 'title_asc':
+        sortQuery = { title: 1 };
+        break;
+      case 'title_desc':
+        sortQuery = { title: -1 };
+        break;
+      case 'rating_asc':
+        sortQuery = { rating: 1 };
+        break;
+      case 'rating_desc':
+        sortQuery = { rating: -1 };
+        break;
+      case 'created_asc':
+        sortQuery = { createdAt: 1 };
+        break;
+      case 'created_desc':
+        sortQuery = { createdAt: -1 };
+        break;
+      case 'updated_asc':
+        sortQuery = { updatedAt: 1 };
+        break;
+      default:
+        sortQuery = { updatedAt: -1 };
     }
 
     // Calculate pagination
@@ -162,7 +243,7 @@ router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), auth
 
     // Get books with pagination
     const books = await Book.find(query)
-      .sort({ updatedAt: -1 })
+      .sort(sortQuery)
       .skip(skip)
       .limit(parseInt(limit))
       .populate('user', 'mobile');
@@ -175,6 +256,11 @@ router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), auth
       id: book._id,
       title: book.title,
       description: book.description,
+      author: book.author,
+      publisher: book.publisher,
+      language: book.language,
+      rating: book.rating,
+      ratingCount: book.ratingCount,
       category: book.category,
       customCategory: book.customCategory,
       effectiveCategory: book.effectiveCategory,
@@ -187,18 +273,20 @@ router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), auth
 
     res.status(200).json({
       success: true,
-      books: formattedBooks,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalBooks / parseInt(limit)),
-        totalBooks,
-        hasNext: skip + books.length < totalBooks,
-        hasPrev: parseInt(page) > 1
+      data: {
+        books: formattedBooks,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalBooks / parseInt(limit)),
+          totalBooks,
+          hasNext: skip + books.length < totalBooks,
+          hasPrev: parseInt(page) > 1
+        }
       }
     });
 
   } catch (error) {
-    console.error('Get books error:', error);
+    console.error('Get user books error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again later.'
@@ -207,40 +295,89 @@ router.get('/:client/my-books', checkClientAccess(['kitabai', 'ailisher']), auth
 });
 
 // Route: Get all books for client (public and user's own books)
-// GET /api/mobile-books/:client/all
-router.get('/:client/all', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// GET /api/clients/:clientId/mobile/books
+router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const client = req.clientName;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
-    const { category, tag, page = 1, limit = 10 } = req.query;
+    const { category, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
 
     // Build query - show public books from same client + user's own books
     const query = {
-      client,
+      clientId,
       $or: [
         { isPublic: true },
         { user: userId, userType: 'MobileUser' }
       ]
     };
 
-    // Add category filter
-    if (category) {
-      if (category === 'Other') {
-        query.category = 'Other';
-      } else {
-        query.$and = query.$and || [];
-        query.$and.push({
-          $or: [
-            { category: category },
-            { category: 'Other', customCategory: category }
-          ]
-        });
+    // Add filters
+    if (category || tag || author || language || rating_min || rating_max) {
+      const filters = [];
+      
+      if (category) {
+        if (category === 'Other') {
+          filters.push({ category: 'Other' });
+        } else {
+          filters.push({
+            $or: [
+              { category: category },
+              { category: 'Other', customCategory: category }
+            ]
+          });
+        }
+      }
+
+      if (tag) {
+        filters.push({ tags: { $in: [tag] } });
+      }
+
+      if (author) {
+        filters.push({ author: { $regex: author, $options: 'i' } });
+      }
+
+      if (language) {
+        filters.push({ language: language });
+      }
+
+      if (rating_min || rating_max) {
+        const ratingFilter = {};
+        if (rating_min) ratingFilter.$gte = parseFloat(rating_min);
+        if (rating_max) ratingFilter.$lte = parseFloat(rating_max);
+        filters.push({ rating: ratingFilter });
+      }
+
+      if (filters.length > 0) {
+        query.$and = filters;
       }
     }
 
-    // Add tag filter
-    if (tag) {
-      query.tags = { $in: [tag] };
+    // Build sort
+    let sortQuery = {};
+    switch (sort) {
+      case 'title_asc':
+        sortQuery = { title: 1 };
+        break;
+      case 'title_desc':
+        sortQuery = { title: -1 };
+        break;
+      case 'rating_asc':
+        sortQuery = { rating: 1 };
+        break;
+      case 'rating_desc':
+        sortQuery = { rating: -1 };
+        break;
+      case 'created_asc':
+        sortQuery = { createdAt: 1 };
+        break;
+      case 'created_desc':
+        sortQuery = { createdAt: -1 };
+        break;
+      case 'updated_asc':
+        sortQuery = { updatedAt: 1 };
+        break;
+      default:
+        sortQuery = { updatedAt: -1 };
     }
 
     // Calculate pagination
@@ -248,7 +385,7 @@ router.get('/:client/all', checkClientAccess(['kitabai', 'ailisher']), authentic
 
     // Get books with pagination
     const books = await Book.find(query)
-      .sort({ updatedAt: -1 })
+      .sort(sortQuery)
       .skip(skip)
       .limit(parseInt(limit))
       .populate('user', 'mobile');
@@ -261,6 +398,11 @@ router.get('/:client/all', checkClientAccess(['kitabai', 'ailisher']), authentic
       id: book._id,
       title: book.title,
       description: book.description,
+      author: book.author,
+      publisher: book.publisher,
+      language: book.language,
+      rating: book.rating,
+      ratingCount: book.ratingCount,
       category: book.category,
       customCategory: book.customCategory,
       effectiveCategory: book.effectiveCategory,
@@ -274,13 +416,15 @@ router.get('/:client/all', checkClientAccess(['kitabai', 'ailisher']), authentic
 
     res.status(200).json({
       success: true,
-      books: formattedBooks,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalBooks / parseInt(limit)),
-        totalBooks,
-        hasNext: skip + books.length < totalBooks,
-        hasPrev: parseInt(page) > 1
+      data: {
+        books: formattedBooks,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalBooks / parseInt(limit)),
+          totalBooks,
+          hasNext: skip + books.length < totalBooks,
+          hasPrev: parseInt(page) > 1
+        }
       }
     });
 
@@ -294,16 +438,16 @@ router.get('/:client/all', checkClientAccess(['kitabai', 'ailisher']), authentic
 });
 
 // Route: Get single book details
-// GET /api/mobile-books/:client/:bookId
-router.get('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// GET /api/clients/:clientId/mobile/books/:bookId
+router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { bookId } = req.params;
-    const client = req.clientName;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
     const book = await Book.findOne({
       _id: bookId,
-      client,
+      clientId,
       $or: [
         { isPublic: true },
         { user: userId, userType: 'MobileUser' }
@@ -319,22 +463,29 @@ router.get('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
 
     res.status(200).json({
       success: true,
-      book: {
-        id: book._id,
-        title: book.title,
-        description: book.description,
-        category: book.category,
-        customCategory: book.customCategory,
-        effectiveCategory: book.effectiveCategory,
-        tags: book.tags,
-        coverImage: book.coverImage,
-        isPublic: book.isPublic,
-        isOwnBook: book.user._id.toString() === userId.toString(),
-        owner: {
-          mobile: book.user.mobile
-        },
-        createdAt: book.createdAt,
-        updatedAt: book.updatedAt
+      data: {
+        book: {
+          id: book._id,
+          title: book.title,
+          description: book.description,
+          author: book.author,
+          publisher: book.publisher,
+          language: book.language,
+          rating: book.rating,
+          ratingCount: book.ratingCount,
+          category: book.category,
+          customCategory: book.customCategory,
+          effectiveCategory: book.effectiveCategory,
+          tags: book.tags,
+          coverImage: book.coverImage,
+          isPublic: book.isPublic,
+          isOwnBook: book.user._id.toString() === userId.toString(),
+          owner: {
+            mobile: book.user.mobile
+          },
+          createdAt: book.createdAt,
+          updatedAt: book.updatedAt
+        }
       }
     });
 
@@ -348,18 +499,18 @@ router.get('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
 });
 
 // Route: Update book
-// PUT /api/mobile-books/:client/:bookId
-router.put('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// PUT /api/clients/:clientId/mobile/books/:bookId
+router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { bookId } = req.params;
-    const { title, description, category, customCategory, tags, coverImage, isPublic } = req.body;
-    const client = req.clientName;
+    const { title, description, author, publisher, language, category, customCategory, tags, coverImage, isPublic, rating } = req.body;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
     // Find book that belongs to the user
     const book = await Book.findOne({
       _id: bookId,
-      client,
+      clientId,
       user: userId,
       userType: 'MobileUser'
     });
@@ -371,14 +522,18 @@ router.put('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
       });
     }
 
-    // Validation if fields are provided
-    if (title !== undefined || description !== undefined || category !== undefined) {
+    // Validation if critical fields are provided
+    if (title !== undefined || description !== undefined || author !== undefined || publisher !== undefined || language !== undefined || category !== undefined) {
       const errors = validateBookData(
         title || book.title,
         description || book.description,
+        author || book.author,
+        publisher || book.publisher,
+        language || book.language,
         category || book.category,
         customCategory,
-        tags
+        tags,
+        rating
       );
       
       if (errors.length > 0) {
@@ -393,10 +548,14 @@ router.put('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
     // Update fields
     if (title !== undefined) book.title = title.trim();
     if (description !== undefined) book.description = description.trim();
+    if (author !== undefined) book.author = author.trim();
+    if (publisher !== undefined) book.publisher = publisher.trim();
+    if (language !== undefined) book.language = language;
     if (category !== undefined) book.category = category;
     if (customCategory !== undefined) book.customCategory = customCategory ? customCategory.trim() : undefined;
     if (coverImage !== undefined) book.coverImage = coverImage;
     if (isPublic !== undefined) book.isPublic = isPublic;
+    if (rating !== undefined) book.rating = rating;
     
     if (tags !== undefined && Array.isArray(tags)) {
       book.tags = tags.filter(tag => tag && tag.trim().length > 0).map(tag => tag.trim());
@@ -407,17 +566,24 @@ router.put('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
     res.status(200).json({
       success: true,
       message: 'Book updated successfully.',
-      book: {
-        id: book._id,
-        title: book.title,
-        description: book.description,
-        category: book.category,
-        customCategory: book.customCategory,
-        effectiveCategory: book.effectiveCategory,
-        tags: book.tags,
-        coverImage: book.coverImage,
-        isPublic: book.isPublic,
-        updatedAt: book.updatedAt
+      data: {
+        book: {
+          id: book._id,
+          title: book.title,
+          description: book.description,
+          author: book.author,
+          publisher: book.publisher,
+          language: book.language,
+          rating: book.rating,
+          ratingCount: book.ratingCount,
+          category: book.category,
+          customCategory: book.customCategory,
+          effectiveCategory: book.effectiveCategory,
+          tags: book.tags,
+          coverImage: book.coverImage,
+          isPublic: book.isPublic,
+          updatedAt: book.updatedAt
+        }
       }
     });
 
@@ -431,17 +597,17 @@ router.put('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authe
 });
 
 // Route: Delete book
-// DELETE /api/mobile-books/:client/:bookId
-router.delete('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// DELETE /api/clients/:clientId/mobile/books/:bookId
+router.delete('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { bookId } = req.params;
-    const client = req.clientName;
+    const clientId = req.params.clientId;
     const userId = req.user.id;
 
     // Find and delete book that belongs to the user
     const book = await Book.findOneAndDelete({
       _id: bookId,
-      client,
+      clientId,
       user: userId,
       userType: 'MobileUser'
     });
@@ -467,25 +633,81 @@ router.delete('/:client/:bookId', checkClientAccess(['kitabai', 'ailisher']), au
   }
 });
 
-// Route: Get available categories
-// GET /api/mobile-books/:client/categories
-router.get('/:client/categories', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// Route: Rate a book
+// POST /api/clients/:clientId/mobile/books/:bookId/rating
+router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const client = req.clientName;
+    const { bookId } = req.params;
+    const { rating } = req.body;
+    const clientId = req.params.clientId;
+    const userId = req.user.id;
+
+    if (!rating || isNaN(rating) || rating < 1 || rating > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Rating must be between 1 and 5.'
+      });
+    }
+
+    const book = await Book.findOne({
+      _id: bookId,
+      clientId,
+      $or: [
+        { isPublic: true },
+        { user: userId, userType: 'MobileUser' }
+      ]
+    });
+
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        message: 'Book not found or access denied.'
+      });
+    }
+
+    // Update rating using the model method
+    await book.updateRating(parseFloat(rating));
+
+    res.status(200).json({
+      success: true,
+      message: 'Rating submitted successfully.',
+      data: {
+        book: {
+          id: book._id,
+          rating: book.rating,
+          ratingCount: book.ratingCount
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Rate book error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get available categories
+// GET /api/clients/:clientId/mobile/books/metadata/categories
+router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
 
     // Get predefined categories
     const predefinedCategories = ['UPSC', 'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM', 'NEET', 'JEE', 'GATE', 'CAT', 'GMAT', 'GRE', 'IELTS', 'TOEFL', 'Other'];
 
     // Get custom categories from books in this client
     const customCategories = await Book.distinct('customCategory', {
-      client,
+      clientId,
       category: 'Other',
       customCategory: { $exists: true, $ne: null, $ne: '' }
     });
 
     // Get category usage statistics
     const categoryStats = await Book.aggregate([
-      { $match: { client } },
+      { $match: { clientId } },
       {
         $group: {
           _id: {
@@ -503,13 +725,15 @@ router.get('/:client/categories', checkClientAccess(['kitabai', 'ailisher']), au
 
     res.status(200).json({
       success: true,
-      categories: {
-        predefined: predefinedCategories,
-        custom: customCategories,
-        usage: categoryStats.map(stat => ({
-          category: stat._id,
-          count: stat.count
-        }))
+      data: {
+        categories: {
+          predefined: predefinedCategories,
+          custom: customCategories,
+          usage: categoryStats.map(stat => ({
+            category: stat._id,
+            count: stat.count
+          }))
+        }
       }
     });
 
@@ -523,14 +747,14 @@ router.get('/:client/categories', checkClientAccess(['kitabai', 'ailisher']), au
 });
 
 // Route: Get popular tags
-// GET /api/mobile-books/:client/tags
-router.get('/:client/tags', checkClientAccess(['kitabai', 'ailisher']), authenticateMobileUser, async (req, res) => {
+// GET /api/clients/:clientId/mobile/books/metadata/tags
+router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const client = req.clientName;
+    const clientId = req.params.clientId;
 
     // Get all tags with usage count
     const tagStats = await Book.aggregate([
-      { $match: { client, tags: { $exists: true, $not: { $size: 0 } } } },
+      { $match: { clientId, tags: { $exists: true, $not: { $size: 0 } } } },
       { $unwind: '$tags' },
       {
         $group: {
@@ -538,20 +762,97 @@ router.get('/:client/tags', checkClientAccess(['kitabai', 'ailisher']), authenti
           count: { $sum: 1 }
         }
       },
-      { $sort: { count: -1 } },
+            { $sort: { count: -1 } },
       { $limit: 50 } // Limit to top 50 tags
     ]);
 
     res.status(200).json({
       success: true,
-      tags: tagStats.map(stat => ({
-        tag: stat._id,
-        count: stat.count
-      }))
+      data: {
+        tags: tagStats.map(stat => ({
+          tag: stat._id,
+          count: stat.count
+        }))
+      }
     });
 
   } catch (error) {
     console.error('Get tags error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get available languages
+// GET /api/clients/:clientId/mobile/books/metadata/languages
+router.get('/metadata/languages', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+
+    // Get all languages with usage count
+    const languageStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$language',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        languages: languageStats.map(stat => ({
+          language: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get languages error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get popular authors
+// GET /api/clients/:clientId/mobile/books/metadata/authors
+router.get('/metadata/authors', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+
+    // Get all authors with usage count
+    const authorStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$author',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 50 } // Limit to top 50 authors
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        authors: authorStats.map(stat => ({
+          author: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get authors error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again later.'

@@ -1,4 +1,4 @@
-// Load environment variables first
+// server.js - Updated with new route structure
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -23,17 +23,11 @@ const workbookRoutes = require('./routes/workbooks');
 const qrCodeRoutes = require('./routes/qrcode');
 const pdfSplitsRoutes = require('./routes/pdfSplits');
 const mobileAuthRoutes = require('./routes/mobileAuth');
-const mobileBooksRoutes = require('./routes/mobileBooks'); // Add mobile books routes
+const mobileBooksRoutes = require('./routes/mobileBooks');
 
 const app = express();
 
 app.use(cors());
-// {
-//   origin: ['https://aipbfrontend.vercel.app'],
-//   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-//   allowedHeaders: ['Content-Type', 'Authorization'],
-//   credentials: true
-// }
 app.use(express.json());
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
@@ -41,6 +35,7 @@ mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
 
+// API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/client', clientRoutes);
@@ -58,11 +53,9 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 
-// Mobile authentication routes
-app.use('/api/mobile-auth', mobileAuthRoutes);
-
-// Mobile books routes
-app.use('/api/mobile-books', mobileBooksRoutes);
+// Mobile routes with new RESTful structure
+app.use('/api/clients/:clientId/mobile/auth', mobileAuthRoutes);
+app.use('/api/clients/:clientId/mobile/books', mobileBooksRoutes);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
