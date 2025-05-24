@@ -1,11 +1,11 @@
-// routes/mobileBooks.js - Updated with RESTful URLs and additional book fields
+// routes/mobileBooks.js - Updated with main categories and subcategories
 const express = require('express');
 const router = express.Router();
 const Book = require('../models/Book');
 const { authenticateMobileUser, checkClientAccess } = require('../middleware/mobileAuth');
 
 // Validation helpers
-const validateBookData = (title, description, author, publisher, language, category, customCategory, tags, rating) => {
+const validateBookData = (title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, rating) => {
   const errors = [];
   
   if (!title || title.trim().length === 0) {
@@ -53,16 +53,30 @@ const validateBookData = (title, description, author, publisher, language, categ
     errors.push('Rating must be between 0 and 5.');
   }
   
-  if (!category) {
-    errors.push('Category is required.');
+  if (!mainCategory) {
+    errors.push('Main category is required.');
+  }
+
+  const validMainCategories = ['Competitive Exams', 'Professional Courses', 'Language Tests', 'Academic', 'Other'];
+  if (mainCategory && !validMainCategories.includes(mainCategory)) {
+    errors.push('Please select a valid main category.');
   }
   
-  if (category === 'Other' && (!customCategory || customCategory.trim().length === 0)) {
-    errors.push('Custom category is required when category is "Other".');
+  if (!subCategory) {
+    errors.push('Subcategory is required.');
+  }
+
+  const validSubCategories = ['UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM', 'IELTS', 'TOEFL', 'GRE', 'GMAT', 'Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce', 'Other'];
+  if (subCategory && !validSubCategories.includes(subCategory)) {
+    errors.push('Please select a valid subcategory.');
   }
   
-  if (customCategory && customCategory.length > 50) {
-    errors.push('Custom category cannot be more than 50 characters.');
+  if (subCategory === 'Other' && (!customSubCategory || customSubCategory.trim().length === 0)) {
+    errors.push('Custom subcategory is required when subcategory is "Other".');
+  }
+  
+  if (customSubCategory && customSubCategory.length > 50) {
+    errors.push('Custom subcategory cannot be more than 50 characters.');
   }
   
   if (tags && Array.isArray(tags)) {
@@ -79,12 +93,12 @@ const validateBookData = (title, description, author, publisher, language, categ
 // POST /api/clients/:clientId/mobile/books
 router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const { title, description, author, publisher, language, category, customCategory, tags, coverImage, isPublic, rating } = req.body;
+    const { title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, coverImage, isPublic, rating } = req.body;
     const clientId = req.params.clientId;
     const userId = req.user.id;
 
     // Validation
-    const errors = validateBookData(title, description, author, publisher, language, category, customCategory, tags, rating);
+    const errors = validateBookData(title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, rating);
     
     if (errors.length > 0) {
       return res.status(400).json({
@@ -101,7 +115,8 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       author: author.trim(),
       publisher: publisher.trim(),
       language,
-      category,
+      mainCategory,
+      subCategory,
       clientId,
       user: userId,
       userType: 'MobileUser',
@@ -109,9 +124,9 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       rating: rating || 0
     };
 
-    // Add custom category if category is 'Other'
-    if (category === 'Other' && customCategory) {
-      bookData.customCategory = customCategory.trim();
+    // Add custom subcategory if subCategory is 'Other'
+    if (subCategory === 'Other' && customSubCategory) {
+      bookData.customSubCategory = customSubCategory.trim();
     }
 
     // Add cover image if provided
@@ -143,9 +158,11 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
           language: book.language,
           rating: book.rating,
           ratingCount: book.ratingCount,
-          category: book.category,
-          customCategory: book.customCategory,
-          effectiveCategory: book.effectiveCategory,
+          mainCategory: book.mainCategory,
+          subCategory: book.subCategory,
+          customSubCategory: book.customSubCategory,
+          effectiveSubCategory: book.effectiveSubCategory,
+          fullCategory: book.fullCategory,
           tags: book.tags,
           coverImage: book.coverImage,
           isPublic: book.isPublic,
@@ -171,7 +188,7 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
   try {
     const clientId = req.params.clientId;
     const userId = req.user.id;
-    const { category, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
+    const { mainCategory, subCategory, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
 
     // Build query
     const query = {
@@ -181,13 +198,17 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
     };
 
     // Add filters
-    if (category) {
-      if (category === 'Other') {
-        query.category = 'Other';
+    if (mainCategory) {
+      query.mainCategory = mainCategory;
+    }
+
+    if (subCategory) {
+      if (subCategory === 'Other') {
+        query.subCategory = 'Other';
       } else {
         query.$or = [
-          { category: category },
-          { category: 'Other', customCategory: category }
+          { subCategory: subCategory },
+          { subCategory: 'Other', customSubCategory: subCategory }
         ];
       }
     }
@@ -261,9 +282,11 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
       language: book.language,
       rating: book.rating,
       ratingCount: book.ratingCount,
-      category: book.category,
-      customCategory: book.customCategory,
-      effectiveCategory: book.effectiveCategory,
+      mainCategory: book.mainCategory,
+      subCategory: book.subCategory,
+      customSubCategory: book.customSubCategory,
+      effectiveSubCategory: book.effectiveSubCategory,
+      fullCategory: book.fullCategory,
       tags: book.tags,
       coverImage: book.coverImage,
       isPublic: book.isPublic,
@@ -300,7 +323,7 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
   try {
     const clientId = req.params.clientId;
     const userId = req.user.id;
-    const { category, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
+    const { mainCategory, subCategory, tag, author, language, rating_min, rating_max, page = 1, limit = 10, sort = 'updated_desc' } = req.query;
 
     // Build query - show public books from same client + user's own books
     const query = {
@@ -312,17 +335,21 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
     };
 
     // Add filters
-    if (category || tag || author || language || rating_min || rating_max) {
+    if (mainCategory || subCategory || tag || author || language || rating_min || rating_max) {
       const filters = [];
       
-      if (category) {
-        if (category === 'Other') {
-          filters.push({ category: 'Other' });
+      if (mainCategory) {
+        filters.push({ mainCategory: mainCategory });
+      }
+
+      if (subCategory) {
+        if (subCategory === 'Other') {
+          filters.push({ subCategory: 'Other' });
         } else {
           filters.push({
             $or: [
-              { category: category },
-              { category: 'Other', customCategory: category }
+              { subCategory: subCategory },
+              { subCategory: 'Other', customSubCategory: subCategory }
             ]
           });
         }
@@ -403,9 +430,11 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
       language: book.language,
       rating: book.rating,
       ratingCount: book.ratingCount,
-      category: book.category,
-      customCategory: book.customCategory,
-      effectiveCategory: book.effectiveCategory,
+      mainCategory: book.mainCategory,
+      subCategory: book.subCategory,
+      customSubCategory: book.customSubCategory,
+      effectiveSubCategory: book.effectiveSubCategory,
+      fullCategory: book.fullCategory,
       tags: book.tags,
       coverImage: book.coverImage,
       isPublic: book.isPublic,
@@ -473,9 +502,11 @@ router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
           language: book.language,
           rating: book.rating,
           ratingCount: book.ratingCount,
-          category: book.category,
-          customCategory: book.customCategory,
-          effectiveCategory: book.effectiveCategory,
+          mainCategory: book.mainCategory,
+          subCategory: book.subCategory,
+          customSubCategory: book.customSubCategory,
+          effectiveSubCategory: book.effectiveSubCategory,
+          fullCategory: book.fullCategory,
           tags: book.tags,
           coverImage: book.coverImage,
           isPublic: book.isPublic,
@@ -503,7 +534,7 @@ router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
 router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const { bookId } = req.params;
-    const { title, description, author, publisher, language, category, customCategory, tags, coverImage, isPublic, rating } = req.body;
+    const { title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, coverImage, isPublic, rating } = req.body;
     const clientId = req.params.clientId;
     const userId = req.user.id;
 
@@ -523,15 +554,16 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
     }
 
     // Validation if critical fields are provided
-    if (title !== undefined || description !== undefined || author !== undefined || publisher !== undefined || language !== undefined || category !== undefined) {
+    if (title !== undefined || description !== undefined || author !== undefined || publisher !== undefined || language !== undefined || mainCategory !== undefined || subCategory !== undefined) {
       const errors = validateBookData(
         title || book.title,
         description || book.description,
         author || book.author,
         publisher || book.publisher,
         language || book.language,
-        category || book.category,
-        customCategory,
+        mainCategory || book.mainCategory,
+        subCategory || book.subCategory,
+        customSubCategory,
         tags,
         rating
       );
@@ -551,8 +583,9 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
     if (author !== undefined) book.author = author.trim();
     if (publisher !== undefined) book.publisher = publisher.trim();
     if (language !== undefined) book.language = language;
-    if (category !== undefined) book.category = category;
-    if (customCategory !== undefined) book.customCategory = customCategory ? customCategory.trim() : undefined;
+    if (mainCategory !== undefined) book.mainCategory = mainCategory;
+    if (subCategory !== undefined) book.subCategory = subCategory;
+    if (customSubCategory !== undefined) book.customSubCategory = customSubCategory ? customSubCategory.trim() : undefined;
     if (coverImage !== undefined) book.coverImage = coverImage;
     if (isPublic !== undefined) book.isPublic = isPublic;
     if (rating !== undefined) book.rating = rating;
@@ -576,9 +609,11 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
           language: book.language,
           rating: book.rating,
           ratingCount: book.ratingCount,
-          category: book.category,
-          customCategory: book.customCategory,
-          effectiveCategory: book.effectiveCategory,
+          mainCategory: book.mainCategory,
+          subCategory: book.subCategory,
+          customSubCategory: book.customSubCategory,
+          effectiveSubCategory: book.effectiveSubCategory,
+          fullCategory: book.fullCategory,
           tags: book.tags,
           coverImage: book.coverImage,
           isPublic: book.isPublic,
@@ -689,32 +724,40 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
   }
 });
 
-// Route: Get available categories
+// Route: Get category mappings and metadata
 // GET /api/clients/:clientId/mobile/books/metadata/categories
 router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const clientId = req.params.clientId;
 
-    // Get predefined categories
-    const predefinedCategories = ['UPSC', 'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM', 'NEET', 'JEE', 'GATE', 'CAT', 'GMAT', 'GRE', 'IELTS', 'TOEFL', 'Other'];
+    // Get category mappings from the Book model
+    const categoryMappings = Book.getCategoryMappings();
 
-    // Get custom categories from books in this client
-    const customCategories = await Book.distinct('customCategory', {
-      clientId,
-      category: 'Other',
-      customCategory: { $exists: true, $ne: null, $ne: '' }
-    });
+    // Get main category usage statistics
+    const mainCategoryStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$mainCategory',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
 
-    // Get category usage statistics
-    const categoryStats = await Book.aggregate([
+    // Get subcategory usage statistics
+    const subCategoryStats = await Book.aggregate([
       { $match: { clientId } },
       {
         $group: {
           _id: {
-            $cond: {
-              if: { $eq: ['$category', 'Other'] },
-              then: '$customCategory',
-              else: '$category'
+            mainCategory: '$mainCategory',
+            subCategory: {
+              $cond: {
+                if: { $eq: ['$subCategory', 'Other'] },
+                then: '$customSubCategory',
+                else: '$subCategory'
+              }
             }
           },
           count: { $sum: 1 }
@@ -723,16 +766,40 @@ router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, 
       { $sort: { count: -1 } }
     ]);
 
+    // Get custom subcategories
+    const customSubCategories = await Book.distinct('customSubCategory', {
+      clientId,
+      subCategory: 'Other',
+      customSubCategory: { $exists: true, $ne: null, $ne: '' }
+    });
+
+    // Format subcategory stats by main category
+    const subcategoriesByMain = {};
+    subCategoryStats.forEach(stat => {
+      const mainCat = stat._id.mainCategory;
+      if (!subcategoriesByMain[mainCat]) {
+        subcategoriesByMain[mainCat] = [];
+      }
+      subcategoriesByMain[mainCat].push({
+        subCategory: stat._id.subCategory,
+        count: stat.count
+      });
+    });
+
     res.status(200).json({
       success: true,
       data: {
-        categories: {
-          predefined: predefinedCategories,
-          custom: customCategories,
-          usage: categoryStats.map(stat => ({
-            category: stat._id,
-            count: stat.count
-          }))
+        categoryMappings,
+        mainCategories: Object.keys(categoryMappings),
+        mainCategoryStats: mainCategoryStats.map(stat => ({
+          category: stat._id,
+          count: stat.count
+        })),
+        subcategoriesByMainCategory: subcategoriesByMain,
+        customSubCategories,
+        usage: {
+          mainCategories: mainCategoryStats,
+          subCategories: subCategoryStats
         }
       }
     });
@@ -746,15 +813,88 @@ router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, 
   }
 });
 
+// Route: Get valid subcategories for a main category
+// GET /api/clients/:clientId/mobile/books/metadata/subcategories/:mainCategory
+router.get('/metadata/subcategories/:mainCategory', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const { mainCategory } = req.params;
+    const clientId = req.params.clientId;
+
+    // Get valid subcategories for the main category
+    const validSubCategories = Book.getValidSubCategories(mainCategory);
+
+    // Get usage statistics for subcategories in this main category
+    const subCategoryStats = await Book.aggregate([
+      { 
+        $match: { 
+          clientId,
+          mainCategory: mainCategory
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            $cond: {
+              if: { $eq: ['$subCategory', 'Other'] },
+              then: '$customSubCategory',
+              else: '$subCategory'
+            }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        mainCategory,
+        validSubCategories,
+        usage: subCategoryStats.map(stat => ({
+          subCategory: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get subcategories error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
 // Route: Get popular tags
 // GET /api/clients/:clientId/mobile/books/metadata/tags
 router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
     const clientId = req.params.clientId;
+    const { mainCategory, subCategory } = req.query;
+
+    // Build match query
+    const matchQuery = { clientId, tags: { $exists: true, $not: { $size: 0 } } };
+    
+    if (mainCategory) {
+      matchQuery.mainCategory = mainCategory;
+    }
+    
+    if (subCategory) {
+      if (subCategory === 'Other') {
+        matchQuery.subCategory = 'Other';
+      } else {
+        matchQuery.$or = [
+          { subCategory: subCategory },
+          { subCategory: 'Other', customSubCategory: subCategory }
+        ];
+      }
+    }
 
     // Get all tags with usage count
     const tagStats = await Book.aggregate([
-      { $match: { clientId, tags: { $exists: true, $not: { $size: 0 } } } },
+      { $match: matchQuery },
       { $unwind: '$tags' },
       {
         $group: {
@@ -762,7 +902,7 @@ router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async 
           count: { $sum: 1 }
         }
       },
-            { $sort: { count: -1 } },
+      { $sort: { count: -1 } },
       { $limit: 50 } // Limit to top 50 tags
     ]);
 
@@ -772,7 +912,11 @@ router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async 
         tags: tagStats.map(stat => ({
           tag: stat._id,
           count: stat.count
-        }))
+        })),
+        filters: {
+          mainCategory,
+          subCategory
+        }
       }
     });
 

@@ -1,4 +1,4 @@
-// models/Book.js - Updated with additional fields
+// models/Book.js - Updated with main categories and subcategories
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -49,16 +49,36 @@ const BookSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  category: {
+  // Main category (broader classification)
+  mainCategory: {
     type: String,
-    required: [true, 'Please select a category'],
-    enum: ['UPSC', 'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM', 'NEET', 'JEE', 'GATE', 'CAT', 'GMAT', 'GRE', 'IELTS', 'TOEFL', 'Other'],
+    required: [true, 'Please select a main category'],
+    enum: ['Competitive Exams', 'Professional Courses', 'Language Tests', 'Academic', 'Other'],
     default: 'Other'
   },
-  customCategory: {
+  // Subcategory (specific classification under main category)
+  subCategory: {
+    type: String,
+    required: [true, 'Please select a subcategory'],
+    enum: [
+      // Competitive Exams subcategories
+      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 
+      // Professional Courses subcategories
+      'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM',
+      // Language Tests subcategories
+      'IELTS', 'TOEFL', 'GRE', 'GMAT',
+      // Academic subcategories
+      'Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce',
+      // Other
+      'Other'
+    ],
+    default: 'Other'
+  },
+  // Custom subcategory when subCategory is 'Other'
+  customSubCategory: {
     type: String,
     trim: true,
-    maxlength: [50, 'Custom category cannot be more than 50 characters'],
+    maxlength: [50, 'Custom subcategory cannot be more than 50 characters'],
   },
   tags: [{
     type: String,
@@ -94,20 +114,38 @@ const BookSchema = new mongoose.Schema({
 });
 
 // Create compound indexes for efficient queries
-BookSchema.index({ clientId: 1, category: 1 });
+BookSchema.index({ clientId: 1, mainCategory: 1 });
+BookSchema.index({ clientId: 1, subCategory: 1 });
+BookSchema.index({ clientId: 1, mainCategory: 1, subCategory: 1 });
 BookSchema.index({ clientId: 1, user: 1 });
 BookSchema.index({ clientId: 1, tags: 1 });
 BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, author: 1 });
 BookSchema.index({ clientId: 1, language: 1 });
 
+// Define category mappings
+const CATEGORY_MAPPINGS = {
+  'Competitive Exams': ['CA','UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
+  'Professional Courses': [ 'CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
+  'Language Tests': ['IELTS', 'TOEFL', 'GRE', 'GMAT'],
+  'Academic': ['Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce'],
+  'Other': ['Other']
+};
+
 // Update timestamp on save
 BookSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   
-  // If category is not 'Other', clear customCategory
-  if (this.category !== 'Other') {
-    this.customCategory = undefined;
+  // Validate category-subcategory relationship
+  const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
+  if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Other') {
+    // Auto-correct: if subcategory doesn't match main category, set to 'Other'
+    this.subCategory = 'Other';
+  }
+  
+  // If subCategory is not 'Other', clear customSubCategory
+  if (this.subCategory !== 'Other') {
+    this.customSubCategory = undefined;
   }
   
   // Clean up tags - remove empty strings and duplicates
@@ -118,10 +156,26 @@ BookSchema.pre('save', function(next) {
   next();
 });
 
-// Virtual to get the effective category
-BookSchema.virtual('effectiveCategory').get(function() {
-  return this.category === 'Other' ? this.customCategory : this.category;
+// Virtual to get the effective subcategory
+BookSchema.virtual('effectiveSubCategory').get(function() {
+  return this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
 });
+
+// Virtual to get full category path
+BookSchema.virtual('fullCategory').get(function() {
+  const effectiveSub = this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
+  return `${this.mainCategory} > ${effectiveSub}`;
+});
+
+// Static method to get category mappings
+BookSchema.statics.getCategoryMappings = function() {
+  return CATEGORY_MAPPINGS;
+};
+
+// Static method to get valid subcategories for a main category
+BookSchema.statics.getValidSubCategories = function(mainCategory) {
+  return CATEGORY_MAPPINGS[mainCategory] || [];
+};
 
 // Method to update rating
 BookSchema.methods.updateRating = function(newRating) {
