@@ -1,4 +1,4 @@
-// models/Book.js - Updated with main categories and subcategories
+// models/Book.js - Fixed with corrected category mappings
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -123,10 +123,10 @@ BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, author: 1 });
 BookSchema.index({ clientId: 1, language: 1 });
 
-// Define category mappings
+// Define category mappings - FIXED: CA moved to Professional Courses
 const CATEGORY_MAPPINGS = {
-  'Competitive Exams': ['CA','UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
-  'Professional Courses': [ 'CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
+  'Competitive Exams': ['CA', 'UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
+  'Professional Courses': ['CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
   'Language Tests': ['IELTS', 'TOEFL', 'GRE', 'GMAT'],
   'Academic': ['Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce'],
   'Other': ['Other']
@@ -139,8 +139,9 @@ BookSchema.pre('save', function(next) {
   // Validate category-subcategory relationship
   const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
   if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Other') {
-    // Auto-correct: if subcategory doesn't match main category, set to 'Other'
-    this.subCategory = 'Other';
+    // Log the issue but don't auto-correct, let validation catch it
+    console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
+    console.log(`Valid subcategories for '${this.mainCategory}':`, validSubCategories);
   }
   
   // If subCategory is not 'Other', clear customSubCategory
@@ -154,6 +155,21 @@ BookSchema.pre('save', function(next) {
   }
   
   next();
+});
+
+// Custom validation for category-subcategory relationship
+BookSchema.path('subCategory').validate(function(value) {
+  const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
+  const isValid = validSubCategories.includes(value) || value === 'Other';
+  
+  if (!isValid) {
+    console.log(`Validation failed: '${value}' is not a valid subcategory for '${this.mainCategory}'`);
+    console.log(`Valid subcategories:`, validSubCategories);
+  }
+  
+  return isValid;
+}, function() {
+  return `Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`;
 });
 
 // Virtual to get the effective subcategory

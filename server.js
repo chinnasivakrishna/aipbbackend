@@ -1,4 +1,4 @@
-// server.js - Updated with new route structure
+// server.js - Fixed with proper route structure
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -53,9 +53,19 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 
-// Mobile routes with new RESTful structure
-app.use('/api/clients/:clientId/mobile/auth', mobileAuthRoutes);
-app.use('/api/clients/:clientId/mobile/books', mobileBooksRoutes);
+// Mobile routes with client-specific structure
+// Note: These routes now handle the clientId parameter properly
+app.use('/api/clients/:clientId/mobile/auth', (req, res, next) => {
+  // Ensure clientId is available in all child routes
+  req.clientId = req.params.clientId;
+  next();
+}, mobileAuthRoutes);
+
+app.use('/api/clients/:clientId/mobile/books', (req, res, next) => {
+  // Ensure clientId is available in all child routes
+  req.clientId = req.params.clientId;
+  next();
+}, mobileBooksRoutes);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);

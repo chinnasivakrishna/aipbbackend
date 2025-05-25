@@ -1,6 +1,6 @@
-// routes/mobileBooks.js - Updated with main categories and subcategories
+// routes/mobileBooks.js - Debug version with enhanced error logging
 const express = require('express');
-const router = express.Router();
+const router = express.Router({ mergeParams: true }); // Added mergeParams
 const Book = require('../models/Book');
 const { authenticateMobileUser, checkClientAccess } = require('../middleware/mobileAuth');
 
@@ -93,14 +93,33 @@ const validateBookData = (title, description, author, publisher, language, mainC
 // POST /api/clients/:clientId/mobile/books
 router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
+    console.log('=== CREATE BOOK DEBUG ===');
+    console.log('Request params:', req.params);
+    console.log('Request body:', req.body);
+    console.log('Request user:', req.user);
+    console.log('Request clientId:', req.clientId);
+    
     const { title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, coverImage, isPublic, rating } = req.body;
-    const clientId = req.params.clientId;
+    const clientId = req.params.clientId || req.clientId;
+    
+    console.log('Extracted clientId:', clientId);
+    
+    if (!req.user) {
+      console.log('ERROR: No user found in request');
+      return res.status(401).json({
+        success: false,
+        message: 'User authentication failed.'
+      });
+    }
+    
     const userId = req.user.id;
+    console.log('User ID:', userId);
 
     // Validation
     const errors = validateBookData(title, description, author, publisher, language, mainCategory, subCategory, customSubCategory, tags, rating);
     
     if (errors.length > 0) {
+      console.log('Validation errors:', errors);
       return res.status(400).json({
         success: false,
         message: 'Validation failed.',
@@ -139,11 +158,32 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       bookData.tags = tags.filter(tag => tag && tag.trim().length > 0).map(tag => tag.trim());
     }
 
+    console.log('Book data to save:', bookData);
+
+    // Check if Book model is loaded correctly
+    console.log('Book model:', Book);
+    console.log('Book schema paths:', Object.keys(Book.schema.paths));
+
     const book = new Book(bookData);
+    console.log('Created book instance:', book);
+    
+    // Validate before saving
+    const validationError = book.validateSync();
+    if (validationError) {
+      console.log('Mongoose validation error:', validationError);
+      return res.status(400).json({
+        success: false,
+        message: 'Book validation failed.',
+        errors: Object.values(validationError.errors).map(err => err.message)
+      });
+    }
+    
     await book.save();
+    console.log('Book saved successfully:', book._id);
 
     // Populate user info for response
     await book.populate('user', 'mobile clientId');
+    console.log('Book populated with user info');
 
     res.status(201).json({
       success: true,
@@ -174,10 +214,34 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
     });
 
   } catch (error) {
-    console.error('Create book error:', error);
+    console.error('=== CREATE BOOK ERROR ===');
+    console.error('Error name:', error.name);
+    console.error('Error message:', error.message);
+    console.error('Error stack:', error.stack);
+    console.error('Full error:', error);
+    
+    // Check if it's a MongoDB/Mongoose error
+    if (error.name === 'ValidationError') {
+      console.log('Mongoose validation error details:', error.errors);
+      return res.status(400).json({
+        success: false,
+        message: 'Validation failed.',
+        errors: Object.values(error.errors).map(err => err.message)
+      });
+    }
+    
+    if (error.name === 'MongoError' || error.name === 'MongoServerError') {
+      console.log('MongoDB error:', error);
+      return res.status(500).json({
+        success: false,
+        message: 'Database error. Please try again later.'
+      });
+    }
+    
     res.status(500).json({
       success: false,
-      message: 'Internal server error. Please try again later.'
+      message: 'Internal server error. Please try again later.',
+      debug: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
 });
@@ -186,7 +250,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
 // GET /api/clients/:clientId/mobile/books/metadata/categories
 router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, async (req, res) => {
   try {
-    const clientId = req.params.clientId;
+    const clientId = req.params.clientId || req.clientId;
 
     // Get category mappings from the Book model
     const categoryMappings = Book.getCategoryMappings();

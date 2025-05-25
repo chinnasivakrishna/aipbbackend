@@ -1,4 +1,4 @@
-// middleware/mobileAuth.js
+// middleware/mobileAuth.js - Fixed parameter handling
 const jwt = require('jsonwebtoken');
 const MobileUser = require('../models/MobileUser');
 const User = require('../models/User');
@@ -52,7 +52,8 @@ const authenticateMobileUser = async (req, res, next) => {
     }
 
     // Verify client ID from URL matches user's client
-    const clientIdFromUrl = req.params.clientId;
+    // Try multiple ways to get clientId
+    const clientIdFromUrl = req.params.clientId || req.clientId;
     if (clientIdFromUrl && user.clientId !== clientIdFromUrl) {
       return res.status(403).json({
         success: false,
@@ -80,7 +81,12 @@ const authenticateMobileUser = async (req, res, next) => {
 const checkClientAccess = (allowedClients = []) => {
   return async (req, res, next) => {
     try {
-      const clientId = req.params.clientId;
+      // Try multiple ways to get clientId
+      const clientId = req.params.clientId || req.clientId;
+      
+      console.log('Checking client access for:', clientId);
+      console.log('Available params:', req.params);
+      console.log('Request URL:', req.originalUrl);
       
       if (!clientId) {
         return res.status(400).json({
