@@ -182,6 +182,286 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
   }
 });
 
+// Route: Get category mappings and metadata
+// GET /api/clients/:clientId/mobile/books/metadata/categories
+router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+
+    // Get category mappings from the Book model
+    const categoryMappings = Book.getCategoryMappings();
+
+    // Get main category usage statistics
+    const mainCategoryStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$mainCategory',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Get subcategory usage statistics
+    const subCategoryStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: {
+            mainCategory: '$mainCategory',
+            subCategory: {
+              $cond: {
+                if: { $eq: ['$subCategory', 'Other'] },
+                then: '$customSubCategory',
+                else: '$subCategory'
+              }
+            }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    // Get custom subcategories
+    const customSubCategories = await Book.distinct('customSubCategory', {
+      clientId,
+      subCategory: 'Other',
+      customSubCategory: { $exists: true, $ne: null, $ne: '' }
+    });
+
+    // Format subcategory stats by main category
+    const subcategoriesByMain = {};
+    subCategoryStats.forEach(stat => {
+      const mainCat = stat._id.mainCategory;
+      if (!subcategoriesByMain[mainCat]) {
+        subcategoriesByMain[mainCat] = [];
+      }
+      subcategoriesByMain[mainCat].push({
+        subCategory: stat._id.subCategory,
+        count: stat.count
+      });
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        categoryMappings,
+        mainCategories: Object.keys(categoryMappings),
+        mainCategoryStats: mainCategoryStats.map(stat => ({
+          category: stat._id,
+          count: stat.count
+        })),
+        subcategoriesByMainCategory: subcategoriesByMain,
+        customSubCategories,
+        usage: {
+          mainCategories: mainCategoryStats,
+          subCategories: subCategoryStats
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get categories error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get valid subcategories for a main category
+// GET /api/clients/:clientId/mobile/books/metadata/subcategories/:mainCategory
+router.get('/metadata/subcategories/:mainCategory', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const { mainCategory } = req.params;
+    const clientId = req.params.clientId;
+
+    // Get valid subcategories for the main category
+    const validSubCategories = Book.getValidSubCategories(mainCategory);
+
+    // Get usage statistics for subcategories in this main category
+    const subCategoryStats = await Book.aggregate([
+      { 
+        $match: { 
+          clientId,
+          mainCategory: mainCategory
+        } 
+      },
+      {
+        $group: {
+          _id: {
+            $cond: {
+              if: { $eq: ['$subCategory', 'Other'] },
+              then: '$customSubCategory',
+              else: '$subCategory'
+            }
+          },
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        mainCategory,
+        validSubCategories,
+        usage: subCategoryStats.map(stat => ({
+          subCategory: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get subcategories error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get popular tags
+// GET /api/clients/:clientId/mobile/books/metadata/tags
+router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+    const { mainCategory, subCategory } = req.query;
+
+    // Build match query
+    const matchQuery = { clientId, tags: { $exists: true, $not: { $size: 0 } } };
+    
+    if (mainCategory) {
+      matchQuery.mainCategory = mainCategory;
+    }
+    
+    if (subCategory) {
+      if (subCategory === 'Other') {
+        matchQuery.subCategory = 'Other';
+      } else {
+        matchQuery.$or = [
+          { subCategory: subCategory },
+          { subCategory: 'Other', customSubCategory: subCategory }
+        ];
+      }
+    }
+
+    // Get all tags with usage count
+    const tagStats = await Book.aggregate([
+      { $match: matchQuery },
+      { $unwind: '$tags' },
+      {
+        $group: {
+          _id: '$tags',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 50 } // Limit to top 50 tags
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        tags: tagStats.map(stat => ({
+          tag: stat._id,
+          count: stat.count
+        })),
+        filters: {
+          mainCategory,
+          subCategory
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get tags error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get available languages
+// GET /api/clients/:clientId/mobile/books/metadata/languages
+router.get('/metadata/languages', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+
+    // Get all languages with usage count
+    const languageStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$language',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        languages: languageStats.map(stat => ({
+          language: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get languages error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get popular authors
+// GET /api/clients/:clientId/mobile/books/metadata/authors
+router.get('/metadata/authors', checkClientAccess(), authenticateMobileUser, async (req, res) => {
+  try {
+    const clientId = req.params.clientId;
+
+    // Get all authors with usage count
+    const authorStats = await Book.aggregate([
+      { $match: { clientId } },
+      {
+        $group: {
+          _id: '$author',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } },
+      { $limit: 50 } // Limit to top 50 authors
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        authors: authorStats.map(stat => ({
+          author: stat._id,
+          count: stat.count
+        }))
+      }
+    });
+
+  } catch (error) {
+    console.error('Get authors error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
 // Route: Get current user's books
 // GET /api/clients/:clientId/mobile/users/me/books
 router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async (req, res) => {
@@ -717,286 +997,6 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
 
   } catch (error) {
     console.error('Rate book error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Get category mappings and metadata
-// GET /api/clients/:clientId/mobile/books/metadata/categories
-router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, async (req, res) => {
-  try {
-    const clientId = req.params.clientId;
-
-    // Get category mappings from the Book model
-    const categoryMappings = Book.getCategoryMappings();
-
-    // Get main category usage statistics
-    const mainCategoryStats = await Book.aggregate([
-      { $match: { clientId } },
-      {
-        $group: {
-          _id: '$mainCategory',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    // Get subcategory usage statistics
-    const subCategoryStats = await Book.aggregate([
-      { $match: { clientId } },
-      {
-        $group: {
-          _id: {
-            mainCategory: '$mainCategory',
-            subCategory: {
-              $cond: {
-                if: { $eq: ['$subCategory', 'Other'] },
-                then: '$customSubCategory',
-                else: '$subCategory'
-              }
-            }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    // Get custom subcategories
-    const customSubCategories = await Book.distinct('customSubCategory', {
-      clientId,
-      subCategory: 'Other',
-      customSubCategory: { $exists: true, $ne: null, $ne: '' }
-    });
-
-    // Format subcategory stats by main category
-    const subcategoriesByMain = {};
-    subCategoryStats.forEach(stat => {
-      const mainCat = stat._id.mainCategory;
-      if (!subcategoriesByMain[mainCat]) {
-        subcategoriesByMain[mainCat] = [];
-      }
-      subcategoriesByMain[mainCat].push({
-        subCategory: stat._id.subCategory,
-        count: stat.count
-      });
-    });
-
-    res.status(200).json({
-      success: true,
-      data: {
-        categoryMappings,
-        mainCategories: Object.keys(categoryMappings),
-        mainCategoryStats: mainCategoryStats.map(stat => ({
-          category: stat._id,
-          count: stat.count
-        })),
-        subcategoriesByMainCategory: subcategoriesByMain,
-        customSubCategories,
-        usage: {
-          mainCategories: mainCategoryStats,
-          subCategories: subCategoryStats
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get categories error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Get valid subcategories for a main category
-// GET /api/clients/:clientId/mobile/books/metadata/subcategories/:mainCategory
-router.get('/metadata/subcategories/:mainCategory', checkClientAccess(), authenticateMobileUser, async (req, res) => {
-  try {
-    const { mainCategory } = req.params;
-    const clientId = req.params.clientId;
-
-    // Get valid subcategories for the main category
-    const validSubCategories = Book.getValidSubCategories(mainCategory);
-
-    // Get usage statistics for subcategories in this main category
-    const subCategoryStats = await Book.aggregate([
-      { 
-        $match: { 
-          clientId,
-          mainCategory: mainCategory
-        } 
-      },
-      {
-        $group: {
-          _id: {
-            $cond: {
-              if: { $eq: ['$subCategory', 'Other'] },
-              then: '$customSubCategory',
-              else: '$subCategory'
-            }
-          },
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        mainCategory,
-        validSubCategories,
-        usage: subCategoryStats.map(stat => ({
-          subCategory: stat._id,
-          count: stat.count
-        }))
-      }
-    });
-
-  } catch (error) {
-    console.error('Get subcategories error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Get popular tags
-// GET /api/clients/:clientId/mobile/books/metadata/tags
-router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async (req, res) => {
-  try {
-    const clientId = req.params.clientId;
-    const { mainCategory, subCategory } = req.query;
-
-    // Build match query
-    const matchQuery = { clientId, tags: { $exists: true, $not: { $size: 0 } } };
-    
-    if (mainCategory) {
-      matchQuery.mainCategory = mainCategory;
-    }
-    
-    if (subCategory) {
-      if (subCategory === 'Other') {
-        matchQuery.subCategory = 'Other';
-      } else {
-        matchQuery.$or = [
-          { subCategory: subCategory },
-          { subCategory: 'Other', customSubCategory: subCategory }
-        ];
-      }
-    }
-
-    // Get all tags with usage count
-    const tagStats = await Book.aggregate([
-      { $match: matchQuery },
-      { $unwind: '$tags' },
-      {
-        $group: {
-          _id: '$tags',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 50 } // Limit to top 50 tags
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        tags: tagStats.map(stat => ({
-          tag: stat._id,
-          count: stat.count
-        })),
-        filters: {
-          mainCategory,
-          subCategory
-        }
-      }
-    });
-
-  } catch (error) {
-    console.error('Get tags error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Get available languages
-// GET /api/clients/:clientId/mobile/books/metadata/languages
-router.get('/metadata/languages', checkClientAccess(), authenticateMobileUser, async (req, res) => {
-  try {
-    const clientId = req.params.clientId;
-
-    // Get all languages with usage count
-    const languageStats = await Book.aggregate([
-      { $match: { clientId } },
-      {
-        $group: {
-          _id: '$language',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } }
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        languages: languageStats.map(stat => ({
-          language: stat._id,
-          count: stat.count
-        }))
-      }
-    });
-
-  } catch (error) {
-    console.error('Get languages error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error. Please try again later.'
-    });
-  }
-});
-
-// Route: Get popular authors
-// GET /api/clients/:clientId/mobile/books/metadata/authors
-router.get('/metadata/authors', checkClientAccess(), authenticateMobileUser, async (req, res) => {
-  try {
-    const clientId = req.params.clientId;
-
-    // Get all authors with usage count
-    const authorStats = await Book.aggregate([
-      { $match: { clientId } },
-      {
-        $group: {
-          _id: '$author',
-          count: { $sum: 1 }
-        }
-      },
-      { $sort: { count: -1 } },
-      { $limit: 50 } // Limit to top 50 authors
-    ]);
-
-    res.status(200).json({
-      success: true,
-      data: {
-        authors: authorStats.map(stat => ({
-          author: stat._id,
-          count: stat.count
-        }))
-      }
-    });
-
-  } catch (error) {
-    console.error('Get authors error:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error. Please try again later.'
