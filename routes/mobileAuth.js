@@ -1,4 +1,4 @@
-// routes/mobileAuth.js - Fixed version with comprehensive debugging
+// routes/mobileAuth.js - Updated version with response codes starting from 1500
 const express = require('express');
 const router = express.Router({ mergeParams: true }); // Important: mergeParams to access :clientId
 const MobileUser = require('../models/MobileUser');
@@ -45,6 +45,7 @@ router.post('/check-user', async (req, res) => {
       console.log('No clientId provided');
       return res.status(400).json({
         success: false,
+        responseCode: 1500,
         message: 'Client ID is required.'
       });
     }
@@ -63,6 +64,7 @@ router.post('/check-user', async (req, res) => {
       console.log('Client validation failed');
       return res.status(400).json({
         success: false,
+        responseCode: 1501,
         message: 'Invalid client ID or client is not active.'
       });
     }
@@ -71,6 +73,7 @@ router.post('/check-user', async (req, res) => {
       console.log('Mobile validation failed for check-user');
       return res.status(400).json({
         success: false,
+        responseCode: 1502,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
@@ -83,6 +86,7 @@ router.post('/check-user', async (req, res) => {
       console.log('No existing user found');
       const response = {
         success: true,
+        responseCode: 1503,
         user_exists: false,
         client_id: clientId,
         client_name: client.businessName,
@@ -98,6 +102,7 @@ router.post('/check-user', async (req, res) => {
     
     const response = {
       success: true,
+      responseCode: profile ? 1504 : 1505,
       user_exists: true,
       is_profile_complete: !!profile,
       client_id: clientId,
@@ -114,6 +119,7 @@ router.post('/check-user', async (req, res) => {
     console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
+      responseCode: 1506,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -137,6 +143,7 @@ router.post('/login', async (req, res) => {
       console.log('No clientId provided');
       return res.status(400).json({
         success: false,
+        responseCode: 1507,
         message: 'Client ID is required.'
       });
     }
@@ -155,6 +162,7 @@ router.post('/login', async (req, res) => {
       console.log('Client validation failed');
       return res.status(400).json({
         success: false,
+        responseCode: 1508,
         message: 'Invalid client ID or client is not active.'
       });
     }
@@ -163,6 +171,7 @@ router.post('/login', async (req, res) => {
       console.log('Mobile validation failed');
       return res.status(400).json({
         success: false,
+        responseCode: 1509,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
@@ -204,6 +213,7 @@ router.post('/login', async (req, res) => {
     const response = {
       status: isProfileComplete ? 'LOGIN_SUCCESS' : 'PROFILE_REQUIRED',
       success: true,
+      responseCode: isProfileComplete ? 1510 : 1511,
       token,
       is_profile_complete: isProfileComplete,
       user_id: mobileUser._id,
@@ -230,6 +240,7 @@ router.post('/login', async (req, res) => {
     console.error('Error stack:', error.stack);
     res.status(500).json({
       success: false,
+      responseCode: 1512,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -248,6 +259,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
+        responseCode: 1513,
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -263,6 +275,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     if (errors.length > 0) {
       return res.status(400).json({
         success: false,
+        responseCode: 1514,
         message: 'Validation failed.',
         errors
       });
@@ -295,6 +308,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     res.status(200).json({
       status: 'PROFILE_SAVED',
       success: true,
+      responseCode: isNewProfile ? 1515 : 1516,
       message: isNewProfile ? 'Profile created successfully.' : 'Profile updated successfully.',
       profile: {
         name: profile.name,
@@ -309,6 +323,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Profile creation error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1517,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -326,6 +341,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
+        responseCode: 1518,
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -335,6 +351,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     if (!profile) {
       return res.status(200).json({
         success: true,
+        responseCode: 1519,
         is_profile_complete: false,
         message: 'Profile not found. Please complete your profile setup.'
       });
@@ -342,6 +359,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
+      responseCode: 1520,
       is_profile_complete: true,
       profile: {
         name: profile.name,
@@ -359,6 +377,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Get profile error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1521,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -377,6 +396,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
+        responseCode: 1522,
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -385,6 +405,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     if (!profile) {
       return res.status(404).json({
         success: false,
+        responseCode: 1523,
         message: 'Profile not found. Please create profile first.'
       });
     }
@@ -395,6 +416,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
       if (!validateAgeGroup(age)) {
         return res.status(400).json({
           success: false,
+          responseCode: 1524,
           message: 'Please select a valid age group.'
         });
       }
@@ -409,6 +431,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
+      responseCode: 1525,
       message: 'Profile updated successfully.',
       profile: {
         name: profile.name,
@@ -423,6 +446,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Update profile error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1526,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -443,6 +467,7 @@ router.post('/logout', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
+      responseCode: 1527,
       message: 'Logged out successfully.'
     });
 
@@ -450,6 +475,7 @@ router.post('/logout', authenticateMobileUser, async (req, res) => {
     console.error('Logout error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1528,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -461,6 +487,7 @@ router.get('/test', (req, res) => {
   console.log('req.params:', req.params);
   res.json({
     success: true,
+    responseCode: 1529,
     message: 'Mobile auth router is working!',
     clientId: req.params.clientId,
     timestamp: new Date().toISOString()
@@ -478,6 +505,7 @@ router.use((error, req, res, next) => {
   
   res.status(500).json({
     success: false,
+    responseCode: 1530,
     message: 'Router error occurred',
     error: error.message
   });

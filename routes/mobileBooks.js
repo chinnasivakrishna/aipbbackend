@@ -1,4 +1,4 @@
-// routes/mobileBooks.js - Debug version with enhanced error logging
+// routes/mobileBooks.js - Updated version with response codes starting from 1531
 const express = require('express');
 const router = express.Router({ mergeParams: true }); // Added mergeParams
 const Book = require('../models/Book');
@@ -108,6 +108,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       console.log('ERROR: No user found in request');
       return res.status(401).json({
         success: false,
+        responseCode: 1531,
         message: 'User authentication failed.'
       });
     }
@@ -122,6 +123,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       console.log('Validation errors:', errors);
       return res.status(400).json({
         success: false,
+        responseCode: 1532,
         message: 'Validation failed.',
         errors
       });
@@ -173,6 +175,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       console.log('Mongoose validation error:', validationError);
       return res.status(400).json({
         success: false,
+        responseCode: 1533,
         message: 'Book validation failed.',
         errors: Object.values(validationError.errors).map(err => err.message)
       });
@@ -187,6 +190,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
 
     res.status(201).json({
       success: true,
+      responseCode: 1534,
       message: 'Book created successfully.',
       data: {
         book: {
@@ -225,6 +229,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       console.log('Mongoose validation error details:', error.errors);
       return res.status(400).json({
         success: false,
+        responseCode: 1535,
         message: 'Validation failed.',
         errors: Object.values(error.errors).map(err => err.message)
       });
@@ -234,12 +239,14 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       console.log('MongoDB error:', error);
       return res.status(500).json({
         success: false,
+        responseCode: 1536,
         message: 'Database error. Please try again later.'
       });
     }
     
     res.status(500).json({
       success: false,
+      responseCode: 1537,
       message: 'Internal server error. Please try again later.',
       debug: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -310,6 +317,7 @@ router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, 
 
     res.status(200).json({
       success: true,
+      responseCode: 1538,
       data: {
         categoryMappings,
         mainCategories: Object.keys(categoryMappings),
@@ -330,6 +338,7 @@ router.get('/metadata/categories', checkClientAccess(), authenticateMobileUser, 
     console.error('Get categories error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1539,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -370,6 +379,7 @@ router.get('/metadata/subcategories/:mainCategory', checkClientAccess(), authent
 
     res.status(200).json({
       success: true,
+      responseCode: 1540,
       data: {
         mainCategory,
         validSubCategories,
@@ -384,6 +394,7 @@ router.get('/metadata/subcategories/:mainCategory', checkClientAccess(), authent
     console.error('Get subcategories error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1541,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -430,6 +441,7 @@ router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async 
 
     res.status(200).json({
       success: true,
+      responseCode: 1542,
       data: {
         tags: tagStats.map(stat => ({
           tag: stat._id,
@@ -446,6 +458,7 @@ router.get('/metadata/tags', checkClientAccess(), authenticateMobileUser, async 
     console.error('Get tags error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1543,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -471,6 +484,7 @@ router.get('/metadata/languages', checkClientAccess(), authenticateMobileUser, a
 
     res.status(200).json({
       success: true,
+      responseCode: 1544,
       data: {
         languages: languageStats.map(stat => ({
           language: stat._id,
@@ -483,6 +497,7 @@ router.get('/metadata/languages', checkClientAccess(), authenticateMobileUser, a
     console.error('Get languages error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1545,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -509,6 +524,7 @@ router.get('/metadata/authors', checkClientAccess(), authenticateMobileUser, asy
 
     res.status(200).json({
       success: true,
+      responseCode: 1546,
       data: {
         authors: authorStats.map(stat => ({
           author: stat._id,
@@ -521,6 +537,7 @@ router.get('/metadata/authors', checkClientAccess(), authenticateMobileUser, asy
     console.error('Get authors error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1547,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -640,6 +657,7 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
 
     res.status(200).json({
       success: true,
+      responseCode: 1548,
       data: {
         books: formattedBooks,
         pagination: {
@@ -656,6 +674,7 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
     console.error('Get user books error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1549,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -789,6 +808,7 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
 
     res.status(200).json({
       success: true,
+      responseCode: 1550,
       data: {
         books: formattedBooks,
         pagination: {
@@ -805,6 +825,7 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
     console.error('Get all books error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1551,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -830,12 +851,14 @@ router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
     if (!book) {
       return res.status(404).json({
         success: false,
+        responseCode: 1552,
         message: 'Book not found or access denied.'
       });
     }
 
     res.status(200).json({
       success: true,
+      responseCode: 1553,
       data: {
         book: {
           id: book._id,
@@ -868,6 +891,7 @@ router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
     console.error('Get book error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1554,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -893,6 +917,7 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
     if (!book) {
       return res.status(404).json({
         success: false,
+        responseCode: 1555,
         message: 'Book not found or you do not have permission to update it.'
       });
     }
@@ -912,13 +937,14 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
         rating
       );
       
-      if (errors.length > 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Validation failed.',
-          errors
-        });
-      }
+      // Route: Update book (continued)
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        responseCode: 1556,
+        message: 'Validation failed.',
+        errors
+      });
     }
 
     // Update fields
@@ -942,6 +968,7 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
 
     res.status(200).json({
       success: true,
+      responseCode: 1557,
       message: 'Book updated successfully.',
       data: {
         book: {
@@ -965,11 +992,13 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
         }
       }
     });
+  }
 
   } catch (error) {
     console.error('Update book error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1558,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -994,12 +1023,14 @@ router.delete('/:bookId', checkClientAccess(), authenticateMobileUser, async (re
     if (!book) {
       return res.status(404).json({
         success: false,
+        responseCode: 1559,
         message: 'Book not found or you do not have permission to delete it.'
       });
     }
 
     res.status(200).json({
       success: true,
+      responseCode: 1560,
       message: 'Book deleted successfully.'
     });
 
@@ -1007,6 +1038,7 @@ router.delete('/:bookId', checkClientAccess(), authenticateMobileUser, async (re
     console.error('Delete book error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1561,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -1024,6 +1056,7 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
     if (!rating || isNaN(rating) || rating < 1 || rating > 5) {
       return res.status(400).json({
         success: false,
+        responseCode: 1562,
         message: 'Rating must be between 1 and 5.'
       });
     }
@@ -1040,6 +1073,7 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
     if (!book) {
       return res.status(404).json({
         success: false,
+        responseCode: 1563,
         message: 'Book not found or access denied.'
       });
     }
@@ -1049,6 +1083,7 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
 
     res.status(200).json({
       success: true,
+      responseCode: 1564,
       message: 'Rating submitted successfully.',
       data: {
         book: {
@@ -1063,6 +1098,7 @@ router.post('/:bookId/rating', checkClientAccess(), authenticateMobileUser, asyn
     console.error('Rate book error:', error);
     res.status(500).json({
       success: false,
+      responseCode: 1565,
       message: 'Internal server error. Please try again later.'
     });
   }
