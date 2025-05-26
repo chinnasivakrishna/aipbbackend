@@ -8,41 +8,85 @@ const SubTopic = require('../models/SubTopic');
 const { verifyToken } = require('../middleware/auth');
 
 // Get all book items
-router.get('/book/:bookId',verifyToken, async (req, res) => {
+router.get('/book/:bookId', verifyToken, async (req, res) => {
   try {
+    console.log('GET /book/:bookId called with bookId:', req.params.bookId);
+    console.log('User ID:', req.user?.id);
+    
     const { bookId } = req.params;
 
-    // Check if book exists and belongs to user
-    const book = await Book.findOne({ _id: bookId, user: req.user.id });
-    if (!book) {
-      return res.status(404).json({ success: false, message: 'Book not found' });
+    // Validate bookId format (if using MongoDB ObjectId)
+    if (!bookId || !bookId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid book ID format' 
+      });
     }
 
+    // Check if book exists and belongs to user
+    const book = await Book.findOne({ _id: bookId });
+    console.log('Book found:', book ? 'Yes' : 'No');
+    
+    if (!book) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Book not found or unauthorized' 
+      });
+    }
+
+    // Get datastore items for this book
     const items = await DataStoreItem.find({ book: bookId })
       .sort({ createdAt: -1 });
 
-    return res.json({ success: true, items });
+    console.log('Items found:', items.length);
+
+    return res.json({ 
+      success: true, 
+      items,
+      message: `Found ${items.length} items for book` 
+    });
+    
   } catch (error) {
     console.error('Error getting book items:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
 // Get all chapter items
-router.get('/chapter/:chapterId',verifyToken, async (req, res) => {
+router.get('/chapter/:chapterId', verifyToken, async (req, res) => {
   try {
+    console.log('GET /chapter/:chapterId called with chapterId:', req.params.chapterId);
+    
     const { chapterId } = req.params;
+
+    // Validate chapterId format
+    if (!chapterId || !chapterId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid chapter ID format' 
+      });
+    }
 
     // Check if chapter exists and belongs to user
     const chapter = await Chapter.findById(chapterId).populate('book');
     if (!chapter) {
-      return res.status(404).json({ success: false, message: 'Chapter not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Chapter not found' 
+      });
     }
 
     // Verify user owns the book that contains this chapter
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const items = await DataStoreItem.find({ chapter: chapterId })
@@ -51,32 +95,59 @@ router.get('/chapter/:chapterId',verifyToken, async (req, res) => {
     return res.json({ success: true, items });
   } catch (error) {
     console.error('Error getting chapter items:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
 // Upload files to book data store
-router.post('/book/:bookId',verifyToken, async (req, res) => {
+router.post('/book/:bookId', verifyToken, async (req, res) => {
   try {
+    console.log('POST /book/:bookId called with bookId:', req.params.bookId);
+    
     const { bookId } = req.params;
     const { items } = req.body;
 
     if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ success: false, message: 'No items provided' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No items provided or items is not an array' 
+      });
+    }
+
+    // Validate bookId format
+    if (!bookId || !bookId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid book ID format' 
+      });
     }
 
     // Check if book exists and belongs to user
-    const book = await Book.findOne({ _id: bookId, user: req.user.id });
+    const book = await Book.findOne({ _id: bookId });
     if (!book) {
-      return res.status(404).json({ success: false, message: 'Book not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Book not found or unauthorized' 
+      });
     }
 
     const savedItems = [];
     for (const item of items) {
+      // Validate required fields
+      if (!item.name || !item.url) {
+        continue; // Skip invalid items
+      }
+
       const newItem = new DataStoreItem({
         name: item.name,
         url: item.url,
+        description: item.description || '',
         fileType: item.fileType || 'application/octet-stream',
+        itemType: item.itemType || 'file',
         book: bookId,
         user: req.user.id
       });
@@ -85,41 +156,72 @@ router.post('/book/:bookId',verifyToken, async (req, res) => {
       savedItems.push(newItem);
     }
 
-    return res.json({ success: true, message: 'Files uploaded successfully', items: savedItems });
+    return res.json({ 
+      success: true, 
+      message: 'Files uploaded successfully', 
+      items: savedItems 
+    });
   } catch (error) {
     console.error('Error uploading to book data store:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
 // Upload files to chapter data store
-router.post('/chapter/:chapterId',verifyToken, async (req, res) => {
+router.post('/chapter/:chapterId', verifyToken, async (req, res) => {
   try {
     const { chapterId } = req.params;
     const { items } = req.body;
 
     if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ success: false, message: 'No items provided' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No items provided or items is not an array' 
+      });
+    }
+
+    // Validate chapterId format
+    if (!chapterId || !chapterId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid chapter ID format' 
+      });
     }
 
     // Check if chapter exists
     const chapter = await Chapter.findById(chapterId).populate('book');
     if (!chapter) {
-      return res.status(404).json({ success: false, message: 'Chapter not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Chapter not found' 
+      });
     }
 
     // Verify user owns the book that contains this chapter
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const savedItems = [];
     for (const item of items) {
+      if (!item.name || !item.url) {
+        continue; // Skip invalid items
+      }
+
       const newItem = new DataStoreItem({
         name: item.name,
         url: item.url,
+        description: item.description || '',
         fileType: item.fileType || 'application/octet-stream',
+        itemType: item.itemType || 'file',
         chapter: chapterId,
         user: req.user.id
       });
@@ -128,70 +230,130 @@ router.post('/chapter/:chapterId',verifyToken, async (req, res) => {
       savedItems.push(newItem);
     }
 
-    return res.json({ success: true, message: 'Files uploaded successfully', items: savedItems });
+    return res.json({ 
+      success: true, 
+      message: 'Files uploaded successfully', 
+      items: savedItems 
+    });
   } catch (error) {
     console.error('Error uploading to chapter data store:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-// Delete an item
-router.delete('/book/:bookId/:itemId',verifyToken, async (req, res) => {
+// Delete an item from book datastore
+router.delete('/book/:bookId/:itemId', verifyToken, async (req, res) => {
   try {
     const { bookId, itemId } = req.params;
 
+    // Validate IDs format
+    if (!bookId.match(/^[0-9a-fA-F]{24}$/) || !itemId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid ID format' 
+      });
+    }
+
     const item = await DataStoreItem.findById(itemId);
     if (!item) {
-      return res.status(404).json({ success: false, message: 'Item not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Item not found' 
+      });
     }
 
     // Verify that the item belongs to a book owned by this user
     if (item.book && item.book.toString() !== bookId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Item does not belong to specified book' 
+      });
     }
 
-    const book = await Book.findOne({ _id: bookId, user: req.user.id });
+    const book = await Book.findOne({ _id: bookId });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Book not found or unauthorized' 
+      });
     }
 
     await DataStoreItem.deleteOne({ _id: itemId });
-    return res.json({ success: true, message: 'Item deleted successfully' });
+    return res.json({ 
+      success: true, 
+      message: 'Item deleted successfully' 
+    });
   } catch (error) {
     console.error('Error deleting item:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
-router.delete('/chapter/:chapterId/:itemId',verifyToken, async (req, res) => {
+// Delete an item from chapter datastore
+router.delete('/chapter/:chapterId/:itemId', verifyToken, async (req, res) => {
   try {
     const { chapterId, itemId } = req.params;
 
+    // Validate IDs format
+    if (!chapterId.match(/^[0-9a-fA-F]{24}$/) || !itemId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid ID format' 
+      });
+    }
+
     const item = await DataStoreItem.findById(itemId);
     if (!item) {
-      return res.status(404).json({ success: false, message: 'Item not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Item not found' 
+      });
     }
 
     // Verify that the item belongs to a chapter owned by this user
     if (item.chapter && item.chapter.toString() !== chapterId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Item does not belong to specified chapter' 
+      });
     }
 
     const chapter = await Chapter.findById(chapterId).populate('book');
     if (!chapter) {
-      return res.status(404).json({ success: false, message: 'Chapter not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Chapter not found' 
+      });
     }
 
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     await DataStoreItem.deleteOne({ _id: itemId });
-    return res.json({ success: true, message: 'Item deleted successfully' });
+    return res.json({ 
+      success: true, 
+      message: 'Item deleted successfully' 
+    });
   } catch (error) {
     console.error('Error deleting item:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -200,17 +362,31 @@ router.get('/topic/:topicId', verifyToken, async (req, res) => {
   try {
     const { topicId } = req.params;
 
+    // Validate topicId format
+    if (!topicId || !topicId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid topic ID format' 
+      });
+    }
+
     // Check if topic exists and belongs to user
     const topic = await Topic.findById(topicId).populate('chapter');
     if (!topic) {
-      return res.status(404).json({ success: false, message: 'Topic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Topic not found' 
+      });
     }
 
     // Verify user owns the book that contains this topic
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const items = await DataStoreItem.find({ topic: topicId })
@@ -219,7 +395,11 @@ router.get('/topic/:topicId', verifyToken, async (req, res) => {
     return res.json({ success: true, items });
   } catch (error) {
     console.error('Error getting topic items:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -230,28 +410,51 @@ router.post('/topic/:topicId', verifyToken, async (req, res) => {
     const { items } = req.body;
 
     if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ success: false, message: 'No items provided' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No items provided or items is not an array' 
+      });
+    }
+
+    // Validate topicId format
+    if (!topicId || !topicId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid topic ID format' 
+      });
     }
 
     // Check if topic exists
     const topic = await Topic.findById(topicId).populate('chapter');
     if (!topic) {
-      return res.status(404).json({ success: false, message: 'Topic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Topic not found' 
+      });
     }
 
     // Verify user owns the book that contains this topic
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const savedItems = [];
     for (const item of items) {
+      if (!item.name || !item.url) {
+        continue; // Skip invalid items
+      }
+
       const newItem = new DataStoreItem({
         name: item.name,
         url: item.url,
+        description: item.description || '',
         fileType: item.fileType || 'application/octet-stream',
+        itemType: item.itemType || 'file',
         topic: topicId,
         user: req.user.id
       });
@@ -260,10 +463,18 @@ router.post('/topic/:topicId', verifyToken, async (req, res) => {
       savedItems.push(newItem);
     }
 
-    return res.json({ success: true, message: 'Files uploaded successfully', items: savedItems });
+    return res.json({ 
+      success: true, 
+      message: 'Files uploaded successfully', 
+      items: savedItems 
+    });
   } catch (error) {
     console.error('Error uploading to topic data store:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -272,54 +483,93 @@ router.delete('/topic/:topicId/:itemId', verifyToken, async (req, res) => {
   try {
     const { topicId, itemId } = req.params;
 
+    // Validate IDs format
+    if (!topicId.match(/^[0-9a-fA-F]{24}$/) || !itemId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid ID format' 
+      });
+    }
+
     const item = await DataStoreItem.findById(itemId);
     if (!item) {
-      return res.status(404).json({ success: false, message: 'Item not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Item not found' 
+      });
     }
 
     // Verify that the item belongs to a topic owned by this user
     if (item.topic && item.topic.toString() !== topicId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Item does not belong to specified topic' 
+      });
     }
 
     const topic = await Topic.findById(topicId).populate('chapter');
     if (!topic) {
-      return res.status(404).json({ success: false, message: 'Topic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Topic not found' 
+      });
     }
 
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     await DataStoreItem.deleteOne({ _id: itemId });
-    return res.json({ success: true, message: 'Item deleted successfully' });
+    return res.json({ 
+      success: true, 
+      message: 'Item deleted successfully' 
+    });
   } catch (error) {
     console.error('Error deleting item:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
-
-// --- NEW CODE FOR SUBTOPICS ---
 
 // Get all subtopic items
 router.get('/subtopic/:subtopicId', verifyToken, async (req, res) => {
   try {
     const { subtopicId } = req.params;
 
+    // Validate subtopicId format
+    if (!subtopicId || !subtopicId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid subtopic ID format' 
+      });
+    }
+
     // Check if subtopic exists
     const subtopic = await SubTopic.findById(subtopicId).populate('topic');
     if (!subtopic) {
-      return res.status(404).json({ success: false, message: 'Subtopic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Subtopic not found' 
+      });
     }
 
     // Verify user owns the book that contains this subtopic
     const topic = await Topic.findById(subtopic.topic).populate('chapter');
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const items = await DataStoreItem.find({ subtopic: subtopicId })
@@ -328,7 +578,11 @@ router.get('/subtopic/:subtopicId', verifyToken, async (req, res) => {
     return res.json({ success: true, items });
   } catch (error) {
     console.error('Error getting subtopic items:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -339,29 +593,52 @@ router.post('/subtopic/:subtopicId', verifyToken, async (req, res) => {
     const { items } = req.body;
 
     if (!items || !Array.isArray(items)) {
-      return res.status(400).json({ success: false, message: 'No items provided' });
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No items provided or items is not an array' 
+      });
+    }
+
+    // Validate subtopicId format
+    if (!subtopicId || !subtopicId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid subtopic ID format' 
+      });
     }
 
     // Check if subtopic exists
     const subtopic = await SubTopic.findById(subtopicId).populate('topic');
     if (!subtopic) {
-      return res.status(404).json({ success: false, message: 'Subtopic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Subtopic not found' 
+      });
     }
 
     // Verify user owns the book that contains this subtopic
     const topic = await Topic.findById(subtopic.topic).populate('chapter');
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     const savedItems = [];
     for (const item of items) {
+      if (!item.name || !item.url) {
+        continue; // Skip invalid items
+      }
+
       const newItem = new DataStoreItem({
         name: item.name,
         url: item.url,
+        description: item.description || '',
         fileType: item.fileType || 'application/octet-stream',
+        itemType: item.itemType || 'file',
         subtopic: subtopicId,
         user: req.user.id
       });
@@ -370,10 +647,18 @@ router.post('/subtopic/:subtopicId', verifyToken, async (req, res) => {
       savedItems.push(newItem);
     }
 
-    return res.json({ success: true, message: 'Files uploaded successfully', items: savedItems });
+    return res.json({ 
+      success: true, 
+      message: 'Files uploaded successfully', 
+      items: savedItems 
+    });
   } catch (error) {
     console.error('Error uploading to subtopic data store:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
 
@@ -382,35 +667,63 @@ router.delete('/subtopic/:subtopicId/:itemId', verifyToken, async (req, res) => 
   try {
     const { subtopicId, itemId } = req.params;
 
+    // Validate IDs format
+    if (!subtopicId.match(/^[0-9a-fA-F]{24}$/) || !itemId.match(/^[0-9a-fA-F]{24}$/)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Invalid ID format' 
+      });
+    }
+
     const item = await DataStoreItem.findById(itemId);
     if (!item) {
-      return res.status(404).json({ success: false, message: 'Item not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Item not found' 
+      });
     }
 
     // Verify that the item belongs to a subtopic owned by this user
     if (item.subtopic && item.subtopic.toString() !== subtopicId) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Item does not belong to specified subtopic' 
+      });
     }
 
     const subtopic = await SubTopic.findById(subtopicId).populate('topic');
     if (!subtopic) {
-      return res.status(404).json({ success: false, message: 'Subtopic not found' });
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Subtopic not found' 
+      });
     }
 
     const topic = await Topic.findById(subtopic.topic).populate('chapter');
     const chapter = await Chapter.findById(topic.chapter).populate('book');
-    const book = await Book.findOne({ _id: chapter.book, user: req.user.id });
+    const book = await Book.findOne({ _id: chapter.book });
     if (!book) {
-      return res.status(403).json({ success: false, message: 'Unauthorized' });
+      return res.status(403).json({ 
+        success: false, 
+        message: 'Unauthorized' 
+      });
     }
 
     await DataStoreItem.deleteOne({ _id: itemId });
-    return res.json({ success: true, message: 'Item deleted successfully' });
+    return res.json({ 
+      success: true, 
+      message: 'Item deleted successfully' 
+    });
   } catch (error) {
     console.error('Error deleting item:', error);
-    return res.status(500).json({ success: false, message: 'Server error' });
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Server error',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 });
+
 
 // --- WORKBOOK DATASTORE ROUTES ---
 
