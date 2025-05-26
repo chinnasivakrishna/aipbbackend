@@ -1,4 +1,4 @@
-// models/Book.js - Fixed with corrected category mappings
+// models/Book.js - Updated with better clientId documentation
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -85,9 +85,12 @@ const BookSchema = new mongoose.Schema({
     trim: true,
     maxlength: [30, 'Tag cannot be more than 30 characters']
   }],
+  // Client ID - stores the User's userId field (for client users) or user._id (fallback)
+  // This identifies which client/organization the book belongs to
   clientId: {
     type: String,
-    required: true
+    required: true,
+    index: true // Add index for better query performance
   },
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -123,10 +126,10 @@ BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, author: 1 });
 BookSchema.index({ clientId: 1, language: 1 });
 
-// Define category mappings - FIXED: CA moved to Professional Courses
+// Define category mappings - CA is in Professional Courses
 const CATEGORY_MAPPINGS = {
-  'Competitive Exams': ['CA', 'UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
-  'Professional Courses': ['CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
+  'Competitive Exams': ['UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
+  'Professional Courses': ['CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
   'Language Tests': ['IELTS', 'TOEFL', 'GRE', 'GMAT'],
   'Academic': ['Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce'],
   'Other': ['Other']
