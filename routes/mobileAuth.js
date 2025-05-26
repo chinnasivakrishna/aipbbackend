@@ -180,6 +180,8 @@ router.post('/login', async (req, res) => {
     let mobileUser = await MobileUser.findOne({ mobile, clientId });
     console.log('Found mobile user:', mobileUser);
     
+    const isNewUser = !mobileUser;
+    
     if (!mobileUser) {
       console.log('Creating new mobile user');
       mobileUser = new MobileUser({
@@ -210,6 +212,7 @@ router.post('/login', async (req, res) => {
     const isProfileComplete = !!profile;
     console.log('Is profile complete:', isProfileComplete);
 
+    // Prepare base response
     const response = {
       status: isProfileComplete ? 'LOGIN_SUCCESS' : 'PROFILE_REQUIRED',
       success: true,
@@ -219,17 +222,40 @@ router.post('/login', async (req, res) => {
       user_id: mobileUser._id,
       client_id: clientId,
       client_name: client.businessName,
-      message: isProfileComplete ? 'Login successful.' : 'Please complete your profile to continue.',
-      ...(isProfileComplete && {
-        profile: {
-          name: profile.name,
-          age: profile.age,
-          gender: profile.gender,
-          exams: profile.exams,
-          native_language: profile.nativeLanguage
-        }
-      })
+      message: isProfileComplete ? 'Login successful.' : 'Please complete your profile to continue.'
     };
+
+    // Add profile data if complete
+    if (isProfileComplete) {
+      response.profile = {
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        exams: profile.exams,
+        native_language: profile.nativeLanguage
+      };
+    }
+
+    // Add profile options if profile is incomplete (new user or existing user without profile)
+    if (!isProfileComplete) {
+      // Get all available options from UserProfile enum
+      const availableExams = ['UPSC', 'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM', 'NEET', 'JEE', 'GATE', 'CAT', 'GMAT', 'GRE', 'IELTS', 'TOEFL', 'NET/JRF', 'BPSC', 'UPPCS', 'NDA', 'SSC', 'Teacher', 'CLAT', 'Judiciary', 'Other'];
+      const availableLanguages = ['Hindi', 'English', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Odia', 'Malayalam', 'Punjabi', 'Assamese', 'Other'];
+      const availableAgeGroups = ['<15', '15-18', '19-25', '26-31', '32-40', '40+'];
+      const availableGenders = ['Male', 'Female', 'Other'];
+      
+      response.profile_options = {
+        exams: availableExams,
+        languages: availableLanguages,
+        age_groups: availableAgeGroups,
+        genders: availableGenders
+      };
+      
+      // Add additional context for new users
+      if (isNewUser) {
+        response.is_new_user = true;
+      }
+    }
 
     console.log('Sending response:', response);
     res.status(200).json(response);
