@@ -51,7 +51,6 @@ app.use('/api/objective-assets', objectiveAssetsRoutes);
 app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
-
 // AISWB routes
 app.use('/api/aiswb', aiswbRoutes);
 
