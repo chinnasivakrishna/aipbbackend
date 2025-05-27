@@ -1,0 +1,169 @@
+const { body, param } = require('express-validator');
+
+const validateQuestion = [
+  body('question.question')
+    .notEmpty()
+    .withMessage('Question is required')
+    .isString()
+    .withMessage('Question must be a string')
+    .trim(),
+  
+  body('question.detailedAnswer')
+    .notEmpty()
+    .withMessage('Detailed answer is required')
+    .isString()
+    .withMessage('Detailed answer must be a string')
+    .trim(),
+  
+  body('question.modalAnswer')
+    .optional()
+    .isString()
+    .withMessage('Modal answer must be a string')
+    .trim(),
+  
+  body('question.metadata.keywords')
+    .optional()
+    .isArray()
+    .withMessage('Keywords must be an array'),
+  
+  body('question.metadata.keywords.*')
+    .optional()
+    .isString()
+    .withMessage('Each keyword must be a string')
+    .trim(),
+  
+  body('question.metadata.difficultyLevel')
+    .notEmpty()
+    .withMessage('Difficulty level is required')
+    .isIn(['level1', 'level2', 'level3'])
+    .withMessage('Difficulty level must be level1, level2, or level3'),
+  
+  body('question.metadata.wordLimit')
+    .notEmpty()
+    .withMessage('Word limit is required')
+    .isInt({ min: 0 })
+    .withMessage('Word limit must be a positive integer'),
+  
+  body('question.metadata.estimatedTime')
+    .notEmpty()
+    .withMessage('Estimated time is required')
+    .isInt({ min: 0 })
+    .withMessage('Estimated time must be a positive integer'),
+  
+  body('question.metadata.maximumMarks')
+    .notEmpty()
+    .withMessage('Maximum marks is required')
+    .isInt({ min: 0 })
+    .withMessage('Maximum marks must be a positive integer'),
+  
+  body('question.languageMode')
+    .notEmpty()
+    .withMessage('Language mode is required')
+    .isIn(['english', 'hindi'])
+    .withMessage('Language mode must be english or hindi'),
+  
+  body('setId')
+    .optional()
+    .isMongoId()
+    .withMessage('Set ID must be a valid MongoDB ObjectId')
+];
+
+const validateQuestionUpdate = [
+  param('questionId')
+    .isMongoId()
+    .withMessage('Question ID must be a valid MongoDB ObjectId'),
+  
+  ...validateQuestion.slice(0, -1) // Remove setId validation for updates
+];
+
+const validateSetName = [
+  body('name')
+    .notEmpty()
+    .withMessage('Set name is required')
+    .isString()
+    .withMessage('Set name must be a string')
+    .trim()
+];
+
+const validateSetParams = [
+  param('itemType')
+    .isIn(['book', 'workbook', 'chapter', 'topic', 'subtopic'])
+    .withMessage('Item type must be one of: book, workbook, chapter, topic, subtopic'),
+  
+  param('itemId')
+    .isMongoId()
+    .withMessage('Item ID must be a valid MongoDB ObjectId')
+];
+
+const validateSetId = [
+  param('setId')
+    .isMongoId()
+    .withMessage('Set ID must be a valid MongoDB ObjectId')
+];
+
+const validateQuestionId = [
+  param('questionId')
+    .isMongoId()
+    .withMessage('Question ID must be a valid MongoDB ObjectId')
+];
+
+const validateQuestionToSet = [
+  body('question')
+    .notEmpty()
+    .withMessage('Question is required')
+    .isString()
+    .withMessage('Question must be a string')
+    .trim(),
+  
+  body('detailedAnswer')
+    .notEmpty()
+    .withMessage('Detailed answer is required')
+    .isString()
+    .withMessage('Detailed answer must be a string')
+    .trim(),
+  
+  body('metadata.keywords')
+    .optional()
+    .isArray()
+    .withMessage('Keywords must be an array'),
+  
+  body('metadata.difficultyLevel')
+    .notEmpty()
+    .withMessage('Difficulty level is required')
+    .isIn(['level1', 'level2', 'level3'])
+    .withMessage('Difficulty level must be level1, level2, or level3'),
+  
+  body('metadata.wordLimit')
+    .notEmpty()
+    .withMessage('Word limit is required')
+    .isInt({ min: 0 })
+    .withMessage('Word limit must be a positive integer'),
+  
+  body('metadata.estimatedTime')
+    .notEmpty()
+    .withMessage('Estimated time is required')
+    .isInt({ min: 0 })
+    .withMessage('Estimated time must be a positive integer'),
+  
+  body('metadata.maximumMarks')
+    .notEmpty()
+    .withMessage('Maximum marks is required')
+    .isInt({ min: 0 })
+    .withMessage('Maximum marks must be a positive integer'),
+  
+  body('languageMode')
+    .notEmpty()
+    .withMessage('Language mode is required')
+    .isIn(['english', 'hindi'])
+    .withMessage('Language mode must be english or hindi')
+];
+
+module.exports = {
+  validateQuestion,
+  validateQuestionUpdate,
+  validateSetName,
+  validateSetParams,
+  validateSetId,
+  validateQuestionId,
+  validateQuestionToSet
+};

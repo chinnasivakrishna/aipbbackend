@@ -1,4 +1,3 @@
-// server.js - Fixed with proper route structure
 const dotenv = require('dotenv');
 dotenv.config();
 
@@ -24,6 +23,7 @@ const qrCodeRoutes = require('./routes/qrcode');
 const pdfSplitsRoutes = require('./routes/pdfSplits');
 const mobileAuthRoutes = require('./routes/mobileAuth');
 const mobileBooksRoutes = require('./routes/mobileBooks');
+const aiswbRoutes = require('./routes/aiswb'); // New AISWB routes
 
 const app = express();
 
@@ -36,7 +36,6 @@ mongoose.connect(process.env.MONGODB_URI)
   .catch(err => console.error('MongoDB connection error:', err));
 
 // API routes
-
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/client', clientRoutes);
@@ -54,16 +53,16 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 
+// AISWB routes
+app.use('/api/aiswb', aiswbRoutes);
+
 // Mobile routes with client-specific structure
-// Note: These routes now handle the clientId parameter properly
 app.use('/api/clients/:clientId/mobile/auth', (req, res, next) => {
-  // Ensure clientId is available in all child routes
   req.clientId = req.params.clientId;
   next();
 }, mobileAuthRoutes);
 
 app.use('/api/clients/:clientId/mobile/books', (req, res, next) => {
-  // Ensure clientId is available in all child routes
   req.clientId = req.params.clientId;
   next();
 }, mobileBooksRoutes);
