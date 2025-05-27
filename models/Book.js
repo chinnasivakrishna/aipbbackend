@@ -62,9 +62,9 @@ const BookSchema = new mongoose.Schema({
     required: [true, 'Please select a subcategory'],
     enum: [
       // Competitive Exams subcategories
-      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 
+      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 'CA', 'CMA', 'CS', , 'BPC', 'UPPCS', 'SSC', 'NET/JRF', 'Teacher', 'NDA',
       // Professional Courses subcategories
-      'CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM',
+      'ACCA', 'CFA', 'FRM',
       // Language Tests subcategories
       'IELTS', 'TOEFL', 'GRE', 'GMAT',
       // Academic subcategories
