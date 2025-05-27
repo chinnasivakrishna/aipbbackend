@@ -2,9 +2,11 @@ const express = require('express');
 const router = express.Router();
 const aiswbController = require('../controllers/aiswbController');
 const aiswbValidation = require('../middleware/aiswbValidation');
+const aiswbQRRoutes = require('./aiswbQR');
 const {verifyToken} = require('../middleware/auth'); // Assuming you have auth middleware
 
 // Apply authentication to all routes
+router.use('/qr', aiswbQRRoutes);
 
 // Question routes
 router.post('/questions', 

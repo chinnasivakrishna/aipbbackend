@@ -1,4 +1,4 @@
-// routes/mobileBooks.js - Updated version with response codes starting from 1531
+// routes/mobileBooks.js - Fixed version with null user handling
 const express = require('express');
 const router = express.Router({ mergeParams: true }); // Added mergeParams
 const Book = require('../models/Book');
@@ -87,6 +87,57 @@ const validateBookData = (title, description, author, publisher, language, mainC
   }
   
   return errors;
+};
+
+// Helper function to safely format book data
+const formatBookData = (book, userId = null) => {
+  const bookData = {
+    id: book._id,
+    title: book.title,
+    description: book.description,
+    author: book.author,
+    publisher: book.publisher,
+    language: book.language,
+    rating: book.rating,
+    ratingCount: book.ratingCount,
+    mainCategory: book.mainCategory,
+    subCategory: book.subCategory,
+    customSubCategory: book.customSubCategory,
+    effectiveSubCategory: book.effectiveSubCategory,
+    fullCategory: book.fullCategory,
+    tags: book.tags,
+    coverImage: book.coverImage,
+    isPublic: book.isPublic,
+    createdAt: book.createdAt,
+    updatedAt: book.updatedAt
+  };
+
+  // Safely handle user-related fields
+  if (userId && book.user && book.user._id) {
+    bookData.isOwnBook = book.user._id.toString() === userId.toString();
+  } else {
+    bookData.isOwnBook = false;
+  }
+
+  return bookData;
+};
+
+// Helper function to safely format book data with owner info
+const formatBookDataWithOwner = (book, userId = null) => {
+  const bookData = formatBookData(book, userId);
+  
+  // Safely add owner information
+  if (book.user && book.user.mobile) {
+    bookData.owner = {
+      mobile: book.user.mobile
+    };
+  } else {
+    bookData.owner = {
+      mobile: 'Unknown User'
+    };
+  }
+
+  return bookData;
 };
 
 // Route: Create a new book
@@ -193,27 +244,7 @@ router.post('/', checkClientAccess(), authenticateMobileUser, async (req, res) =
       responseCode: 1534,
       message: 'Book created successfully.',
       data: {
-        book: {
-          id: book._id,
-          title: book.title,
-          description: book.description,
-          author: book.author,
-          publisher: book.publisher,
-          language: book.language,
-          rating: book.rating,
-          ratingCount: book.ratingCount,
-          mainCategory: book.mainCategory,
-          subCategory: book.subCategory,
-          customSubCategory: book.customSubCategory,
-          effectiveSubCategory: book.effectiveSubCategory,
-          fullCategory: book.fullCategory,
-          tags: book.tags,
-          coverImage: book.coverImage,
-          isPublic: book.isPublic,
-          clientId: book.clientId,
-          createdAt: book.createdAt,
-          updatedAt: book.updatedAt
-        }
+        book: formatBookData(book)
       }
     });
 
@@ -633,27 +664,8 @@ router.get('/users/me/books', checkClientAccess(), authenticateMobileUser, async
     // Get total count
     const totalBooks = await Book.countDocuments(query);
 
-    // Format response
-    const formattedBooks = books.map(book => ({
-      id: book._id,
-      title: book.title,
-      description: book.description,
-      author: book.author,
-      publisher: book.publisher,
-      language: book.language,
-      rating: book.rating,
-      ratingCount: book.ratingCount,
-      mainCategory: book.mainCategory,
-      subCategory: book.subCategory,
-      customSubCategory: book.customSubCategory,
-      effectiveSubCategory: book.effectiveSubCategory,
-      fullCategory: book.fullCategory,
-      tags: book.tags,
-      coverImage: book.coverImage,
-      isPublic: book.isPublic,
-      createdAt: book.createdAt,
-      updatedAt: book.updatedAt
-    }));
+    // Format response with safe user handling
+    const formattedBooks = books.map(book => formatBookData(book, userId));
 
     res.status(200).json({
       success: true,
@@ -783,28 +795,8 @@ router.get('/', checkClientAccess(), authenticateMobileUser, async (req, res) =>
     // Get total count
     const totalBooks = await Book.countDocuments(query);
 
-    // Format response
-    const formattedBooks = books.map(book => ({
-      id: book._id,
-      title: book.title,
-      description: book.description,
-      author: book.author,
-      publisher: book.publisher,
-      language: book.language,
-      rating: book.rating,
-      ratingCount: book.ratingCount,
-      mainCategory: book.mainCategory,
-      subCategory: book.subCategory,
-      customSubCategory: book.customSubCategory,
-      effectiveSubCategory: book.effectiveSubCategory,
-      fullCategory: book.fullCategory,
-      tags: book.tags,
-      coverImage: book.coverImage,
-      isPublic: book.isPublic,
-      isOwnBook: book.user._id.toString() === userId.toString(),
-      createdAt: book.createdAt,
-      updatedAt: book.updatedAt
-    }));
+    // Format response with safe user handling
+    const formattedBooks = books.map(book => formatBookData(book, userId));
 
     res.status(200).json({
       success: true,
@@ -860,30 +852,7 @@ router.get('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
       success: true,
       responseCode: 1553,
       data: {
-        book: {
-          id: book._id,
-          title: book.title,
-          description: book.description,
-          author: book.author,
-          publisher: book.publisher,
-          language: book.language,
-          rating: book.rating,
-          ratingCount: book.ratingCount,
-          mainCategory: book.mainCategory,
-          subCategory: book.subCategory,
-          customSubCategory: book.customSubCategory,
-          effectiveSubCategory: book.effectiveSubCategory,
-          fullCategory: book.fullCategory,
-          tags: book.tags,
-          coverImage: book.coverImage,
-          isPublic: book.isPublic,
-          isOwnBook: book.user._id.toString() === userId.toString(),
-          owner: {
-            mobile: book.user.mobile
-          },
-          createdAt: book.createdAt,
-          updatedAt: book.updatedAt
-        }
+        book: formatBookDataWithOwner(book, userId)
       }
     });
 
@@ -937,14 +906,14 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
         rating
       );
       
-      // Route: Update book (continued)
-    if (errors.length > 0) {
-      return res.status(400).json({
-        success: false,
-        responseCode: 1556,
-        message: 'Validation failed.',
-        errors
-      });
+      if (errors.length > 0) {
+        return res.status(400).json({
+          success: false,
+          responseCode: 1556,
+          message: 'Validation failed.',
+          errors
+        });
+      }
     }
 
     // Update fields
@@ -992,7 +961,7 @@ router.put('/:bookId', checkClientAccess(), authenticateMobileUser, async (req, 
         }
       }
     });
-  }
+  
 
   } catch (error) {
     console.error('Update book error:', error);
