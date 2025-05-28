@@ -3,17 +3,23 @@ const router = express.Router();
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
+const { Mistral } = require('@mistralai/mistralai');
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
-const { authenticateMobileUser } = require('../middleware/mobileAuth'); // Import the auth middleware
+const { authenticateMobileUser } = require('../middleware/mobileAuth');
 
 // Configure Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
   api_key: process.env.CLOUDINARY_API_KEY,
   api_secret: process.env.CLOUDINARY_API_SECRET
+});
+
+// Configure Mistral
+const mistralClient = new Mistral({
+  apiKey: process.env.MISTRAL_API_KEY
 });
 
 // Configure Multer with Cloudinary
@@ -32,8 +38,8 @@ const storage = new CloudinaryStorage({
 const upload = multer({
   storage: storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, // 5MB per file
-    files: 10 // Maximum 10 files per upload
+    fileSize: 5 * 1024 * 1024,
+    files: 10
   },
   fileFilter: (req, file, cb) => {
     if (file.mimetype.startsWith('image/') || file.mimetype === 'application/pdf') {
@@ -44,6 +50,74 @@ const upload = multer({
   }
 });
 
+// Helper function to process OCR for a single image
+const processImageOCR = async (imageUrl, retries = 3) => {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const startTime = Date.now();
+      
+      // Fixed API call structure based on the provided example
+      const ocrResponse = await mistralClient.ocr.process({
+        model: "mistral-ocr-latest",
+        document: {
+          type: "image_url",  // ✅ Fixed: Changed back to "image_url"
+          imageUrl: imageUrl  // ✅ Fixed: Using correct property name
+        },
+        includeImageBase64: false
+      });
+
+      const processingTime = Date.now() - startTime;
+
+      return {
+        success: true,
+        extractedText: ocrResponse.text || '',
+        processingTime: processingTime,
+        modelUsed: ocrResponse.model || 'mistral-ocr-latest',
+        confidenceScore: ocrResponse.confidence_score || null,
+        processedAt: new Date()
+      };
+    } catch (error) {
+      console.error(`OCR processing attempt ${attempt} failed for image ${imageUrl}:`, error.message);
+      
+      if (attempt === retries) {
+        return {
+          success: false,
+          error: error.message,
+          extractedText: '',
+          processingTime: 0,
+          modelUsed: 'mistral-ocr-latest',
+          processedAt: new Date()
+        };
+      }
+      
+      // Wait before retry (exponential backoff)
+      await new Promise(resolve => setTimeout(resolve, Math.pow(2, attempt) * 1000));
+    }
+  }
+};
+
+// Helper function to process OCR for multiple images
+const processMultipleImagesOCR = async (images) => {
+  const ocrResults = [];
+  
+  for (let i = 0; i < images.length; i++) {
+    const image = images[i];
+    console.log(`Processing OCR for image ${i + 1}/${images.length}: ${image.originalname}`);
+    
+    const ocrResult = await processImageOCR(image.path);
+    
+    ocrResults.push({
+      imageIndex: i,
+      imageUrl: image.path,
+      originalName: image.originalname,
+      cloudinaryPublicId: image.filename,
+      ...ocrResult
+    });
+  }
+  
+  return ocrResults;
+};
+
 // Validation middleware
 const validateQuestionId = [
   param('questionId')
@@ -52,7 +126,6 @@ const validateQuestionId = [
 ];
 
 const validateAnswerSubmission = [
-  // Remove userId validation since it comes from auth token
   body('textAnswer')
     .optional()
     .isString()
@@ -70,12 +143,86 @@ const validateAnswerSubmission = [
   body('setId')
     .optional()
     .isMongoId()
-    .withMessage('Set ID must be a valid MongoDB ObjectId')
+    .withMessage('Set ID must be a valid MongoDB ObjectId'),
+  body('enableOCR')
+    .optional()
+    .isBoolean()
+    .withMessage('enableOCR must be a boolean value')
 ];
 
-// Submit answer with images - Now uses authenticated user ID
+// OCR Processing Endpoint (kept for standalone use)
+router.post('/answers/ocr-process',
+  authenticateMobileUser,
+  upload.single('image'),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          success: false,
+          message: "No image file provided",
+          error: {
+            code: "NO_IMAGE",
+            details: "Please upload an image file"
+          }
+        });
+      }
+
+      const ocrResult = await processImageOCR(req.file.path);
+
+      if (!ocrResult.success) {
+        return res.status(500).json({
+          success: false,
+          message: "OCR processing failed",
+          error: {
+            code: "OCR_ERROR",
+            details: ocrResult.error
+          }
+        });
+      }
+
+      res.status(200).json({
+        success: true,
+        message: "OCR processing completed",
+        data: {
+          extractedText: ocrResult.extractedText,
+          imageInfo: {
+            url: req.file.path,
+            publicId: req.file.filename
+          },
+          ocrMetadata: {
+            model: ocrResult.modelUsed,
+            processingTime: ocrResult.processingTime,
+            confidenceScore: ocrResult.confidenceScore,
+            processedAt: ocrResult.processedAt
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('OCR processing error:', error);
+      if (req.file) {
+        try {
+          await cloudinary.uploader.destroy(req.file.filename);
+        } catch (cleanupError) {
+          console.error('Error cleaning up file:', cleanupError);
+        }
+      }
+
+      res.status(500).json({
+        success: false,
+        message: "OCR processing failed",
+        error: {
+          code: "OCR_ERROR",
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
+// Submit answer with images and automatic OCR processing
 router.post('/questions/:questionId/answers',
-  authenticateMobileUser, // Add authentication middleware
+  authenticateMobileUser,
   validateQuestionId,
   upload.array('images', 10),
   validateAnswerSubmission,
@@ -83,7 +230,6 @@ router.post('/questions/:questionId/answers',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        // Clean up uploaded files if validation fails
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
             try {
@@ -105,14 +251,12 @@ router.post('/questions/:questionId/answers',
       }
 
       const { questionId } = req.params;
-      // Get userId from authenticated user instead of request body
       const userId = req.user.id;
-      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion } = req.body;
+      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion, enableOCR = true } = req.body;
 
-      // Verify question exists
+      // Check if question exists
       const question = await AiswbQuestion.findById(questionId);
       if (!question) {
-        // Clean up uploaded files
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
             try {
@@ -133,7 +277,7 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Verify set exists if provided
+      // Check if set exists (if provided)
       let setInfo = null;
       if (setId) {
         setInfo = await AISWBSet.findById(setId);
@@ -149,28 +293,62 @@ router.post('/questions/:questionId/answers',
         }
       }
 
-      // Process uploaded images
+      // Process images and OCR
       const answerImages = [];
+      let ocrResults = [];
+      
       if (req.files && req.files.length > 0) {
-        for (const file of req.files) {
-          answerImages.push({
+        console.log(`Processing ${req.files.length} uploaded images...`);
+        
+        // Process OCR for all images if enabled and Mistral API is available
+        if (enableOCR && process.env.MISTRAL_API_KEY) {
+          try {
+            console.log('Starting OCR processing for all images...');
+            ocrResults = await processMultipleImagesOCR(req.files);
+            console.log('OCR processing completed for all images');
+          } catch (ocrError) {
+            console.error('Error during bulk OCR processing:', ocrError);
+            // Continue without OCR data
+          }
+        }
+
+        // Create answer images array with OCR data
+        for (let i = 0; i < req.files.length; i++) {
+          const file = req.files[i];
+          const correspondingOCR = ocrResults.find(ocr => ocr.imageIndex === i);
+          
+          const imageData = {
             imageUrl: file.path,
             cloudinaryPublicId: file.filename,
             originalName: file.originalname,
             uploadedAt: new Date()
-          });
+          };
+
+          // Add OCR data if available
+          if (correspondingOCR) {
+            imageData.ocrData = {
+              extractedText: correspondingOCR.extractedText || '',
+              processingTime: correspondingOCR.processingTime || 0,
+              modelUsed: correspondingOCR.modelUsed || 'mistral-ocr-latest',
+              processedAt: correspondingOCR.processedAt || new Date(),
+              confidenceScore: correspondingOCR.confidenceScore || null,
+              success: correspondingOCR.success || false,
+              ...(correspondingOCR.error && { error: correspondingOCR.error })
+            };
+          }
+
+          answerImages.push(imageData);
         }
       }
 
-      // Check if user already has an answer for this question
+      // Find existing answer or create new one
       let userAnswer = await UserAnswer.findOne({
         userId: userId,
         questionId: questionId
       });
 
       if (userAnswer) {
-        // Update existing answer
-        // Clean up old images if new ones are provided
+        // Clean up old images if new ones are uploaded
         if (answerImages.length > 0 && userAnswer.answerImages.length > 0) {
           for (const oldImage of userAnswer.answerImages) {
             try {
@@ -181,10 +359,12 @@ router.post('/questions/:questionId/answers',
           }
         }
 
+        // Update existing answer
         userAnswer.answerImages = answerImages.length > 0 ? answerImages : userAnswer.answerImages;
         userAnswer.textAnswer = textAnswer || userAnswer.textAnswer;
         userAnswer.setId = setId || userAnswer.setId;
         userAnswer.submissionStatus = 'submitted';
+        
         userAnswer.metadata = {
           ...userAnswer.metadata,
           timeSpent: timeSpent || userAnswer.metadata.timeSpent,
@@ -198,7 +378,7 @@ router.post('/questions/:questionId/answers',
           userId: userId,
           questionId: questionId,
           setId: setId,
-          clientId: req.user.clientId, // Use clientId from authenticated user
+          clientId: req.user.clientId,
           answerImages: answerImages,
           textAnswer: textAnswer,
           submissionStatus: 'submitted',
@@ -213,13 +393,27 @@ router.post('/questions/:questionId/answers',
 
       await userAnswer.save();
 
+      // Prepare response with OCR summary
+      const ocrSummary = ocrResults.length > 0 ? {
+        totalImages: ocrResults.length,
+        successfulOCR: ocrResults.filter(r => r.success).length,
+        failedOCR: ocrResults.filter(r => !r.success).length,
+        totalExtractedText: ocrResults
+          .filter(r => r.success && r.extractedText)
+          .map(r => r.extractedText)
+          .join('\n\n'),
+        averageProcessingTime: ocrResults.length > 0 
+          ? Math.round(ocrResults.reduce((sum, r) => sum + r.processingTime, 0) / ocrResults.length)
+          : 0
+      } : null;
+
       res.status(200).json({
         success: true,
         message: "Answer submitted successfully",
         data: {
           answerId: userAnswer._id,
           questionId: question._id,
-          userId: userId, // Include userId in response
+          userId: userId,
           imagesCount: answerImages.length,
           submissionStatus: userAnswer.submissionStatus,
           submittedAt: userAnswer.submittedAt,
@@ -236,6 +430,9 @@ router.post('/questions/:questionId/answers',
               name: setInfo.name,
               itemType: setInfo.itemType
             }
+          }),
+          ...(ocrSummary && {
+            ocrProcessing: ocrSummary
           })
         }
       });
@@ -243,7 +440,6 @@ router.post('/questions/:questionId/answers',
     } catch (error) {
       console.error('Submit answer error:', error);
       
-      // Clean up uploaded files in case of error
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
           try {
@@ -266,9 +462,9 @@ router.post('/questions/:questionId/answers',
   }
 );
 
-// Get user's answer for a specific question - Now uses authenticated user
+// Get user's answer for a specific question
 router.get('/questions/:questionId/answers',
-  authenticateMobileUser, // Add authentication middleware
+  authenticateMobileUser,
   validateQuestionId,
   async (req, res) => {
     try {
@@ -285,7 +481,7 @@ router.get('/questions/:questionId/answers',
       }
 
       const { questionId } = req.params;
-      const userId = req.user.id; // Get from authenticated user
+      const userId = req.user.id;
 
       const userAnswer = await UserAnswer.findOne({
         userId: userId,
@@ -304,17 +500,30 @@ router.get('/questions/:questionId/answers',
         });
       }
 
+      // Format images with OCR data
+      const formattedImages = userAnswer.answerImages.map(img => ({
+        url: img.imageUrl,
+        originalName: img.originalName,
+        uploadedAt: img.uploadedAt,
+        ...(img.ocrData && {
+          ocrData: {
+            extractedText: img.ocrData.extractedText,
+            processedAt: img.ocrData.processedAt,
+            modelUsed: img.ocrData.modelUsed,
+            confidenceScore: img.ocrData.confidenceScore,
+            processingTime: img.ocrData.processingTime,
+            success: img.ocrData.success
+          }
+        })
+      }));
+
       res.status(200).json({
         success: true,
         data: {
           answer: {
             id: userAnswer._id,
             textAnswer: userAnswer.textAnswer,
-            images: userAnswer.answerImages.map(img => ({
-              url: img.imageUrl,
-              originalName: img.originalName,
-              uploadedAt: img.uploadedAt
-            })),
+            images: formattedImages,
             submissionStatus: userAnswer.submissionStatus,
             submittedAt: userAnswer.submittedAt,
             timeSpent: userAnswer.metadata.timeSpent,
@@ -354,127 +563,154 @@ router.get('/questions/:questionId/answers',
   }
 );
 
-// Get all user's answers with pagination - Now uses authenticated user
+// Get all user's answers with pagination (Updated to include image URLs)
 router.get('/answers',
-  authenticateMobileUser, // Add authentication middleware
-  [
-    query('page')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('Page must be a positive integer'),
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 50 })
-      .withMessage('Limit must be between 1 and 50'),
-    query('status')
-      .optional()
-      .isIn(['draft', 'submitted', 'reviewed'])
-      .withMessage('Invalid status filter'),
-    query('sourceType')
-      .optional()
-      .isIn(['qr_scan', 'direct_access', 'set_practice'])
-      .withMessage('Invalid source type filter')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
+    authenticateMobileUser,
+    [
+      query('page')
+        .optional()
+        .isInt({ min: 1 })
+        .withMessage('Page must be a positive integer'),
+      query('limit')
+        .optional()
+        .isInt({ min: 1, max: 50 })
+        .withMessage('Limit must be between 1 and 50'),
+      query('status')
+        .optional()
+        .isIn(['draft', 'submitted', 'reviewed'])
+        .withMessage('Invalid status filter'),
+      query('sourceType')
+        .optional()
+        .isIn(['qr_scan', 'direct_access', 'set_practice'])
+        .withMessage('Invalid source type filter'),
+      query('includeImages')
+        .optional()
+        .isBoolean()
+        .withMessage('includeImages must be a boolean value')
+    ],
+    async (req, res) => {
+      try {
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid input data",
+            error: {
+              code: "INVALID_INPUT",
+              details: errors.array()
+            }
+          });
+        }
+  
+        const userId = req.user.id;
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 10;
+        const skip = (page - 1) * limit;
+        const includeImages = req.query.includeImages === 'true' || req.query.includeImages === true;
+  
+        const filter = {
+          userId: userId,
+          clientId: req.user.clientId
+        };
+  
+        if (req.query.status) {
+          filter.submissionStatus = req.query.status;
+        }
+  
+        if (req.query.sourceType) {
+          filter['metadata.sourceType'] = req.query.sourceType;
+        }
+  
+        const totalAnswers = await UserAnswer.countDocuments(filter);
+  
+        const userAnswers = await UserAnswer.find(filter)
+          .populate('questionId', 'question metadata languageMode')
+          .populate('setId', 'name itemType')
+          .sort({ updatedAt: -1 })
+          .skip(skip)
+          .limit(limit);
+  
+        const totalPages = Math.ceil(totalAnswers / limit);
+  
+        res.status(200).json({
+          success: true,
+          data: {
+            answers: userAnswers.map(answer => {
+              const baseResponse = {
+                id: answer._id,
+                question: {
+                  id: answer.questionId._id,
+                  question: answer.questionId.question.length > 200 ? 
+                    answer.questionId.question.substring(0, 200) + '...' : 
+                    answer.questionId.question,
+                  difficultyLevel: answer.questionId.metadata.difficultyLevel,
+                  maximumMarks: answer.questionId.metadata.maximumMarks,
+                  languageMode: answer.questionId.languageMode
+                },
+                ...(answer.setId && {
+                  set: {
+                    id: answer.setId._id,
+                    name: answer.setId.name,
+                    itemType: answer.setId.itemType
+                  }
+                }),
+                imagesCount: answer.answerImages.length,
+                imagesWithOCR: answer.answerImages.filter(img => img.ocrData && img.ocrData.success).length,
+                hasTextAnswer: !!answer.textAnswer,
+                submissionStatus: answer.submissionStatus,
+                submittedAt: answer.submittedAt,
+                timeSpent: answer.metadata.timeSpent,
+                sourceType: answer.metadata.sourceType,
+                updatedAt: answer.updatedAt
+              };
+  
+              // Add image URLs if requested or by default
+              if (includeImages || true) { // Always include by default, can be controlled by query param
+                baseResponse.images = answer.answerImages.map(img => ({
+                  url: img.imageUrl,
+                  originalName: img.originalName,
+                  uploadedAt: img.uploadedAt,
+                  hasOCR: !!(img.ocrData && img.ocrData.success),
+                  ...(img.ocrData && img.ocrData.success && {
+                    extractedText: img.ocrData.extractedText ? 
+                      (img.ocrData.extractedText.length > 100 ? 
+                        img.ocrData.extractedText.substring(0, 100) + '...' : 
+                        img.ocrData.extractedText) : '',
+                    ocrProcessedAt: img.ocrData.processedAt,
+                    ocrConfidenceScore: img.ocrData.confidenceScore
+                  })
+                }));
+              }
+  
+              return baseResponse;
+            }),
+            pagination: {
+              currentPage: page,
+              totalPages: totalPages,
+              totalAnswers: totalAnswers,
+              hasNextPage: page < totalPages,
+              hasPrevPage: page > 1
+            }
+          }
+        });
+  
+      } catch (error) {
+        console.error('Get user answers error:', error);
+        res.status(500).json({
           success: false,
-          message: "Invalid input data",
+          message: "Internal server error",
           error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
+            code: "SERVER_ERROR",
+            details: error.message
           }
         });
       }
-
-      const userId = req.user.id; // Get from authenticated user
-      const page = parseInt(req.query.page) || 1;
-      const limit = parseInt(req.query.limit) || 10;
-      const skip = (page - 1) * limit;
-
-      // Build filter
-      const filter = {
-        userId: userId,
-        clientId: req.user.clientId // Use clientId from authenticated user
-      };
-
-      if (req.query.status) {
-        filter.submissionStatus = req.query.status;
-      }
-
-      if (req.query.sourceType) {
-        filter['metadata.sourceType'] = req.query.sourceType;
-      }
-
-      // Get total count
-      const totalAnswers = await UserAnswer.countDocuments(filter);
-
-      // Get paginated results
-      const userAnswers = await UserAnswer.find(filter)
-        .populate('questionId', 'question metadata languageMode')
-        .populate('setId', 'name itemType')
-        .sort({ updatedAt: -1 })
-        .skip(skip)
-        .limit(limit);
-
-      const totalPages = Math.ceil(totalAnswers / limit);
-
-      res.status(200).json({
-        success: true,
-        data: {
-          answers: userAnswers.map(answer => ({
-            id: answer._id,
-            question: {
-              id: answer.questionId._id,
-              question: answer.questionId.question.substring(0, 200) + '...',
-              difficultyLevel: answer.questionId.metadata.difficultyLevel,
-              maximumMarks: answer.questionId.metadata.maximumMarks,
-              languageMode: answer.questionId.languageMode
-            },
-            ...(answer.setId && {
-              set: {
-                id: answer.setId._id,
-                name: answer.setId.name,
-                itemType: answer.setId.itemType
-              }
-            }),
-            imagesCount: answer.answerImages.length,
-            hasTextAnswer: !!answer.textAnswer,
-            submissionStatus: answer.submissionStatus,
-            submittedAt: answer.submittedAt,
-            timeSpent: answer.metadata.timeSpent,
-            sourceType: answer.metadata.sourceType,
-            updatedAt: answer.updatedAt
-          })),
-          pagination: {
-            currentPage: page,
-            totalPages: totalPages,
-            totalAnswers: totalAnswers,
-            hasNextPage: page < totalPages,
-            hasPrevPage: page > 1
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('Get user answers error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
     }
-  }
-);
+  );
 
-// Delete user's answer (with image cleanup) - Now uses authenticated user
+// Delete user's answer (with image cleanup)
 router.delete('/questions/:questionId/answers',
-  authenticateMobileUser, // Add authentication middleware
+  authenticateMobileUser,
   validateQuestionId,
   async (req, res) => {
     try {
@@ -491,7 +727,7 @@ router.delete('/questions/:questionId/answers',
       }
 
       const { questionId } = req.params;
-      const userId = req.user.id; // Get from authenticated user
+      const userId = req.user.id;
 
       const userAnswer = await UserAnswer.findOne({
         userId: userId,
@@ -509,7 +745,6 @@ router.delete('/questions/:questionId/answers',
         });
       }
 
-      // Clean up images from Cloudinary
       if (userAnswer.answerImages.length > 0) {
         for (const image of userAnswer.answerImages) {
           try {

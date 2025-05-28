@@ -220,10 +220,49 @@ const ensureUserBelongsToClient = async (req, res, next) => {
     });
   }
 };
+// Add new middleware for QR code authentication
+const authenticateQRCode = async (req, res, next) => {
+  try {
+    const token = req.query.token || req.headers['x-qr-token'];
+    
+    if (!token) {
+      return next(); // Not a QR code auth request
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      return res.status(401).json({ error: 'Invalid QR token' });
+    }
+
+    if (decoded.type !== 'qr') {
+      return res.status(401).json({ error: 'Invalid token type' });
+    }
+
+    // QR tokens are short-lived (5 minutes)
+    if (decoded.exp < Math.floor(Date.now() / 1000)) {
+      return res.status(401).json({ error: 'QR token expired' });
+    }
+
+    // Set QR authentication in request
+    req.qrAuth = {
+      isAuthenticated: true,
+      questionId: decoded.questionId,
+      clientId: decoded.clientId
+    };
+
+    next();
+  } catch (error) {
+    console.error('QR authentication error:', error);
+    next(); // Continue without failing
+  }
+};
 
 module.exports = {
   generateToken,
   authenticateMobileUser,
   checkClientAccess,
-  ensureUserBelongsToClient
+  ensureUserBelongsToClient,
+  authenticateQRCode
 };

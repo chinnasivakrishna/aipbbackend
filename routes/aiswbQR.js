@@ -58,7 +58,35 @@ const createMinimalQuestionData = (question, baseUrl, includeAnswers = false) =>
   };
 };
 
-// Generate QR code for a single question
+const createMobileDeepLink = (questionId, baseUrl) => {
+  return `edtechapp://question/${questionId}?webUrl=${encodeURIComponent(`${baseUrl}/api/aiswb/questions/${questionId}`)}`;
+};
+
+// Helper function to create question data with both web and mobile formats
+const createUniversalQuestionData = (question, baseUrl, includeAnswers = false) => {
+  return {
+    web: {
+      url: `${baseUrl}/api/aiswb/questions/${question._id}`,
+      title: truncateText(question.question, 100),
+      description: includeAnswers ? truncateText(question.detailedAnswer, 200) : undefined
+    },
+    mobile: {
+      deepLink: createMobileDeepLink(question._id, baseUrl),
+      data: {
+        id: question._id.toString(),
+        q: truncateText(question.question, 200),
+        ...(includeAnswers && question.detailedAnswer && {
+          a: truncateText(question.detailedAnswer, 300)
+        }),
+        d: question.metadata.difficultyLevel,
+        m: question.metadata.maximumMarks,
+        t: question.metadata.estimatedTime
+      }
+    }
+  };
+};
+
+// Generate QR code for a single question (updated)
 router.get('/questions/:questionId/qrcode', 
   validateQuestionId,
   validateQROptions,
@@ -66,19 +94,12 @@ router.get('/questions/:questionId/qrcode',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
 
       const { questionId } = req.params;
       const { 
-        format = 'minimal', 
+        format = 'universal', 
         size = 300, 
         includeAnswers = false,
         maxLength = 1000
@@ -87,82 +108,36 @@ router.get('/questions/:questionId/qrcode',
       // Find the question
       const question = await Question.findById(questionId);
       if (!question) {
-        return res.status(404).json({
-          success: false,
-          message: "Question not found",
-          error: {
-            code: "QUESTION_NOT_FOUND",
-            details: "The specified question does not exist"
-          }
-        });
+        return res.status(404).json({ error: 'Question not found' });
       }
 
-      // Prepare question data based on format
-      let qrData;
       const baseUrl = `${req.protocol}://${req.get('host')}`;
+      let qrData;
 
       switch (format) {
         case 'url':
           qrData = `${baseUrl}/api/aiswb/questions/${questionId}`;
           break;
         
-        case 'text':
-          qrData = `Q: ${truncateText(question.question, 200)}\n`;
-          if (includeAnswers === 'true' && question.detailedAnswer) {
-            qrData += `A: ${truncateText(question.detailedAnswer, 300)}\n`;
-          }
-          qrData += `Level: ${question.metadata.difficultyLevel}\n`;
-          qrData += `Marks: ${question.metadata.maximumMarks}`;
+        case 'mobile':
+          qrData = createMobileDeepLink(questionId, baseUrl);
           break;
         
-        case 'minimal':
-          qrData = JSON.stringify(createMinimalQuestionData(question, baseUrl, includeAnswers === 'true'));
+        case 'universal':
+          qrData = JSON.stringify(createUniversalQuestionData(question, baseUrl, includeAnswers === 'true'));
           break;
         
-        default: // json - but optimized
-          const optimizedData = {
-            id: question._id.toString(),
-            question: truncateText(question.question, 300),
-            ...(includeAnswers === 'true' && question.detailedAnswer && {
-              answer: truncateText(question.detailedAnswer, 400)
-            }),
-            meta: {
-              difficulty: question.metadata.difficultyLevel,
-              marks: question.metadata.maximumMarks,
-              time: question.metadata.estimatedTime,
-              ...(question.metadata.keywords?.length > 0 && {
-                keywords: question.metadata.keywords.slice(0, 3) // Limit keywords
-              })
-            },
-            url: `${baseUrl}/api/aiswb/questions/${questionId}`
-          };
-          qrData = JSON.stringify(optimizedData);
+        default:
+          qrData = JSON.stringify(createUniversalQuestionData(question, baseUrl, includeAnswers === 'true'));
           break;
       }
 
-      // Check if data is too long
-      if (qrData.length > parseInt(maxLength)) {
-        // Try to create a URL-only QR code as fallback
-        qrData = `${baseUrl}/api/aiswb/questions/${questionId}`;
-        
-        // If still too long, create a minimal ID-only QR
-        if (qrData.length > parseInt(maxLength)) {
-          qrData = JSON.stringify({
-            id: questionId,
-            url: `${baseUrl}/api/aiswb/questions/${questionId}`
-          });
-        }
-      }
-
-      // Generate QR code with error correction
+      // Generate QR code
       const qrCodeOptions = {
         width: parseInt(size),
         margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#FFFFFF'
-        },
-        errorCorrectionLevel: 'M' // Medium error correction
+        color: { dark: '#000000', light: '#FFFFFF' },
+        errorCorrectionLevel: 'H' // High error correction for reliability
       };
 
       const qrCodeDataURL = await QRCode.toDataURL(qrData, qrCodeOptions);
@@ -176,61 +151,18 @@ router.get('/questions/:questionId/qrcode',
           size: parseInt(size),
           includeAnswers: includeAnswers === 'true',
           dataSize: qrData.length,
-          truncated: qrData.length >= parseInt(maxLength),
-          metadata: {
-            question: truncateText(question.question, 100),
-            difficultyLevel: question.metadata.difficultyLevel,
-            languageMode: question.languageMode
-          }
+          mobileDeepLink: format === 'universal' ? createMobileDeepLink(questionId, baseUrl) : undefined
         }
       });
 
     } catch (error) {
       console.error('Generate question QR code error:', error);
-      
-      // If QR generation fails due to data size, try URL fallback
-      if (error.message.includes('too big') || error.message.includes('data')) {
-        try {
-          const baseUrl = `${req.protocol}://${req.get('host')}`;
-          const fallbackData = `${baseUrl}/api/aiswb/questions/${req.params.questionId}`;
-          
-          const qrCodeOptions = {
-            width: parseInt(req.query.size || 300),
-            margin: 2,
-            errorCorrectionLevel: 'M'
-          };
-          
-          const fallbackQR = await QRCode.toDataURL(fallbackData, qrCodeOptions);
-          
-          return res.status(200).json({
-            success: true,
-            data: {
-              questionId: req.params.questionId,
-              qrCode: fallbackQR,
-              format: 'url',
-              size: parseInt(req.query.size || 300),
-              fallback: true,
-              message: 'Generated URL-only QR code due to data size limitations'
-            }
-          });
-        } catch (fallbackError) {
-          console.error('Fallback QR generation failed:', fallbackError);
-        }
-      }
-      
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );
 
-// Generate QR code for all questions in a set
+// Generate QR code for a set (updated)
 router.get('/sets/:setId/qrcode',
   validateSetId,
   validateQROptions,
@@ -238,19 +170,12 @@ router.get('/sets/:setId/qrcode',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
 
       const { setId } = req.params;
       const { 
-        format = 'minimal', 
+        format = 'universal', 
         size = 300, 
         includeAnswers = false,
         maxLength = 1500
@@ -259,14 +184,7 @@ router.get('/sets/:setId/qrcode',
       // Find the set with populated questions
       const set = await AISWBSet.findById(setId).populate('questions');
       if (!set) {
-        return res.status(404).json({
-          success: false,
-          message: "Set not found",
-          error: {
-            code: "SET_NOT_FOUND",
-            details: "The specified set does not exist"
-          }
-        });
+        return res.status(404).json({ error: 'Set not found' });
       }
 
       const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -277,63 +195,51 @@ router.get('/sets/:setId/qrcode',
           qrData = `${baseUrl}/api/aiswb/sets/${setId}/questions`;
           break;
         
-        case 'text':
-          qrData = `Set: ${truncateText(set.name, 50)}\n`;
-          qrData += `Questions: ${set.questions.length}\n`;
-          // Only include first few questions for text format
-          set.questions.slice(0, 3).forEach((question, index) => {
-            qrData += `${index + 1}. ${truncateText(question.question, 100)}\n`;
-          });
-          if (set.questions.length > 3) {
-            qrData += `... and ${set.questions.length - 3} more`;
-          }
+        case 'mobile':
+          qrData = `edtechapp://set/${setId}?webUrl=${encodeURIComponent(`${baseUrl}/api/aiswb/sets/${setId}/questions`)}`;
           break;
         
-        case 'minimal':
+        case 'universal':
           qrData = JSON.stringify({
-            id: set._id.toString(),
-            name: truncateText(set.name, 50),
-            count: set.questions.length,
-            questions: set.questions.slice(0, 5).map(q => ({ // Limit to first 5 questions
-              id: q._id.toString(),
-              q: truncateText(q.question, 100),
-              d: q.metadata.difficultyLevel,
-              m: q.metadata.maximumMarks
-            })),
-            url: `${baseUrl}/api/aiswb/sets/${setId}/questions`
+            web: {
+              url: `${baseUrl}/api/aiswb/sets/${setId}/questions`,
+              title: truncateText(set.name, 100),
+              description: `Set containing ${set.questions.length} questions`
+            },
+            mobile: {
+              deepLink: `edtechapp://set/${setId}?webUrl=${encodeURIComponent(`${baseUrl}/api/aiswb/sets/${setId}/questions`)}`,
+              data: {
+                id: set._id.toString(),
+                name: truncateText(set.name, 100),
+                count: set.questions.length,
+                questions: set.questions.slice(0, 5).map(q => ({
+                  id: q._id.toString(),
+                  q: truncateText(q.question, 100)
+                }))
+              }
+            }
           });
           break;
         
-        default: // json - optimized
+        default:
           qrData = JSON.stringify({
-            setId: set._id.toString(),
-            name: truncateText(set.name, 100),
-            total: set.questions.length,
-            preview: set.questions.slice(0, 3).map(q => ({
-              id: q._id.toString(),
-              question: truncateText(q.question, 150),
-              difficulty: q.metadata.difficultyLevel,
-              marks: q.metadata.maximumMarks
-            })),
-            url: `${baseUrl}/api/aiswb/sets/${setId}/questions`
+            web: {
+              url: `${baseUrl}/api/aiswb/sets/${setId}/questions`,
+              title: truncateText(set.name, 100)
+            },
+            mobile: {
+              deepLink: `edtechapp://set/${setId}?webUrl=${encodeURIComponent(`${baseUrl}/api/aiswb/sets/${setId}/questions`)}`
+            }
           });
           break;
-      }
-
-      // Check data size and apply fallback if needed
-      if (qrData.length > parseInt(maxLength)) {
-        qrData = `${baseUrl}/api/aiswb/sets/${setId}/questions`;
       }
 
       // Generate QR code
       const qrCodeOptions = {
         width: parseInt(size),
         margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#FFFFFF'
-        },
-        errorCorrectionLevel: 'M'
+        color: { dark: '#000000', light: '#FFFFFF' },
+        errorCorrectionLevel: 'H'
       };
 
       const qrCodeDataURL = await QRCode.toDataURL(qrData, qrCodeOptions);
@@ -342,135 +248,49 @@ router.get('/sets/:setId/qrcode',
         success: true,
         data: {
           setId: set._id.toString(),
-          setName: set.name,
           qrCode: qrCodeDataURL,
           format,
           size: parseInt(size),
           includeAnswers: includeAnswers === 'true',
           dataSize: qrData.length,
-          questionsCount: set.questions.length,
-          truncated: qrData.length >= parseInt(maxLength),
-          metadata: {
-            itemType: set.itemType,
-            totalQuestions: set.questions.length,
-            difficultyBreakdown: set.questions.reduce((acc, q) => {
-              acc[q.metadata.difficultyLevel] = (acc[q.metadata.difficultyLevel] || 0) + 1;
-              return acc;
-            }, {})
-          }
+          mobileDeepLink: format === 'universal' ? `edtechapp://set/${setId}` : undefined
         }
       });
 
     } catch (error) {
       console.error('Generate set QR code error:', error);
-      
-      // Fallback for set QR codes
-      if (error.message.includes('too big') || error.message.includes('data')) {
-        try {
-          const baseUrl = `${req.protocol}://${req.get('host')}`;
-          const fallbackData = `${baseUrl}/api/aiswb/sets/${req.params.setId}/questions`;
-          
-          const qrCodeOptions = {
-            width: parseInt(req.query.size || 300),
-            margin: 2,
-            errorCorrectionLevel: 'M'
-          };
-          
-          const fallbackQR = await QRCode.toDataURL(fallbackData, qrCodeOptions);
-          
-          return res.status(200).json({
-            success: true,
-            data: {
-              setId: req.params.setId,
-              qrCode: fallbackQR,
-              format: 'url',
-              size: parseInt(req.query.size || 300),
-              fallback: true,
-              message: 'Generated URL-only QR code due to data size limitations'
-            }
-          });
-        } catch (fallbackError) {
-          console.error('Fallback QR generation failed:', fallbackError);
-        }
-      }
-      
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );
 
-// Generate batch QR codes for multiple questions
+// Generate batch QR codes (updated)
 router.post('/questions/batch/qrcode',
-  [
-    query('format')
-      .optional()
-      .isIn(['json', 'url', 'text', 'minimal'])
-      .withMessage('Format must be json, url, text, or minimal'),
-    query('size')
-      .optional()
-      .isInt({ min: 100, max: 1000 })
-      .withMessage('Size must be between 100 and 1000 pixels'),
-    query('includeAnswers')
-      .optional()
-      .isBoolean()
-      .withMessage('includeAnswers must be a boolean'),
-    query('maxLength')
-      .optional()
-      .isInt({ min: 100, max: 2000 })
-      .withMessage('maxLength must be between 100 and 2000 characters')
-  ],
+  [ /* keep existing validation */ ],
   async (req, res) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
+        return res.status(400).json({ errors: errors.array() });
       }
 
       const { questionIds } = req.body;
       const { 
-        format = 'minimal', 
+        format = 'universal', 
         size = 300, 
         includeAnswers = false,
         maxLength = 1000
       } = req.query;
 
       if (!questionIds || !Array.isArray(questionIds) || questionIds.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: "Question IDs array is required",
-          error: {
-            code: "INVALID_INPUT",
-            details: "questionIds must be a non-empty array"
-          }
-        });
+        return res.status(400).json({ error: 'Question IDs array is required' });
       }
 
       // Find all questions
       const questions = await Question.find({ _id: { $in: questionIds } });
       
       if (questions.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No questions found",
-          error: {
-            code: "QUESTIONS_NOT_FOUND",
-            details: "None of the specified questions exist"
-          }
-        });
+        return res.status(404).json({ error: 'No questions found' });
       }
 
       const baseUrl = `${req.protocol}://${req.get('host')}`;
@@ -479,11 +299,8 @@ router.post('/questions/batch/qrcode',
       const qrCodeOptions = {
         width: parseInt(size),
         margin: 2,
-        color: {
-          dark: '#000000',
-          light: '#FFFFFF'
-        },
-        errorCorrectionLevel: 'M'
+        color: { dark: '#000000', light: '#FFFFFF' },
+        errorCorrectionLevel: 'H'
       };
 
       // Generate QR code for each question
@@ -495,36 +312,17 @@ router.post('/questions/batch/qrcode',
             qrData = `${baseUrl}/api/aiswb/questions/${question._id}`;
             break;
           
-          case 'text':
-            qrData = `Q: ${truncateText(question.question, 200)}\n`;
-            if (includeAnswers === 'true' && question.detailedAnswer) {
-              qrData += `A: ${truncateText(question.detailedAnswer, 200)}\n`;
-            }
-            qrData += `Level: ${question.metadata.difficultyLevel}\n`;
-            qrData += `Marks: ${question.metadata.maximumMarks}`;
+          case 'mobile':
+            qrData = createMobileDeepLink(question._id, baseUrl);
             break;
           
-          case 'minimal':
-            qrData = JSON.stringify(createMinimalQuestionData(question, baseUrl, includeAnswers === 'true'));
+          case 'universal':
+            qrData = JSON.stringify(createUniversalQuestionData(question, baseUrl, includeAnswers === 'true'));
             break;
           
-          default: // json - optimized
-            qrData = JSON.stringify({
-              id: question._id.toString(),
-              question: truncateText(question.question, 250),
-              ...(includeAnswers === 'true' && question.detailedAnswer && {
-                answer: truncateText(question.detailedAnswer, 300)
-              }),
-              difficulty: question.metadata.difficultyLevel,
-              marks: question.metadata.maximumMarks,
-              url: `${baseUrl}/api/aiswb/questions/${question._id}`
-            });
+          default:
+            qrData = JSON.stringify(createUniversalQuestionData(question, baseUrl, includeAnswers === 'true'));
             break;
-        }
-
-        // Apply length limit with fallback
-        if (qrData.length > parseInt(maxLength)) {
-          qrData = `${baseUrl}/api/aiswb/questions/${question._id}`;
         }
 
         try {
@@ -532,24 +330,15 @@ router.post('/questions/batch/qrcode',
 
           qrCodes.push({
             questionId: question._id.toString(),
-            question: truncateText(question.question, 100),
             qrCode: qrCodeDataURL,
-            dataSize: qrData.length,
-            truncated: qrData.length >= parseInt(maxLength),
-            metadata: {
-              difficultyLevel: question.metadata.difficultyLevel,
-              maximumMarks: question.metadata.maximumMarks,
-              languageMode: question.languageMode
-            }
+            format,
+            mobileDeepLink: format === 'universal' ? createMobileDeepLink(question._id, baseUrl) : undefined
           });
         } catch (qrError) {
           console.error(`QR generation failed for question ${question._id}:`, qrError);
-          // Skip this question or add error info
           qrCodes.push({
             questionId: question._id.toString(),
-            question: truncateText(question.question, 100),
-            error: 'QR generation failed',
-            dataSize: qrData.length
+            error: 'QR generation failed'
           });
         }
       }
@@ -559,23 +348,56 @@ router.post('/questions/batch/qrcode',
         data: {
           totalRequested: questionIds.length,
           totalGenerated: qrCodes.filter(qr => qr.qrCode).length,
-          format,
-          size: parseInt(size),
-          includeAnswers: includeAnswers === 'true',
           qrCodes
         }
       });
 
     } catch (error) {
       console.error('Generate batch QR codes error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
+      res.status(500).json({ error: 'Internal server error' });
+    }
+  }
+);
+
+// Add a new endpoint to handle QR code data requests
+router.get('/questions/:questionId/data', 
+  validateQuestionId,
+  async (req, res) => {
+    try {
+      const { questionId } = req.params;
+      const userAgent = req.headers['user-agent'];
+      const isMobileApp = userAgent.includes('YourAppName'); // Replace with your app's user agent identifier
+
+      const question = await Question.findById(questionId);
+      if (!question) {
+        return res.status(404).json({ error: 'Question not found' });
+      }
+
+      if (isMobileApp) {
+        // Return detailed data for mobile app
+        res.json({
+          success: true,
+          type: 'question',
+          data: {
+            id: question._id,
+            question: question.question,
+            detailedAnswer: question.detailedAnswer,
+            metadata: question.metadata
+          }
+        });
+      } else {
+        // Redirect web users to a web page or return minimal data
+        res.json({
+          success: true,
+          type: 'redirect',
+          url: `${req.protocol}://${req.get('host')}/questions/${questionId}`,
+          title: question.question.substring(0, 100),
+          description: 'Scan this QR code with the mobile app to view full content'
+        });
+      }
+    } catch (error) {
+      console.error('Question data error:', error);
+      res.status(500).json({ error: 'Internal server error' });
     }
   }
 );

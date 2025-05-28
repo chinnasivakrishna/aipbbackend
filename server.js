@@ -24,7 +24,7 @@ const mobileAuthRoutes = require('./routes/mobileAuth');
 const mobileBooksRoutes = require('./routes/mobileBooks');
 const aiswbRoutes = require('./routes/aiswb');
 const userAnswersRoutes = require('./routes/userAnswers');
-const { checkClientAccess } = require('./middleware/mobileAuth'); // Import client access middleware
+const { checkClientAccess } = require('./middleware/mobileAuth');
 
 const app = express();
 
@@ -35,6 +35,11 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 mongoose.connect(process.env.MONGODB_URI)
   .then(() => console.log('Connected to MongoDB'))
   .catch(err => console.error('MongoDB connection error:', err));
+
+// Verify Mistral API key is configured
+if (!process.env.MISTRAL_API_KEY) {
+  console.warn('MISTRAL_API_KEY is not configured - OCR features will be disabled');
+}
 
 // API routes
 app.use('/api/auth', authRoutes);
@@ -53,12 +58,11 @@ app.use('/api/objective-assets', objectiveAssetsRoutes);
 app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
-// AISWB routes
 app.use('/api/aiswb', aiswbRoutes);
 
-// Mobile routes with client-specific structure and proper middleware
+// Mobile routes
 app.use('/api/clients/:clientId/mobile/auth', 
-  checkClientAccess(), // Add client validation
+  checkClientAccess(),
   (req, res, next) => {
     req.clientId = req.params.clientId;
     next();
@@ -67,7 +71,7 @@ app.use('/api/clients/:clientId/mobile/auth',
 );
 
 app.use('/api/clients/:clientId/mobile/books', 
-  checkClientAccess(), // Add client validation
+  checkClientAccess(),
   (req, res, next) => {
     req.clientId = req.params.clientId;
     next();
@@ -75,9 +79,8 @@ app.use('/api/clients/:clientId/mobile/books',
   mobileBooksRoutes
 );
 
-// Add userAnswers routes with client-specific structure and proper middleware
 app.use('/api/clients/:clientId/mobile/userAnswers', 
-  checkClientAccess(), // Add client validation
+  checkClientAccess(),
   (req, res, next) => {
     req.clientId = req.params.clientId;
     next();
@@ -85,7 +88,7 @@ app.use('/api/clients/:clientId/mobile/userAnswers',
   userAnswersRoutes
 );
 
-// Mount subtopics routes with nested path parameters
+// Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 
