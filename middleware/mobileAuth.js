@@ -1,4 +1,4 @@
-// middleware/mobileAuth.js - Fixed parameter handling
+// middleware/mobileAuth.js - Improved version
 const jwt = require('jsonwebtoken');
 const MobileUser = require('../models/MobileUser');
 const User = require('../models/User');
@@ -25,16 +25,36 @@ const authenticateMobileUser = async (req, res, next) => {
     if (!token) {
       return res.status(401).json({
         success: false,
-        message: 'Access denied. No token provided.'
+        message: 'Access denied. No token provided.',
+        error: {
+          code: 'NO_TOKEN',
+          details: 'Authorization header with Bearer token is required'
+        }
       });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (jwtError) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token.',
+        error: {
+          code: 'INVALID_TOKEN',
+          details: jwtError.message
+        }
+      });
+    }
     
     if (decoded.type !== 'mobile') {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token type.'
+        message: 'Invalid token type.',
+        error: {
+          code: 'INVALID_TOKEN_TYPE',
+          details: 'This endpoint requires a mobile user token'
+        }
       });
     }
 
@@ -47,32 +67,51 @@ const authenticateMobileUser = async (req, res, next) => {
     if (!user) {
       return res.status(401).json({
         success: false,
-        message: 'Invalid token or user not found.'
+        message: 'Invalid token or user not found.',
+        error: {
+          code: 'USER_NOT_FOUND',
+          details: 'User associated with this token does not exist or token has been revoked'
+        }
       });
     }
 
     // Verify client ID from URL matches user's client
-    // Try multiple ways to get clientId
     const clientIdFromUrl = req.params.clientId || req.clientId;
     if (clientIdFromUrl && user.clientId !== clientIdFromUrl) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied. Client mismatch.'
+        message: 'Access denied. Client mismatch.',
+        error: {
+          code: 'CLIENT_MISMATCH',
+          details: `User belongs to client ${user.clientId} but trying to access ${clientIdFromUrl}`
+        }
       });
     }
 
+    // Set user information in request
     req.user = {
       id: user._id,
       mobile: user.mobile,
-      clientId: user.clientId
+      clientId: user.clientId,
+      isAuthenticated: true
     };
+
+    console.log('Mobile user authenticated:', {
+      userId: req.user.id,
+      mobile: req.user.mobile,
+      clientId: req.user.clientId
+    });
 
     next();
   } catch (error) {
     console.error('Authentication error:', error);
-    res.status(401).json({
+    res.status(500).json({
       success: false,
-      message: 'Invalid token.'
+      message: 'Internal server error during authentication.',
+      error: {
+        code: 'AUTH_SERVER_ERROR',
+        details: error.message
+      }
     });
   }
 };
@@ -81,17 +120,19 @@ const authenticateMobileUser = async (req, res, next) => {
 const checkClientAccess = (allowedClients = []) => {
   return async (req, res, next) => {
     try {
-      // Try multiple ways to get clientId
       const clientId = req.params.clientId || req.clientId;
       
       console.log('Checking client access for:', clientId);
-      console.log('Available params:', req.params);
       console.log('Request URL:', req.originalUrl);
       
       if (!clientId) {
         return res.status(400).json({
           success: false,
-          message: 'Client ID is required.'
+          message: 'Client ID is required.',
+          error: {
+            code: 'MISSING_CLIENT_ID',
+            details: 'Client ID must be provided in the URL path'
+          }
         });
       }
 
@@ -105,15 +146,12 @@ const checkClientAccess = (allowedClients = []) => {
       if (!client) {
         return res.status(400).json({
           success: false,
-          message: 'Invalid client ID or client is not active.'
+          message: 'Invalid client ID or client is not active.',
+          error: {
+            code: 'INVALID_CLIENT',
+            details: `Client with ID ${clientId} not found or is not active`
+          }
         });
-      }
-
-      // If specific clients are allowed, check if current client is in the list
-      // This is kept for backward compatibility but can be removed if not needed
-      if (allowedClients.length > 0) {
-        // For now, we'll allow all valid clients
-        // You can implement specific business logic here if needed
       }
 
       // Add client info to request
@@ -122,22 +160,70 @@ const checkClientAccess = (allowedClients = []) => {
         id: client._id,
         userId: client.userId,
         businessName: client.businessName,
-        businessOwnerName: client.businessOwnerName
+        businessOwnerName: client.businessOwnerName,
+        status: client.status
       };
 
+      console.log('Client access granted for:', client.businessName);
       next();
     } catch (error) {
       console.error('Client access check error:', error);
       res.status(500).json({
         success: false,
-        message: 'Internal server error during client validation.'
+        message: 'Internal server error during client validation.',
+        error: {
+          code: 'CLIENT_CHECK_ERROR',
+          details: error.message
+        }
       });
     }
   };
 };
 
+// Middleware to ensure user belongs to the client (additional security)
+const ensureUserBelongsToClient = async (req, res, next) => {
+  try {
+    if (!req.user || !req.user.isAuthenticated) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated.',
+        error: {
+          code: 'NOT_AUTHENTICATED',
+          details: 'This middleware requires user to be authenticated first'
+        }
+      });
+    }
+
+    const clientId = req.params.clientId || req.clientId;
+    
+    if (req.user.clientId !== clientId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. User does not belong to this client.',
+        error: {
+          code: 'CLIENT_USER_MISMATCH',
+          details: `User belongs to client ${req.user.clientId} but trying to access ${clientId}`
+        }
+      });
+    }
+
+    next();
+  } catch (error) {
+    console.error('User-client verification error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error during user-client verification.',
+      error: {
+        code: 'USER_CLIENT_CHECK_ERROR',
+        details: error.message
+      }
+    });
+  }
+};
+
 module.exports = {
   generateToken,
   authenticateMobileUser,
-  checkClientAccess
+  checkClientAccess,
+  ensureUserBelongsToClient
 };

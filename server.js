@@ -22,7 +22,9 @@ const qrCodeRoutes = require('./routes/qrcode');
 const pdfSplitsRoutes = require('./routes/pdfSplits');
 const mobileAuthRoutes = require('./routes/mobileAuth');
 const mobileBooksRoutes = require('./routes/mobileBooks');
-const aiswbRoutes = require('./routes/aiswb'); // New AISWB routes
+const aiswbRoutes = require('./routes/aiswb');
+const userAnswersRoutes = require('./routes/userAnswers');
+const { checkClientAccess } = require('./middleware/mobileAuth'); // Import client access middleware
 
 const app = express();
 
@@ -54,16 +56,34 @@ app.use('/api/books', pdfSplitsRoutes);
 // AISWB routes
 app.use('/api/aiswb', aiswbRoutes);
 
-// Mobile routes with client-specific structure
-app.use('/api/clients/:clientId/mobile/auth', (req, res, next) => {
-  req.clientId = req.params.clientId;
-  next();
-}, mobileAuthRoutes);
+// Mobile routes with client-specific structure and proper middleware
+app.use('/api/clients/:clientId/mobile/auth', 
+  checkClientAccess(), // Add client validation
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mobileAuthRoutes
+);
 
-app.use('/api/clients/:clientId/mobile/books', (req, res, next) => {
-  req.clientId = req.params.clientId;
-  next();
-}, mobileBooksRoutes);
+app.use('/api/clients/:clientId/mobile/books', 
+  checkClientAccess(), // Add client validation
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mobileBooksRoutes
+);
+
+// Add userAnswers routes with client-specific structure and proper middleware
+app.use('/api/clients/:clientId/mobile/userAnswers', 
+  checkClientAccess(), // Add client validation
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  userAnswersRoutes
+);
 
 // Mount subtopics routes with nested path parameters
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
