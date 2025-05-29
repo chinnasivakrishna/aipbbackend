@@ -1,7 +1,8 @@
 const Question = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult } = require('express-validator');
-
+const UserAnswer = require('../models/UserAnswer');
+const UserProfile = require('../models/UserProfile');
 // Question Controllers
 const addQuestion = async (req, res) => {
   try {
@@ -582,6 +583,152 @@ const deleteQuestionFromSet = async (req, res) => {
   }
 };
 
+const getQuestionSubmissions = async (req, res) => {
+  try {
+    const { questionId } = req.params;
+    const {
+      page = 1,
+      limit = 10,
+      status = 'all',
+      sortBy = 'submittedAt',
+      sortOrder = 'desc'
+    } = req.query;
+
+    // Validate questionId
+    const question = await Question.findById(questionId);
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        message: "Question not found",
+        error: {
+          code: "QUESTION_NOT_FOUND",
+          details: "The specified question does not exist"
+        }
+      });
+    }
+
+    // Build query filters
+    const matchQuery = { questionId };
+    
+    // Filter by evaluation status if specified
+    if (status !== 'all') {
+      if (status === 'published') {
+        matchQuery['feedback.status'] = 'published';
+      } else if (status === 'not_published') {
+        matchQuery['feedback.status'] = { $ne: 'published' };
+      }
+    }
+
+    // Build sort object
+    const sortObject = {};
+    if (sortBy === 'marks') {
+      sortObject['feedback.score'] = sortOrder === 'asc' ? 1 : -1;
+    } else if (sortBy === 'accuracy') {
+      sortObject['feedback.accuracy'] = sortOrder === 'asc' ? 1 : -1;
+    } else {
+      sortObject['submittedAt'] = sortOrder === 'asc' ? 1 : -1;
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // Get total count
+    const totalSubmissions = await UserAnswer.countDocuments(matchQuery);
+
+    // Get submissions with populated user data
+    const submissions = await UserAnswer.find(matchQuery)
+      .populate('userId') // Only populate the MobileUser
+      .sort(sortObject)
+      .skip(skip)
+      .limit(limitNum)
+      .lean();
+
+    // Get user profiles separately
+    const userIds = submissions.map(s => s.userId?._id).filter(Boolean);
+    const userProfiles = await UserProfile.find({
+      userId: { $in: userIds }
+    }).lean();
+
+    // Create a map of userId to profile for quick lookup
+    const profileMap = userProfiles.reduce((map, profile) => {
+      map[profile.userId.toString()] = profile;
+      return map;
+    }, {});
+
+    // Transform submissions data
+    const transformedSubmissions = submissions.map(submission => {
+      const mobileUser = submission.userId || {};
+      const userProfile = profileMap[mobileUser._id?.toString()] || {};
+      
+      return {
+        submissionId: submission._id.toString(),
+        userId: mobileUser._id?.toString() || '',
+        userDetails: {
+          name: userProfile.name || 'Anonymous User',
+          email: mobileUser.mobile || 'N/A', // Using mobile as email equivalent
+          profileImage: null, // Not implemented in current schema
+          role: 'student' // Default role
+        },
+        images: submission.answerImages.map(img => ({
+          imageId: img._id?.toString() || '',
+          imageUrl: img.imageUrl,
+          uploadedAt: img.uploadedAt,
+          imageType: 'answer',
+          imageSize: 0, // Not stored in current schema
+          imageFormat: img.imageUrl?.split('.').pop()?.toLowerCase() || 'jpg'
+        })),
+        evaluation: {
+          evaluationId: submission._id.toString(),
+          evaluationMode: submission.reviewedBy ? 'manual' : 'auto',
+          marks: submission.feedback?.score || 0,
+          accuracy: submission.feedback?.accuracy || 0,
+          status: submission.feedback?.status || 'not_published',
+          evaluatedAt: submission.reviewedAt || submission.updatedAt,
+          evaluatedBy: submission.reviewedBy?.toString() || 'system'
+        },
+        submittedAt: submission.submittedAt,
+        updatedAt: submission.updatedAt
+      };
+    });
+
+    // Calculate pagination info
+    const totalPages = Math.ceil(totalSubmissions / limitNum);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        submissions: transformedSubmissions,
+        pagination: {
+          total: totalSubmissions,
+          page: parseInt(page),
+          limit: limitNum,
+          totalPages
+        },
+        questionDetails: {
+          questionId: question._id.toString(),
+          title: question.question,
+          description: question.detailedAnswer,
+          metadata: {
+            maximumMarks: question.metadata.maximumMarks,
+            qualityParameters: question.metadata.qualityParameters
+          }
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Get question submissions error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+};
 module.exports = {
   addQuestion,
   updateQuestion,
@@ -593,5 +740,6 @@ module.exports = {
   deleteAISWBSet,
   getQuestionsInSet,
   addQuestionToSet,
-  deleteQuestionFromSet
+  deleteQuestionFromSet,
+  getQuestionSubmissions
 };

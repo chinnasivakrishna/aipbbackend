@@ -1,4 +1,4 @@
-const { body, param } = require('express-validator');
+const { body, param, query } = require('express-validator');
 
 const validateQuestion = [
   body('question.question')
@@ -158,6 +158,37 @@ const validateQuestionToSet = [
     .withMessage('Language mode must be english or hindi')
 ];
 
+const validateQuestionSubmissionsQuery = [
+  param('questionId')
+    .isMongoId()
+    .withMessage('Question ID must be a valid MongoDB ObjectId'),
+  
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+  
+  query('status')
+    .optional()
+    .isIn(['published', 'not_published', 'all'])
+    .withMessage('Status must be one of: published, not_published, all'),
+  
+  query('sortBy')
+    .optional()
+    .isIn(['submittedAt', 'marks', 'accuracy'])
+    .withMessage('SortBy must be one of: submittedAt, marks, accuracy'),
+  
+  query('sortOrder')
+    .optional()
+    .isIn(['asc', 'desc'])
+    .withMessage('SortOrder must be either asc or desc')
+];
+
 module.exports = {
   validateQuestion,
   validateQuestionUpdate,
@@ -165,5 +196,6 @@ module.exports = {
   validateSetParams,
   validateSetId,
   validateQuestionId,
-  validateQuestionToSet
+  validateQuestionToSet,
+  validateQuestionSubmissionsQuery
 };

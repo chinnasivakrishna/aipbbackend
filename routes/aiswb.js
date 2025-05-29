@@ -4,7 +4,8 @@ const aiswbController = require('../controllers/aiswbController');
 const aiswbValidation = require('../middleware/aiswbValidation');
 const aiswbQRRoutes = require('./aiswbQR');
 const {verifyToken} = require('../middleware/auth'); // Assuming you have auth middleware
-
+const UserAnswer = require('../models/UserAnswer');
+const UserProfile = require('../models/UserProfile');
 // Apply authentication to all routes
 router.use('/qr', aiswbQRRoutes);
 
@@ -72,6 +73,11 @@ router.delete('/:itemType/:itemId/sets/:setId/questions/:questionId',
   aiswbValidation.validateSetId,
   aiswbValidation.validateQuestionId, 
   aiswbController.deleteQuestionFromSet
+);
+
+router.get('/questions/:questionId/submissions', 
+  aiswbValidation.validateQuestionSubmissionsQuery, 
+  aiswbController.getQuestionSubmissions
 );
 
 module.exports = router;
