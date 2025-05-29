@@ -24,6 +24,7 @@ const mobileAuthRoutes = require('./routes/mobileAuth');
 const mobileBooksRoutes = require('./routes/mobileBooks');
 const aiswbRoutes = require('./routes/aiswb');
 const userAnswersRoutes = require('./routes/userAnswers');
+const evaluationRoutes = require('./routes/evaluations'); // Updated evaluation routes
 const { checkClientAccess } = require('./middleware/mobileAuth');
 
 const app = express();
@@ -60,7 +61,11 @@ app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 app.use('/api/aiswb', aiswbRoutes);
 
-// Mobile routes
+// Global Evaluation routes (accessible without client-specific middleware)
+// These handle the main Assessment Dashboard APIs as per PDF requirements
+app.use('/api/aiswb', evaluationRoutes);
+
+// Mobile routes with client-specific access
 app.use('/api/clients/:clientId/mobile/auth', 
   checkClientAccess(),
   (req, res, next) => {
@@ -86,6 +91,16 @@ app.use('/api/clients/:clientId/mobile/userAnswers',
     next();
   }, 
   userAnswersRoutes
+);
+
+// Client-specific evaluation routes for mobile users
+app.use('/api/clients/:clientId/mobile/evaluations', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  evaluationRoutes
 );
 
 // Mount subtopics routes

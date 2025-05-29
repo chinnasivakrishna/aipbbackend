@@ -20,6 +20,12 @@ const userAnswerSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  attemptNumber: {
+    type: Number,
+    required: true,
+    min: 1,
+    max: 5
+  },
   answerImages: [{
     imageUrl: {
       type: String,
@@ -35,37 +41,6 @@ const userAnswerSchema = new mongoose.Schema({
     uploadedAt: {
       type: Date,
       default: Date.now
-    },
-    // OCR data for each individual image
-    ocrData: {
-      extractedText: {
-        type: String,
-        trim: true,
-        default: ''
-      },
-      processingTime: {
-        type: Number,
-        default: 0
-      },
-      modelUsed: {
-        type: String,
-        default: 'mistral-ocr-latest'
-      },
-      processedAt: {
-        type: Date
-      },
-      confidenceScore: {
-        type: Number,
-        min: 0,
-        max: 1
-      },
-      success: {
-        type: Boolean,
-        default: false
-      },
-      error: {
-        type: String
-      }
     }
   }],
   textAnswer: {
@@ -75,10 +50,11 @@ const userAnswerSchema = new mongoose.Schema({
   submissionStatus: {
     type: String,
     enum: ['draft', 'submitted', 'reviewed'],
-    default: 'draft'
+    default: 'submitted'
   },
   submittedAt: {
-    type: Date
+    type: Date,
+    default: Date.now
   },
   reviewedAt: {
     type: Date
@@ -118,221 +94,77 @@ const userAnswerSchema = new mongoose.Schema({
       enum: ['qr_scan', 'direct_access', 'set_practice'],
       default: 'qr_scan'
     }
-  },
-  // Keep this for backward compatibility and global OCR data
-  ocrData: {
-    extractedText: {
-      type: String,
-      trim: true
-    },
-    processingTime: {
-      type: Number
-    },
-    modelUsed: {
-      type: String
-    },
-    processedAt: {
-      type: Date
-    },
-    confidenceScore: {
-      type: Number
-    }
   }
 }, {
   timestamps: true
 });
 
-// Compound index for efficient queries
-userAnswerSchema.index({ userId: 1, questionId: 1 }, { unique: true });
+// Compound index for unique attempts per user per question
+userAnswerSchema.index({ userId: 1, questionId: 1, attemptNumber: 1 }, { unique: true });
 userAnswerSchema.index({ userId: 1, clientId: 1 });
 userAnswerSchema.index({ questionId: 1, clientId: 1 });
 userAnswerSchema.index({ submissionStatus: 1 });
 
-// Add index for OCR searches
-userAnswerSchema.index({ 'answerImages.ocrData.success': 1 });
-userAnswerSchema.index({ 'answerImages.ocrData.extractedText': 'text' });
+// Pre-save middleware to set attempt number
+userAnswerSchema.pre('save', async function(next) {
+  if (this.isNew) {
+    try {
+      // Find the highest attempt number for this user and question
+      const lastAttempt = await this.constructor.findOne({
+        userId: this.userId,
+        questionId: this.questionId
+      }).sort({ attemptNumber: -1 });
 
-// Pre-save middleware
-userAnswerSchema.pre('save', function(next) {
-  if (this.isModified('submissionStatus') && this.submissionStatus === 'submitted' && !this.submittedAt) {
-    this.submittedAt = new Date();
+      if (lastAttempt) {
+        if (lastAttempt.attemptNumber >= 5) {
+          const error = new Error('Maximum submission limit (5) reached for this question');
+          error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+          return next(error);
+        }
+        this.attemptNumber = lastAttempt.attemptNumber + 1;
+      } else {
+        this.attemptNumber = 1;
+      }
+    } catch (error) {
+      return next(error);
+    }
   }
   next();
 });
 
-// Virtual to get all extracted text from images
-userAnswerSchema.virtual('allExtractedText').get(function() {
-  if (!this.answerImages || this.answerImages.length === 0) {
-    return '';
-  }
-  
-  return this.answerImages
-    .filter(img => img.ocrData && img.ocrData.extractedText)
-    .map(img => img.ocrData.extractedText)
-    .join('\n\n');
-});
-
-// Virtual to get OCR processing statistics
-userAnswerSchema.virtual('ocrStats').get(function() {
-  if (!this.answerImages || this.answerImages.length === 0) {
-    return {
-      totalImages: 0,
-      processedImages: 0,
-      successfulOCR: 0,
-      failedOCR: 0,
-      averageProcessingTime: 0
-    };
-  }
-  
-  const imagesWithOCR = this.answerImages.filter(img => img.ocrData);
-  const successfulOCR = imagesWithOCR.filter(img => img.ocrData.success);
-  const failedOCR = imagesWithOCR.filter(img => !img.ocrData.success);
-  
-  const totalProcessingTime = imagesWithOCR.reduce((sum, img) => {
-    return sum + (img.ocrData.processingTime || 0);
-  }, 0);
+// Static method to check if user can submit more answers
+userAnswerSchema.statics.canUserSubmit = async function(userId, questionId) {
+  const count = await this.countDocuments({
+    userId: userId,
+    questionId: questionId
+  });
   
   return {
-    totalImages: this.answerImages.length,
-    processedImages: imagesWithOCR.length,
-    successfulOCR: successfulOCR.length,
-    failedOCR: failedOCR.length,
-    averageProcessingTime: imagesWithOCR.length > 0 ? 
-      Math.round(totalProcessingTime / imagesWithOCR.length) : 0
+    canSubmit: count < 5,
+    currentAttempts: count,
+    remainingAttempts: Math.max(0, 5 - count)
   };
-});
-
-// Virtual to check if answer has any successful OCR
-userAnswerSchema.virtual('hasSuccessfulOCR').get(function() {
-  if (!this.answerImages || this.answerImages.length === 0) {
-    return false;
-  }
-  
-  return this.answerImages.some(img => 
-    img.ocrData && img.ocrData.success && img.ocrData.extractedText
-  );
-});
-
-// Method to get combined text content (text answer + OCR)
-userAnswerSchema.methods.getCombinedTextContent = function() {
-  const textParts = [];
-  
-  // Add manual text answer if exists
-  if (this.textAnswer && this.textAnswer.trim()) {
-    textParts.push('Manual Answer:\n' + this.textAnswer.trim());
-  }
-  
-  // Add OCR extracted text if exists
-  const ocrText = this.allExtractedText;
-  if (ocrText && ocrText.trim()) {
-    textParts.push('Extracted from Images:\n' + ocrText.trim());
-  }
-  
-  return textParts.join('\n\n---\n\n');
 };
 
-// Method to update OCR data for a specific image
-userAnswerSchema.methods.updateImageOCR = function(imageIndex, ocrResult) {
-  if (this.answerImages && this.answerImages[imageIndex]) {
-    this.answerImages[imageIndex].ocrData = {
-      extractedText: ocrResult.extractedText || '',
-      processingTime: ocrResult.processingTime || 0,
-      modelUsed: ocrResult.modelUsed || 'mistral-ocr-latest',
-      processedAt: ocrResult.processedAt || new Date(),
-      confidenceScore: ocrResult.confidenceScore || null,
-      success: ocrResult.success || false,
-      ...(ocrResult.error && { error: ocrResult.error })
-    };
-    
-    // Mark the document as modified
-    this.markModified('answerImages');
-  }
-};
-
-// Static method to find answers with successful OCR
-userAnswerSchema.statics.findWithSuccessfulOCR = function(filter = {}) {
+// Static method to get user's attempt history for a question
+userAnswerSchema.statics.getUserAttempts = function(userId, questionId) {
   return this.find({
-    ...filter,
-    'answerImages.ocrData.success': true
-  });
+    userId: userId,
+    questionId: questionId
+  }).sort({ attemptNumber: 1 });
 };
 
-// Static method to find answers by extracted text search
-userAnswerSchema.statics.searchByOCRText = function(searchText, filter = {}) {
-  return this.find({
-    ...filter,
-    $text: { $search: searchText }
-  });
+// Static method to get user's latest attempt for a question
+userAnswerSchema.statics.getUserLatestAttempt = function(userId, questionId) {
+  return this.findOne({
+    userId: userId,
+    questionId: questionId
+  }).sort({ attemptNumber: -1 });
 };
 
-// Static method to get OCR statistics for a user
-userAnswerSchema.statics.getOCRStatsForUser = async function(userId, clientId) {
-  const pipeline = [
-    { $match: { userId: mongoose.Types.ObjectId(userId), clientId: clientId } },
-    { $unwind: '$answerImages' },
-    {
-      $group: {
-        _id: null,
-        totalImages: { $sum: 1 },
-        processedImages: {
-          $sum: {
-            $cond: [{ $ifNull: ['$answerImages.ocrData', false] }, 1, 0]
-          }
-        },
-        successfulOCR: {
-          $sum: {
-            $cond: ['$answerImages.ocrData.success', 1, 0]
-          }
-        },
-        failedOCR: {
-          $sum: {
-            $cond: [
-              { $and: [
-                { $ifNull: ['$answerImages.ocrData', false] },
-                { $eq: ['$answerImages.ocrData.success', false] }
-              ]}, 1, 0
-            ]
-          }
-        },
-        totalProcessingTime: {
-          $sum: { $ifNull: ['$answerImages.ocrData.processingTime', 0] }
-        }
-      }
-    },
-    {
-      $project: {
-        _id: 0,
-        totalImages: 1,
-        processedImages: 1,
-        successfulOCR: 1,
-        failedOCR: 1,
-        averageProcessingTime: {
-          $cond: [
-            { $gt: ['$processedImages', 0] },
-            { $round: [{ $divide: ['$totalProcessingTime', '$processedImages'] }, 0] },
-            0
-          ]
-        },
-        ocrSuccessRate: {
-          $cond: [
-            { $gt: ['$processedImages', 0] },
-            { $round: [{ $multiply: [{ $divide: ['$successfulOCR', '$processedImages'] }, 100] }, 2] },
-            0
-          ]
-        }
-      }
-    }
-  ];
-
-  const result = await this.aggregate(pipeline);
-  return result[0] || {
-    totalImages: 0,
-    processedImages: 0,
-    successfulOCR: 0,
-    failedOCR: 0,
-    averageProcessingTime: 0,
-    ocrSuccessRate: 0
-  };
+// Method to check if this is the final attempt
+userAnswerSchema.methods.isFinalAttempt = function() {
+  return this.attemptNumber === 5;
 };
 
 // Export the model
