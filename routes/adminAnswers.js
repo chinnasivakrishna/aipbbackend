@@ -152,9 +152,8 @@ router.post('/submissions/:submissionId/evaluate', async (req, res) => {
     const { submissionId } = req.params;
     const { evaluationMode = 'auto', config = {} } = req.body;
 
-    const submission = await UserAnswer.findById(submissionId)
-      .populate('questionId')
-      .populate('userId');
+    // Find the submission by ID - no need to populate initially
+    const submission = await UserAnswer.findById(submissionId);
     
     if (!submission) {
       return res.status(404).json({
@@ -165,6 +164,10 @@ router.post('/submissions/:submissionId/evaluate', async (req, res) => {
         }
       });
     }
+
+    // Now populate the necessary fields
+    await submission.populate('questionId');
+    await submission.populate('userId');
 
     // Check if evaluation already exists
     let evaluation = await Evaluation.findOne({ submissionId });
@@ -214,9 +217,13 @@ router.post('/submissions/:submissionId/evaluate', async (req, res) => {
 
     await evaluation.save();
 
-    // Update submission status
-    submission.submissionStatus = 'reviewed';
-    await submission.save();
+    // Update submission status - DO NOT try to save the entire submission
+    // Just update the specific field to avoid validation issues
+    await UserAnswer.findByIdAndUpdate(
+      submissionId, 
+      { submissionStatus: 'reviewed' },
+      { new: false, runValidators: false }
+    );
 
     res.json({
       success: true,
