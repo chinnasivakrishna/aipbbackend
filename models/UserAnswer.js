@@ -24,8 +24,7 @@ const userAnswerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 1,
-    max: 5,
-    default: 1  // Add default value
+    max: 5
   },
   answerImages: [{
     imageUrl: {
@@ -100,92 +99,54 @@ const userAnswerSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Compound index for unique attempts per user per question
-userAnswerSchema.index({ userId: 1, questionId: 1, attemptNumber: 1 }, { unique: true });
-userAnswerSchema.index({ userId: 1, clientId: 1 });
-userAnswerSchema.index({ questionId: 1, clientId: 1 });
-userAnswerSchema.index({ submissionStatus: 1 });
+// PERFORMANCE INDEXES ONLY - No unique constraints
+userAnswerSchema.index({ userId: 1, questionId: 1, attemptNumber: 1 }); // Non-unique compound index
+userAnswerSchema.index({ userId: 1, clientId: 1 }); // Non-unique index
+userAnswerSchema.index({ questionId: 1, clientId: 1 }); // Non-unique index
+userAnswerSchema.index({ submissionStatus: 1 }); // Non-unique index
+userAnswerSchema.index({ userId: 1, questionId: 1 }); // Non-unique index for querying user's attempts
 
-// Pre-save middleware to set attempt number
-userAnswerSchema.pre('save', async function(next) {
-  // Only calculate attemptNumber for new documents
-  if (this.isNew) {
-    try {
-      console.log(`Setting attemptNumber for new document. Current value: ${this.attemptNumber}`);
-      
-      // Find the highest attempt number for this user and question
-      const lastAttempt = await this.constructor.findOne({
-        userId: this.userId,
-        questionId: this.questionId
-      }).sort({ attemptNumber: -1 }).lean();
-
-      let nextAttemptNumber = 1;
-      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
-        if (lastAttempt.attemptNumber >= 5) {
-          const error = new Error('Maximum submission limit (5) reached for this question');
-          error.code = 'SUBMISSION_LIMIT_EXCEEDED';
-          return next(error);
-        }
-        nextAttemptNumber = lastAttempt.attemptNumber + 1;
-      }
-      
-      // Set the attempt number
-      this.attemptNumber = nextAttemptNumber;
-      
-      console.log(`Set attemptNumber to ${this.attemptNumber} for user ${this.userId} question ${this.questionId}`);
-      
-    } catch (error) {
-      console.error('Error in pre-save middleware:', error);
-      return next(error);
+// Add a method to clean up old indexes when the model is initialized
+userAnswerSchema.statics.cleanupOldIndexes = async function() {
+  try {
+    const collection = this.collection;
+    const indexes = await collection.listIndexes().toArray();
+    
+    console.log('Current indexes:', indexes.map(idx => ({ name: idx.name, key: idx.key, unique: idx.unique })));
+    
+    // Find and drop the problematic unique index
+    const problematicIndex = indexes.find(idx => 
+      idx.name.includes('version') || 
+      (idx.unique && idx.key && idx.key.userId && idx.key.questionId && idx.key.version !== undefined)
+    );
+    
+    if (problematicIndex) {
+      console.log(`Dropping problematic index: ${problematicIndex.name}`);
+      await collection.dropIndex(problematicIndex.name);
+      console.log('Problematic index dropped successfully');
     }
-  }
-  
-  // Additional validation to ensure attemptNumber is valid
-  if (!this.attemptNumber || isNaN(this.attemptNumber) || this.attemptNumber < 1 || this.attemptNumber > 5) {
-    const error = new Error(`Invalid attemptNumber: ${this.attemptNumber}. Must be a number between 1 and 5.`);
-    error.code = 'INVALID_ATTEMPT_NUMBER';
-    return next(error);
-  }
-  
-  next();
-});
-
-// Pre-validate middleware to ensure attemptNumber is set before validation
-userAnswerSchema.pre('validate', async function(next) {
-  // Only set for new documents that don't have attemptNumber set
-  if (this.isNew && (!this.attemptNumber || isNaN(this.attemptNumber))) {
-    try {
-      console.log(`Pre-validate: Setting attemptNumber for new document`);
-      
-      // Find the highest attempt number for this user and question
-      const lastAttempt = await this.constructor.findOne({
-        userId: this.userId,
-        questionId: this.questionId
-      }).sort({ attemptNumber: -1 }).lean();
-
-      let nextAttemptNumber = 1;
-      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
-        if (lastAttempt.attemptNumber >= 5) {
-          const error = new Error('Maximum submission limit (5) reached for this question');
-          error.code = 'SUBMISSION_LIMIT_EXCEEDED';
-          return next(error);
-        }
-        nextAttemptNumber = lastAttempt.attemptNumber + 1;
+    
+    // Also check for any other unique indexes that might cause issues
+    const uniqueIndexes = indexes.filter(idx => 
+      idx.unique && 
+      idx.name !== '_id_' && 
+      (idx.key.userId !== undefined || idx.key.questionId !== undefined)
+    );
+    
+    for (const uniqueIdx of uniqueIndexes) {
+      console.log(`Dropping unique index: ${uniqueIdx.name}`);
+      try {
+        await collection.dropIndex(uniqueIdx.name);
+        console.log(`Unique index ${uniqueIdx.name} dropped successfully`);
+      } catch (dropError) {
+        console.error(`Error dropping index ${uniqueIdx.name}:`, dropError.message);
       }
-      
-      // Set the attempt number
-      this.attemptNumber = nextAttemptNumber;
-      
-      console.log(`Pre-validate: Set attemptNumber to ${this.attemptNumber} for user ${this.userId} question ${this.questionId}`);
-      
-    } catch (error) {
-      console.error('Error in pre-validate middleware:', error);
-      return next(error);
     }
+    
+  } catch (error) {
+    console.error('Error cleaning up indexes:', error);
   }
-  
-  next();
-});
+};
 
 // Static method to check if user can submit more answers
 userAnswerSchema.statics.canUserSubmit = async function(userId, questionId) {
@@ -222,5 +183,147 @@ userAnswerSchema.methods.isFinalAttempt = function() {
   return this.attemptNumber === 5;
 };
 
+// Enhanced create new attempt method with better error handling
+userAnswerSchema.statics.createNewAttempt = async function(answerData) {
+  const { userId, questionId } = answerData;
+  
+  console.log(`Creating new attempt for user ${userId} and question ${questionId}`);
+  
+  // Use a transaction to ensure data consistency
+  const session = await mongoose.startSession();
+  
+  try {
+    return await session.withTransaction(async () => {
+      // Check if user has reached maximum attempts
+      const existingCount = await this.countDocuments({ userId, questionId }).session(session);
+      if (existingCount >= 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
+        error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+        throw error;
+      }
+      
+      // Find the highest existing attempt number for this user and question
+      const latestAttempt = await this.findOne(
+        { userId, questionId },
+        { attemptNumber: 1 }
+      ).sort({ attemptNumber: -1 }).session(session);
+      
+      // Calculate the next attempt number
+      const nextAttemptNumber = latestAttempt ? latestAttempt.attemptNumber + 1 : 1;
+      
+      console.log(`Latest attempt number: ${latestAttempt ? latestAttempt.attemptNumber : 'none'}`);
+      console.log(`Next attempt number will be: ${nextAttemptNumber}`);
+      
+      // Validate the next attempt number
+      if (nextAttemptNumber > 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
+        error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+        throw error;
+      }
+      
+      // Create the new attempt with the calculated attempt number
+      const attemptData = {
+        ...answerData,
+        attemptNumber: nextAttemptNumber
+      };
+      
+      const userAnswer = new this(attemptData);
+      await userAnswer.save({ session });
+      
+      console.log(`Successfully created attempt ${nextAttemptNumber} for user ${userId} and question ${questionId}`);
+      return userAnswer;
+    });
+  } finally {
+    await session.endSession();
+  }
+};
+
+// Safer alternative method that handles race conditions better
+userAnswerSchema.statics.createNewAttemptSafe = async function(answerData) {
+  const { userId, questionId } = answerData;
+  
+  console.log(`Creating new attempt (safe) for user ${userId} and question ${questionId}`);
+  
+  const maxRetries = 3;
+  let attempt = 0;
+  
+  while (attempt < maxRetries) {
+    try {
+      // Check current attempt count
+      const existingCount = await this.countDocuments({ userId, questionId });
+      if (existingCount >= 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
+        error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+        throw error;
+      }
+      
+      // Get all existing attempts to find the correct next number
+      const existingAttempts = await this.find(
+        { userId, questionId },
+        { attemptNumber: 1 }
+      ).sort({ attemptNumber: 1 });
+      
+      // Find the next available attempt number
+      let nextAttemptNumber = 1;
+      const existingNumbers = existingAttempts.map(a => a.attemptNumber).sort((a, b) => a - b);
+      
+      for (let i = 1; i <= 5; i++) {
+        if (!existingNumbers.includes(i)) {
+          nextAttemptNumber = i;
+          break;
+        }
+      }
+      
+      if (nextAttemptNumber > 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
+        error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+        throw error;
+      }
+      
+      console.log(`Attempting to create attempt number: ${nextAttemptNumber}`);
+      
+      // Create the new attempt
+      const attemptData = {
+        ...answerData,
+        attemptNumber: nextAttemptNumber
+      };
+      
+      const userAnswer = new this(attemptData);
+      await userAnswer.save();
+      
+      console.log(`Successfully created attempt ${nextAttemptNumber} for user ${userId} and question ${questionId}`);
+      return userAnswer;
+      
+    } catch (error) {
+      attempt++;
+      
+      if (error.code === 'SUBMISSION_LIMIT_EXCEEDED') {
+        throw error;
+      }
+      
+      // If it's a duplicate key error and we haven't exceeded retries, try again
+      if ((error.code === 11000 || error.message.includes('E11000')) && attempt < maxRetries) {
+        console.log(`Duplicate key error on attempt ${attempt}, retrying...`);
+        // Wait a bit before retrying
+        await new Promise(resolve => setTimeout(resolve, 100 * attempt));
+        continue;
+      }
+      
+      // If it's the last attempt or a different error, throw it
+      throw error;
+    }
+  }
+  
+  // If we get here, all retries failed
+  const error = new Error('Failed to create answer after multiple attempts');
+  error.code = 'CREATION_FAILED';
+  throw error;
+};
+
 // Export the model
-module.exports = mongoose.model('UserAnswer', userAnswerSchema);
+const UserAnswer = mongoose.model('UserAnswer', userAnswerSchema);
+
+// Clean up old indexes when the model is loaded
+UserAnswer.cleanupOldIndexes().catch(console.error);
+
+module.exports = UserAnswer;

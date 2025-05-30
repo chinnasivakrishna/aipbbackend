@@ -8,6 +8,7 @@ const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
+const mongoose = require('mongoose');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -121,13 +122,15 @@ router.get('/questions/:questionId/submission-status',
   }
 );
 
-// Submit new answer attempt (always creates new record)
+// Updated POST route handler in userAnswers.js
+// Replace the existing POST route with this version
+
 router.post('/questions/:questionId/answers',
   authenticateMobileUser,
   validateQuestionId,
   upload.array('images', 10),
   validateAnswerSubmission,
-  async (req, res) => {
+  async (req, res, next) => {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
@@ -175,10 +178,8 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Check submission limit first
+      // Check submission limit before proceeding
       const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
-      console.log('Submission status check:', submissionStatus);
-      
       if (!submissionStatus.canSubmit) {
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
@@ -189,13 +190,13 @@ router.post('/questions/:questionId/answers',
             }
           }
         }
-
+        
         return res.status(400).json({
           success: false,
-          message: "Submission limit exceeded",
+          message: "Maximum submission limit reached",
           error: {
             code: "SUBMISSION_LIMIT_EXCEEDED",
-            details: `Maximum 5 attempts allowed for this question. You have already submitted ${submissionStatus.currentAttempts} answers.`
+            details: "Maximum 5 attempts allowed per question"
           }
         });
       }
@@ -256,35 +257,11 @@ router.post('/questions/:questionId/answers',
 
       console.log('Creating UserAnswer document...');
 
-      // Find the next attempt number manually to avoid race conditions
-      const lastAttempt = await UserAnswer.findOne({
-        userId: userId,
-        questionId: questionId
-      }).sort({ attemptNumber: -1 }).lean();
-
-      let nextAttemptNumber = 1;
-      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
-        if (lastAttempt.attemptNumber >= 5) {
-          return res.status(400).json({
-            success: false,
-            message: "Submission limit exceeded",
-            error: {
-              code: "SUBMISSION_LIMIT_EXCEEDED",
-              details: "Maximum 5 attempts allowed for this question"
-            }
-          });
-        }
-        nextAttemptNumber = lastAttempt.attemptNumber + 1;
-      }
-
-      console.log(`Next attempt number will be: ${nextAttemptNumber}`);
-
-      // Create new answer attempt with explicit attemptNumber
+      // Prepare answer data
       const userAnswerData = {
         userId: userId,
         questionId: questionId,
         clientId: req.user.clientId,
-        attemptNumber: nextAttemptNumber, // Explicitly set attempt number
         answerImages: answerImages,
         textAnswer: textAnswer || '',
         submissionStatus: 'submitted',
@@ -304,16 +281,35 @@ router.post('/questions/:questionId/answers',
       console.log('UserAnswer data to be saved:', {
         userId: userAnswerData.userId,
         questionId: userAnswerData.questionId,
-        attemptNumber: userAnswerData.attemptNumber,
         clientId: userAnswerData.clientId
       });
 
-      // Create the document
-      const userAnswer = new UserAnswer(userAnswerData);
-
-      console.log('Saving UserAnswer...');
-      await userAnswer.save();
-      console.log('UserAnswer saved successfully with attemptNumber:', userAnswer.attemptNumber);
+      // Use the safer method to create new attempt
+      console.log('Attempting to create new answer submission...');
+      
+      let userAnswer;
+      try {
+        // Use the safer method
+        userAnswer = await UserAnswer.createNewAttemptSafe(userAnswerData);
+        console.log('UserAnswer created successfully with safer method');
+      } catch (saferError) {
+        console.log('Safer method failed, trying transaction-based method...');
+        
+        if (saferError.code === 'SUBMISSION_LIMIT_EXCEEDED') {
+          throw saferError;
+        }
+        
+        // Fallback to the transaction-based method
+        try {
+          userAnswer = await UserAnswer.createNewAttempt(userAnswerData);
+          console.log('UserAnswer created successfully with transaction method');
+        } catch (transactionError) {
+          console.error('Both methods failed:', { saferError: saferError.message, transactionError: transactionError.message });
+          throw transactionError;
+        }
+      }
+      
+      console.log('UserAnswer created successfully with attemptNumber:', userAnswer.attemptNumber);
 
       res.status(200).json({
         success: true,
@@ -377,19 +373,7 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Handle duplicate key errors (race condition)
-      if (error.code === 11000) {
-        return res.status(409).json({
-          success: false,
-          message: "Duplicate submission detected",
-          error: {
-            code: "DUPLICATE_SUBMISSION",
-            details: "This attempt number has already been submitted. Please refresh and try again."
-          }
-        });
-      }
-
-      // Handle custom errors from pre-save middleware
+      // Handle custom errors from static method
       if (error.code === 'SUBMISSION_LIMIT_EXCEEDED') {
         return res.status(400).json({
           success: false,
@@ -401,13 +385,27 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      if (error.code === 'INVALID_ATTEMPT_NUMBER') {
-        return res.status(400).json({
+      // Handle creation failures
+      if (error.code === 'CREATION_FAILED') {
+        return res.status(409).json({
           success: false,
-          message: error.message,
+          message: "Unable to create submission after multiple attempts",
           error: {
-            code: error.code,
-            details: "Invalid attempt number generated"
+            code: "SUBMISSION_PROCESSING_ERROR",
+            details: "Please try again in a moment"
+          }
+        });
+      }
+
+      // For any remaining duplicate key errors
+      if (error.code === 11000 || error.message.includes('E11000')) {
+        console.error('Duplicate key error still occurring:', error);
+        return res.status(409).json({
+          success: false,
+          message: "Submission processing failed due to duplicate entry",
+          error: {
+            code: "DUPLICATE_SUBMISSION_ERROR",
+            details: "This submission already exists. Please refresh and try again."
           }
         });
       }
