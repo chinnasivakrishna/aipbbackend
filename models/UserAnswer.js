@@ -24,7 +24,8 @@ const userAnswerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 1,
-    max: 5
+    max: 5,
+    default: 1  // Add default value
   },
   answerImages: [{
     imageUrl: {
@@ -107,28 +108,82 @@ userAnswerSchema.index({ submissionStatus: 1 });
 
 // Pre-save middleware to set attempt number
 userAnswerSchema.pre('save', async function(next) {
+  // Only calculate attemptNumber for new documents
   if (this.isNew) {
     try {
+      console.log(`Setting attemptNumber for new document. Current value: ${this.attemptNumber}`);
+      
       // Find the highest attempt number for this user and question
       const lastAttempt = await this.constructor.findOne({
         userId: this.userId,
         questionId: this.questionId
-      }).sort({ attemptNumber: -1 });
+      }).sort({ attemptNumber: -1 }).lean();
 
-      if (lastAttempt) {
+      let nextAttemptNumber = 1;
+      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
         if (lastAttempt.attemptNumber >= 5) {
           const error = new Error('Maximum submission limit (5) reached for this question');
           error.code = 'SUBMISSION_LIMIT_EXCEEDED';
           return next(error);
         }
-        this.attemptNumber = lastAttempt.attemptNumber + 1;
-      } else {
-        this.attemptNumber = 1;
+        nextAttemptNumber = lastAttempt.attemptNumber + 1;
       }
+      
+      // Set the attempt number
+      this.attemptNumber = nextAttemptNumber;
+      
+      console.log(`Set attemptNumber to ${this.attemptNumber} for user ${this.userId} question ${this.questionId}`);
+      
     } catch (error) {
+      console.error('Error in pre-save middleware:', error);
       return next(error);
     }
   }
+  
+  // Additional validation to ensure attemptNumber is valid
+  if (!this.attemptNumber || isNaN(this.attemptNumber) || this.attemptNumber < 1 || this.attemptNumber > 5) {
+    const error = new Error(`Invalid attemptNumber: ${this.attemptNumber}. Must be a number between 1 and 5.`);
+    error.code = 'INVALID_ATTEMPT_NUMBER';
+    return next(error);
+  }
+  
+  next();
+});
+
+// Pre-validate middleware to ensure attemptNumber is set before validation
+userAnswerSchema.pre('validate', async function(next) {
+  // Only set for new documents that don't have attemptNumber set
+  if (this.isNew && (!this.attemptNumber || isNaN(this.attemptNumber))) {
+    try {
+      console.log(`Pre-validate: Setting attemptNumber for new document`);
+      
+      // Find the highest attempt number for this user and question
+      const lastAttempt = await this.constructor.findOne({
+        userId: this.userId,
+        questionId: this.questionId
+      }).sort({ attemptNumber: -1 }).lean();
+
+      let nextAttemptNumber = 1;
+      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
+        if (lastAttempt.attemptNumber >= 5) {
+          const error = new Error('Maximum submission limit (5) reached for this question');
+          error.code = 'SUBMISSION_LIMIT_EXCEEDED';
+          return next(error);
+        }
+        nextAttemptNumber = lastAttempt.attemptNumber + 1;
+      }
+      
+      // Set the attempt number
+      this.attemptNumber = nextAttemptNumber;
+      
+      console.log(`Pre-validate: Set attemptNumber to ${this.attemptNumber} for user ${this.userId} question ${this.questionId}`);
+      
+    } catch (error) {
+      console.error('Error in pre-validate middleware:', error);
+      return next(error);
+    }
+  }
+  
   next();
 });
 

@@ -155,8 +155,30 @@ router.post('/questions/:questionId/answers',
       const userId = req.user.id;
       const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion } = req.body;
 
+      console.log('Submitting answer for:', {
+        userId,
+        questionId,
+        clientId: req.user.clientId,
+        hasFiles: req.files ? req.files.length : 0,
+        hasTextAnswer: !!textAnswer
+      });
+
+      // Check if at least one form of answer is provided
+      if ((!req.files || req.files.length === 0) && (!textAnswer || textAnswer.trim() === '')) {
+        return res.status(400).json({
+          success: false,
+          message: "Either images or text answer must be provided",
+          error: {
+            code: "NO_ANSWER_PROVIDED",
+            details: "At least one form of answer (image or text) is required"
+          }
+        });
+      }
+
       // Check submission limit first
       const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
+      console.log('Submission status check:', submissionStatus);
+      
       if (!submissionStatus.canSubmit) {
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
@@ -173,7 +195,7 @@ router.post('/questions/:questionId/answers',
           message: "Submission limit exceeded",
           error: {
             code: "SUBMISSION_LIMIT_EXCEEDED",
-            details: `Maximum ${submissionStatus.currentAttempts} attempts allowed for this question. You have already submitted ${submissionStatus.currentAttempts} answers.`
+            details: `Maximum 5 attempts allowed for this question. You have already submitted ${submissionStatus.currentAttempts} answers.`
           }
         });
       }
@@ -232,24 +254,66 @@ router.post('/questions/:questionId/answers',
         }
       }
 
-      // Create new answer attempt (never update existing)
-      const userAnswer = new UserAnswer({
+      console.log('Creating UserAnswer document...');
+
+      // Find the next attempt number manually to avoid race conditions
+      const lastAttempt = await UserAnswer.findOne({
+        userId: userId,
+        questionId: questionId
+      }).sort({ attemptNumber: -1 }).lean();
+
+      let nextAttemptNumber = 1;
+      if (lastAttempt && typeof lastAttempt.attemptNumber === 'number') {
+        if (lastAttempt.attemptNumber >= 5) {
+          return res.status(400).json({
+            success: false,
+            message: "Submission limit exceeded",
+            error: {
+              code: "SUBMISSION_LIMIT_EXCEEDED",
+              details: "Maximum 5 attempts allowed for this question"
+            }
+          });
+        }
+        nextAttemptNumber = lastAttempt.attemptNumber + 1;
+      }
+
+      console.log(`Next attempt number will be: ${nextAttemptNumber}`);
+
+      // Create new answer attempt with explicit attemptNumber
+      const userAnswerData = {
         userId: userId,
         questionId: questionId,
-        setId: setId,
         clientId: req.user.clientId,
+        attemptNumber: nextAttemptNumber, // Explicitly set attempt number
         answerImages: answerImages,
-        textAnswer: textAnswer,
+        textAnswer: textAnswer || '',
         submissionStatus: 'submitted',
         metadata: {
-          timeSpent: timeSpent || 0,
-          deviceInfo: deviceInfo,
-          appVersion: appVersion,
+          timeSpent: parseInt(timeSpent) || 0,
+          deviceInfo: deviceInfo || '',
+          appVersion: appVersion || '',
           sourceType: sourceType || 'qr_scan'
         }
+      };
+
+      // Add setId if provided
+      if (setId) {
+        userAnswerData.setId = setId;
+      }
+
+      console.log('UserAnswer data to be saved:', {
+        userId: userAnswerData.userId,
+        questionId: userAnswerData.questionId,
+        attemptNumber: userAnswerData.attemptNumber,
+        clientId: userAnswerData.clientId
       });
 
+      // Create the document
+      const userAnswer = new UserAnswer(userAnswerData);
+
+      console.log('Saving UserAnswer...');
       await userAnswer.save();
+      console.log('UserAnswer saved successfully with attemptNumber:', userAnswer.attemptNumber);
 
       res.status(200).json({
         success: true,
@@ -284,6 +348,7 @@ router.post('/questions/:questionId/answers',
     } catch (error) {
       console.error('Submit answer error:', error);
       
+      // Clean up uploaded files on error
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
           try {
@@ -292,6 +357,59 @@ router.post('/questions/:questionId/answers',
             console.error('Error cleaning up file:', cleanupError);
           }
         }
+      }
+
+      // Handle specific validation errors
+      if (error.name === 'ValidationError') {
+        const validationErrors = Object.values(error.errors).map(err => ({
+          field: err.path,
+          message: err.message,
+          value: err.value
+        }));
+
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          error: {
+            code: "VALIDATION_ERROR",
+            details: validationErrors
+          }
+        });
+      }
+
+      // Handle duplicate key errors (race condition)
+      if (error.code === 11000) {
+        return res.status(409).json({
+          success: false,
+          message: "Duplicate submission detected",
+          error: {
+            code: "DUPLICATE_SUBMISSION",
+            details: "This attempt number has already been submitted. Please refresh and try again."
+          }
+        });
+      }
+
+      // Handle custom errors from pre-save middleware
+      if (error.code === 'SUBMISSION_LIMIT_EXCEEDED') {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          error: {
+            code: error.code,
+            details: "Maximum 5 attempts allowed per question"
+          }
+        });
+      }
+
+      if (error.code === 'INVALID_ATTEMPT_NUMBER') {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          error: {
+            code: error.code,
+            details: "Invalid attempt number generated"
+          }
+        });
       }
 
       res.status(500).json({
