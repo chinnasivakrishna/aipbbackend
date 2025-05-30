@@ -607,9 +607,18 @@ const getQuestionSubmissions = async (req, res) => {
       });
     }
 
-    // Build query filters for UserAnswer
+    // Build query filters
     const matchQuery = { questionId };
     
+    // Filter by evaluation status if specified
+    if (status !== 'all') {
+      if (status === 'published') {
+        matchQuery['feedback.status'] = 'published';
+      } else if (status === 'not_published') {
+        matchQuery['feedback.status'] = { $ne: 'published' };
+      }
+    }
+
     // Build sort object
     const sortObject = {};
     if (sortBy === 'marks') {
@@ -624,75 +633,74 @@ const getQuestionSubmissions = async (req, res) => {
     const skip = (parseInt(page) - 1) * parseInt(limit);
     const limitNum = parseInt(limit);
 
-    // Get total count of answers
-    const totalAnswers = await UserAnswer.countDocuments(matchQuery);
+    // Get total count
+    const totalSubmissions = await UserAnswer.countDocuments(matchQuery);
 
-    // Get answer IDs with pagination
-    const answers = await UserAnswer.find(matchQuery)
-      .select('_id') // Only select the ID
+    // Get submissions with populated user data
+    const submissions = await UserAnswer.find(matchQuery)
+      .populate('userId') // Only populate the MobileUser
       .sort(sortObject)
       .skip(skip)
       .limit(limitNum)
       .lean();
 
-    // Get answer IDs for the current page
-    const answerIds = answers.map(answer => answer._id);
+    // Get user profiles separately
+    const userIds = submissions.map(s => s.userId?._id).filter(Boolean);
+    const userProfiles = await UserProfile.find({
+      userId: { $in: userIds }
+    }).lean();
 
-    // Get evaluation IDs for these answers
-    const evaluations = await require('../models/Evaluation').find({
-      submissionId: { $in: answerIds }
-    }).select('_id submissionId').lean();
+    // Create a map of userId to profile for quick lookup
+    const profileMap = userProfiles.reduce((map, profile) => {
+      map[profile.userId.toString()] = profile;
+      return map;
+    }, {});
 
-    const evaluationIds = evaluations.map(eval => eval._id);
-
-    // Get all answer IDs for this question (for remaining count)
-    const allAnswers = await UserAnswer.find(matchQuery)
-      .select('_id')
-      .lean();
-
-    const allAnswerIds = allAnswers.map(answer => answer._id);
-
-    // Get all evaluation IDs for this question
-    const allEvaluations = await require('../models/Evaluation').find({
-      submissionId: { $in: allAnswerIds }
-    }).select('_id').lean();
-
-    const allEvaluationIds = allEvaluations.map(eval => eval._id);
-
-    // Calculate remaining IDs (answers that don't have evaluations)
-    const evaluatedAnswerIds = new Set(
-      evaluations.map(eval => eval.submissionId.toString())
-    );
-    
-    const remainingIds = allAnswerIds.filter(
-      answerId => !evaluatedAnswerIds.has(answerId.toString())
-    );
+    // Transform submissions data
+    const transformedSubmissions = submissions.map(submission => {
+      const mobileUser = submission.userId || {};
+      const userProfile = profileMap[mobileUser._id?.toString()] || {};
+      
+      return {
+        submissionId: submission._id.toString(),
+        userId: mobileUser._id?.toString() || '',
+        userDetails: {
+          name: userProfile.name || 'Anonymous User',
+          email: mobileUser.mobile || 'N/A', // Using mobile as email equivalent
+          profileImage: null, // Not implemented in current schema
+          role: 'student' // Default role
+        },
+        images: submission.answerImages.map(img => ({
+          imageId: img._id?.toString() || '',
+          imageUrl: img.imageUrl,
+          uploadedAt: img.uploadedAt,
+          imageType: 'answer',
+          imageSize: 0, // Not stored in current schema
+          imageFormat: img.imageUrl?.split('.').pop()?.toLowerCase() || 'jpg'
+        })),
+        evaluation: {
+          evaluationId: submission._id.toString(),
+          evaluationMode: submission.reviewedBy ? 'manual' : 'auto',
+          marks: submission.feedback?.score || 0,
+          accuracy: submission.feedback?.accuracy || 0,
+          status: submission.feedback?.status || 'not_published',
+          evaluatedAt: submission.reviewedAt || submission.updatedAt,
+          evaluatedBy: submission.reviewedBy?.toString() || 'system'
+        },
+        submittedAt: submission.submittedAt,
+        updatedAt: submission.updatedAt
+      };
+    });
 
     // Calculate pagination info
-    const totalPages = Math.ceil(totalAnswers / limitNum);
+    const totalPages = Math.ceil(totalSubmissions / limitNum);
 
     res.status(200).json({
       success: true,
       data: {
-        // Current page data
-        currentPage: {
-          answerIds: answerIds.map(id => id.toString()),
-          evaluationIds: evaluationIds.map(id => id.toString())
-        },
-        // All data for this question
-        allData: {
-          allAnswerIds: allAnswerIds.map(id => id.toString()),
-          allEvaluationIds: allEvaluationIds.map(id => id.toString()),
-          remainingIds: remainingIds.map(id => id.toString())
-        },
-        // Summary counts
-        summary: {
-          totalAnswers: totalAnswers,
-          totalEvaluations: allEvaluationIds.length,
-          remainingCount: remainingIds.length
-        },
+        submissions: transformedSubmissions,
         pagination: {
-          total: totalAnswers,
+          total: totalSubmissions,
           page: parseInt(page),
           limit: limitNum,
           totalPages

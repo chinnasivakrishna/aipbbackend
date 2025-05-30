@@ -169,6 +169,36 @@ const validateUserEvaluationsQuery = [
   handleValidationErrors
 ];
 
+// NEW: Validate question evaluation query (for getting evaluation by questionId and count)
+const validateQuestionEvaluationQuery = [
+  param('questionId')
+    .notEmpty()
+    .withMessage('Question ID is required')
+    .custom(value => {
+      if (!mongoose.Types.ObjectId.isValid(value)) {
+        throw new Error('Invalid question ID format');
+      }
+      return true;
+    }),
+    
+  query('count')
+    .optional()
+    .isInt({ min: 1, max: 5 })
+    .withMessage('Count must be an integer between 1 and 5')
+    .toInt(), // Convert to integer
+    
+  query('userId')
+    .optional()
+    .custom(value => {
+      if (value && !mongoose.Types.ObjectId.isValid(value)) {
+        throw new Error('Invalid user ID format');
+      }
+      return true;
+    }),
+    
+  handleValidationErrors
+];
+
 // Rate limiting validation (optional - for future use)
 const validateRateLimit = (req, res, next) => {
   // Implementation depends on your rate limiting strategy
@@ -188,8 +218,9 @@ module.exports = {
   validateEvaluationId,
   validateUserId,
   validateStatusUpdate,
-  validateUserEvaluationsQuery,  // This is the correct function name
-  validateGetEvaluationsQuery: validateUserEvaluationsQuery,  // Added alias for compatibility
+  validateUserEvaluationsQuery,
+  validateQuestionEvaluationQuery, // NEW validation
+  validateGetEvaluationsQuery: validateUserEvaluationsQuery, // Alias for compatibility
   validateRateLimit,
   handleValidationErrors
 };

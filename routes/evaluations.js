@@ -7,7 +7,8 @@ const {
   validateUserId,
   validateEvaluationId,
   validateStatusUpdate,
-  validateUserEvaluationsQuery  // Fixed: was validateGetEvaluationsQuery
+  validateUserEvaluationsQuery,
+  validateQuestionEvaluationQuery  // New validation for questionId and count
 } = require('../middleware/evaluationValidation');
 
 // Save Evaluated Answer API
@@ -21,7 +22,7 @@ router.post('/submissions/evaluate',
 // GET /api/aiswb/submissions/evaluated/:userId
 router.get('/submissions/evaluated/:userId', 
   validateUserId,
-  validateUserEvaluationsQuery,  // Fixed: was validateGetEvaluationsQuery
+  validateUserEvaluationsQuery,
   evaluationController.getUserEvaluatedAnswers
 );
 
@@ -33,17 +34,24 @@ router.patch('/submissions/evaluation/:evaluationId/status',
   evaluationController.updateEvaluationStatus
 );
 
-// Get Single Evaluation Details API
+// Get Single Evaluation Details API (Original - by evaluationId)
 // GET /api/aiswb/submissions/evaluation/:evaluationId
 router.get('/submissions/evaluation/:evaluationId', 
   validateEvaluationId,
   evaluationController.getEvaluationDetails
 );
 
+// NEW: Get Evaluation Details by Question ID and Count
+// GET /api/aiswb/submissions/evaluation/question/:questionId?count=1
+router.get('/submissions/evaluation/question/:questionId', 
+  validateQuestionEvaluationQuery,
+  evaluationController.getEvaluationDetailsByQuestion
+);
+
 // Get All Evaluations (Admin) API
 // GET /api/aiswb/submissions/evaluations
 router.get('/submissions/evaluations', 
-  validateUserEvaluationsQuery,  // Fixed: was validateGetEvaluationsQuery
+  validateUserEvaluationsQuery,
   evaluationController.getAllEvaluations
 );
 
@@ -54,15 +62,22 @@ router.get('/submissions/evaluations',
 // GET /api/clients/:clientId/mobile/evaluations/user/:userId
 router.get('/user/:userId', 
   validateUserId,
-  validateUserEvaluationsQuery,  // Fixed: was validateGetEvaluationsQuery
+  validateUserEvaluationsQuery,
   evaluationController.getUserEvaluatedAnswers
 );
 
-// Get Client Evaluation Details
+// Get Client Evaluation Details (Original - by evaluationId)
 // GET /api/clients/:clientId/mobile/evaluations/:evaluationId
 router.get('/:evaluationId', 
   validateEvaluationId,
   evaluationController.getEvaluationDetails
+);
+
+// NEW: Get Client Evaluation Details by Question ID and Count
+// GET /api/clients/:clientId/mobile/evaluations/question/:questionId?count=1
+router.get('/question/:questionId', 
+  validateQuestionEvaluationQuery,
+  evaluationController.getEvaluationDetailsByQuestion
 );
 
 // Save Evaluation for Client User

@@ -236,7 +236,7 @@ const updateEvaluationStatus = async (req, res) => {
   }
 };
 
-// Get Single Evaluation Details
+// Get Single Evaluation Details (Original method by evaluationId)
 const getEvaluationDetails = async (req, res) => {
   try {
     const { evaluationId } = req.params;
@@ -293,6 +293,124 @@ const getEvaluationDetails = async (req, res) => {
 
   } catch (error) {
     console.error('Error fetching evaluation details:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error while fetching evaluation details',
+      error: error.message
+    });
+  }
+};
+
+// NEW: Get Evaluation Details by Question ID and Count (attempt number)
+const getEvaluationDetailsByQuestion = async (req, res) => {
+  try {
+    const { questionId } = req.params;
+    const { count = 1, userId } = req.query; // count defaults to 1 (first attempt)
+
+    // Validate questionId
+    if (!questionId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Question ID is required'
+      });
+    }
+
+    // Validate count (attempt number)
+    const attemptNumber = parseInt(count);
+    if (isNaN(attemptNumber) || attemptNumber < 1 || attemptNumber > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Count must be a number between 1 and 5'
+      });
+    }
+
+    // Verify question exists
+    const question = await AiswbQuestion.findById(questionId);
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        message: 'Question not found'
+      });
+    }
+
+    // Build query for finding the user answer
+    const userAnswerQuery = {
+      questionId: questionId,
+      attemptNumber: attemptNumber
+    };
+
+    // Add userId to query if provided (for client-specific routes)
+    if (userId) {
+      userAnswerQuery.userId = userId;
+    }
+
+    // Find the user answer for the specific attempt
+    const userAnswer = await UserAnswer.findOne(userAnswerQuery)
+      .populate('userId', 'mobile clientId');
+
+    if (!userAnswer) {
+      return res.status(404).json({
+        success: false,
+        message: `No submission found for question ${questionId} with attempt number ${attemptNumber}${userId ? ` for user ${userId}` : ''}`
+      });
+    }
+
+    // Find the evaluation for this submission
+    const evaluation = await Evaluation.findOne({ submissionId: userAnswer._id })
+      .populate('questionId', 'question detailedAnswer metadata')
+      .populate('submissionId', 'attemptNumber submittedAt answerImages textAnswer')
+      .populate('userId', 'mobile clientId');
+
+    if (!evaluation) {
+      return res.status(404).json({
+        success: false,
+        message: `No evaluation found for question ${questionId} with attempt number ${attemptNumber}${userId ? ` for user ${userId}` : ''}`
+      });
+    }
+
+    // Format the response
+    const formattedEvaluation = {
+      evaluationId: evaluation._id,
+      submissionId: evaluation.submissionId._id,
+      questionId: evaluation.questionId._id,
+      userId: evaluation.userId._id,
+      attemptNumber: evaluation.submissionId.attemptNumber,
+      extractedTexts: evaluation.extractedTexts,
+      geminiAnalysis: evaluation.geminiAnalysis,
+      status: evaluation.status,
+      evaluatedAt: evaluation.evaluatedAt,
+      question: {
+        title: evaluation.questionId.question,
+        description: evaluation.questionId.detailedAnswer,
+        metadata: evaluation.questionId.metadata
+      },
+      submission: {
+        attemptNumber: evaluation.submissionId.attemptNumber,
+        submittedAt: evaluation.submissionId.submittedAt,
+        answerImages: evaluation.submissionId.answerImages,
+        textAnswer: evaluation.submissionId.textAnswer
+      },
+      user: {
+        mobile: evaluation.userId.mobile,
+        clientId: evaluation.userId.clientId
+      },
+      // Additional info about attempts
+      attemptInfo: {
+        currentAttempt: attemptNumber,
+        totalAttempts: await UserAnswer.countDocuments({ 
+          questionId: questionId, 
+          userId: evaluation.userId._id 
+        })
+      }
+    };
+
+    res.status(200).json({
+      success: true,
+      data: formattedEvaluation
+    });
+
+  } catch (error) {
+    console.error('Error fetching evaluation details by question:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error while fetching evaluation details',
@@ -391,5 +509,6 @@ module.exports = {
   getUserEvaluatedAnswers,
   updateEvaluationStatus,
   getEvaluationDetails,
+  getEvaluationDetailsByQuestion, // NEW method
   getAllEvaluations
 };
