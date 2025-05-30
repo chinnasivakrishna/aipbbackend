@@ -26,6 +26,7 @@ const aiswbRoutes = require('./routes/aiswb');
 const userAnswersRoutes = require('./routes/userAnswers');
 const evaluationRoutes = require('./routes/evaluations'); // Updated evaluation routes
 const { checkClientAccess } = require('./middleware/mobileAuth');
+const adminAnswers = require('./routes/adminAnswers');
 
 const app = express();
 
@@ -43,6 +44,8 @@ if (!process.env.MISTRAL_API_KEY) {
 }
 
 // API routes
+app.use('/api/admin/answers', require('./routes/adminAnswers'));
+
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/client', clientRoutes);
@@ -102,6 +105,7 @@ app.use('/api/clients/:clientId/mobile/evaluations',
   }, 
   evaluationRoutes
 );
+
 
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);

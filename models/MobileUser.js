@@ -33,6 +33,17 @@ const MobileUserSchema = new mongoose.Schema({
     type: Date,
     default: Date.now
   }
+}, {
+  toJSON: { virtuals: true },
+  toObject: { virtuals: true }
+});
+
+// Virtual populate for profile
+MobileUserSchema.virtual('profile', {
+  ref: 'UserProfile',
+  localField: '_id',
+  foreignField: 'userId',
+  justOne: true
 });
 
 // Create compound index for mobile and clientId combination
