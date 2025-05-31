@@ -1352,9 +1352,8 @@ router.get('/questions/:questionId/evaluations',
 
 // Add these three new API endpoints to your userAnswers.js router
 
-// 1. API to get all data for a question (images, evaluations, user data)
-router.get('/questions/:questionId/complete-data',
-  authenticateMobileUser,
+router.get('/questions/:questionId/complete-data-all-users',
+  authenticateMobileUser, // You might want to change this to admin authentication
   validateQuestionId,
   async (req, res) => {
     try {
@@ -1371,16 +1370,45 @@ router.get('/questions/:questionId/complete-data',
       }
 
       const { questionId } = req.params;
-      const userId = req.user.id;
+      
+      // Optional query parameters for filtering and pagination
+      const { 
+        page = 1, 
+        limit = 50, 
+        submissionStatus, 
+        clientId,
+        sortBy = 'submittedAt',
+        sortOrder = 'desc'
+      } = req.query;
 
-      // Get all user answers for this question
-      const userAnswers = await UserAnswer.find({
-        userId: userId,
-        questionId: questionId
-      }).sort({ attemptNumber: 1 })
+      // Build filter object
+      const filter = { questionId: questionId };
+      if (submissionStatus) {
+        filter.submissionStatus = submissionStatus;
+      }
+      if (clientId) {
+        filter.clientId = clientId;
+      }
+
+      // Calculate pagination
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      // Get all user answers for this question with populated data
+      const userAnswers = await UserAnswer.find(filter)
+        .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
+        .skip(skip)
+        .limit(parseInt(limit))
         .populate('questionId', 'question detailedAnswer metadata languageMode')
         .populate('setId', 'name itemType')
-        .populate('reviewedBy', 'username email');
+        .populate('reviewedBy', 'username email')
+        .populate({
+          path: 'userId',
+          select: 'mobile clientId isVerified lastLoginAt createdAt',
+          populate: {
+            path: 'profile',
+            select: 'name age gender exams nativeLanguage isComplete'
+          }
+        });
 
       if (userAnswers.length === 0) {
         return res.status(404).json({
@@ -1388,41 +1416,48 @@ router.get('/questions/:questionId/complete-data',
           message: "No answers found",
           error: {
             code: "NO_ANSWERS_FOUND",
-            details: "No answers found for this question and user"
+            details: "No answers found for this question"
           }
         });
       }
 
-      // Get submission status
-      const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
-
+      // Get total count for pagination
+      const totalAnswers = await UserAnswer.countDocuments(filter);
+      
       // Get question details from first answer
       const questionData = userAnswers[0].questionId;
 
-      // Prepare comprehensive response
-      const completeData = {
-        question: {
-          id: questionData._id,
-          question: questionData.question,
-          detailedAnswer: questionData.detailedAnswer,
-          metadata: questionData.metadata,
-          languageMode: questionData.languageMode
-        },
-        submissionInfo: {
-          totalAttempts: userAnswers.length,
-          maxAttempts: 5,
-          canSubmitMore: submissionStatus.canSubmit,
-          remainingAttempts: submissionStatus.remainingAttempts
-        },
-        userData: {
-          userId: userId,
-          clientId: req.user.clientId,
-          userInfo: {
-            username: req.user.username,
-            email: req.user.email
-          }
-        },
-        attempts: userAnswers.map(answer => ({
+      // Group answers by user
+      const userGroupedAnswers = {};
+      
+      userAnswers.forEach(answer => {
+        const userId = answer.userId._id.toString();
+        
+        if (!userGroupedAnswers[userId]) {
+          userGroupedAnswers[userId] = {
+            userInfo: {
+              id: answer.userId._id,
+              mobile: answer.userId.mobile,
+              clientId: answer.userId.clientId,
+              isVerified: answer.userId.isVerified,
+              lastLoginAt: answer.userId.lastLoginAt,
+              createdAt: answer.userId.createdAt,
+              profile: answer.userId.profile ? {
+                name: answer.userId.profile.name,
+                age: answer.userId.profile.age,
+                gender: answer.userId.profile.gender,
+                exams: answer.userId.profile.exams,
+                nativeLanguage: answer.userId.profile.nativeLanguage,
+                isComplete: answer.userId.profile.isComplete
+              } : null
+            },
+            totalAttempts: 0,
+            attempts: []
+          };
+        }
+        
+        userGroupedAnswers[userId].totalAttempts++;
+        userGroupedAnswers[userId].attempts.push({
           id: answer._id,
           attemptNumber: answer.attemptNumber,
           textAnswer: answer.textAnswer,
@@ -1489,17 +1524,72 @@ router.get('/questions/:questionId/complete-data',
               email: answer.reviewedBy.email
             }
           })
-        }))
+        });
+      });
+
+      // Sort attempts within each user group
+      Object.values(userGroupedAnswers).forEach(userData => {
+        userData.attempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
+      });
+
+      // Calculate statistics
+      const statistics = {
+        totalUsers: Object.keys(userGroupedAnswers).length,
+        totalAnswers: totalAnswers,
+        averageAttemptsPerUser: totalAnswers / Object.keys(userGroupedAnswers).length,
+        submissionStatusBreakdown: {},
+        evaluationStats: {
+          averageAccuracy: 0,
+          averageMarks: 0,
+          totalEvaluated: 0
+        }
+      };
+
+      // Calculate submission status breakdown
+      userAnswers.forEach(answer => {
+        statistics.submissionStatusBreakdown[answer.submissionStatus] = 
+          (statistics.submissionStatusBreakdown[answer.submissionStatus] || 0) + 1;
+      });
+
+      // Calculate evaluation statistics
+      const evaluatedAnswers = userAnswers.filter(answer => answer.evaluation);
+      if (evaluatedAnswers.length > 0) {
+        statistics.evaluationStats.totalEvaluated = evaluatedAnswers.length;
+        statistics.evaluationStats.averageAccuracy = 
+          evaluatedAnswers.reduce((sum, answer) => sum + (answer.evaluation.accuracy || 0), 0) / evaluatedAnswers.length;
+        statistics.evaluationStats.averageMarks = 
+          evaluatedAnswers.reduce((sum, answer) => sum + (answer.evaluation.marks || 0), 0) / evaluatedAnswers.length;
+      }
+
+      // Prepare comprehensive response
+      const completeData = {
+        question: {
+          id: questionData._id,
+          question: questionData.question,
+          detailedAnswer: questionData.detailedAnswer,
+          metadata: questionData.metadata,
+          languageMode: questionData.languageMode
+        },
+        statistics: statistics,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(totalAnswers / parseInt(limit)),
+          totalAnswers: totalAnswers,
+          answersPerPage: parseInt(limit),
+          hasNextPage: parseInt(page) < Math.ceil(totalAnswers / parseInt(limit)),
+          hasPrevPage: parseInt(page) > 1
+        },
+        users: Object.values(userGroupedAnswers)
       };
 
       res.status(200).json({
         success: true,
-        message: "Complete question data retrieved successfully",
+        message: "Complete question data for all users retrieved successfully",
         data: completeData
       });
 
     } catch (error) {
-      console.error('Get complete question data error:', error);
+      console.error('Get complete question data (all users) error:', error);
       res.status(500).json({
         success: false,
         message: "Internal server error",
@@ -1766,14 +1856,18 @@ router.post('/questions/:questionId/answers/:answerId/re-evaluate',
   }
 );
 
-// 3. API for updating an evaluation manually
-router.put('/questions/:questionId/answers/:answerId/evaluation',
-  authenticateMobileUser,
+// Update evaluation for multiple users or specific user
+router.put('/questions/:questionId/answers/:answerId/evaluation-bulk',
+  authenticateMobileUser, // Consider changing to admin authentication for bulk operations
   [
     ...validateQuestionId,
     param('answerId')
       .isMongoId()
       .withMessage('Answer ID must be a valid MongoDB ObjectId'),
+    body('userId')
+      .optional()
+      .isMongoId()
+      .withMessage('User ID must be a valid MongoDB ObjectId'),
     body('accuracy')
       .optional()
       .isFloat({ min: 0, max: 100 })
@@ -1819,7 +1913,27 @@ router.put('/questions/:questionId/answers/:answerId/evaluation',
       .optional()
       .isString()
       .trim()
-      .withMessage('Extracted text must be a string')
+      .withMessage('Extracted text must be a string'),
+    body('updateAll')
+      .optional()
+      .isBoolean()
+      .withMessage('updateAll must be a boolean'),
+    body('filters')
+      .optional()
+      .isObject()
+      .withMessage('Filters must be an object'),
+    body('filters.submissionStatus')
+      .optional()
+      .isIn(['draft', 'submitted', 'reviewed'])
+      .withMessage('Invalid submission status'),
+    body('filters.clientId')
+      .optional()
+      .isString()
+      .withMessage('Client ID must be a string'),
+    body('filters.attemptNumber')
+      .optional()
+      .isInt({ min: 1, max: 5 })
+      .withMessage('Attempt number must be between 1 and 5')
   ],
   async (req, res) => {
     try {
@@ -1836,57 +1950,67 @@ router.put('/questions/:questionId/answers/:answerId/evaluation',
       }
 
       const { questionId, answerId } = req.params;
-      const userId = req.user.id;
       const { 
+        userId,
         accuracy, 
         marks, 
         strengths, 
         weaknesses, 
         suggestions, 
         feedback, 
-        extractedText 
+        extractedText,
+        updateAll = false,
+        filters = {}
       } = req.body;
 
-      // Find the answer
-      const userAnswer = await UserAnswer.findOne({
-        _id: answerId,
-        userId: userId,
-        questionId: questionId
-      }).populate('questionId', 'question metadata');
+      // Build the query filter
+      let queryFilter = { questionId: questionId };
 
-      if (!userAnswer) {
+      if (userId) {
+        // Update for specific user
+        queryFilter.userId = userId;
+        queryFilter._id = answerId;
+      } else if (updateAll) {
+        // Update for all users (remove answerId from filter)
+        // Apply additional filters if provided
+        if (filters.submissionStatus) {
+          queryFilter.submissionStatus = filters.submissionStatus;
+        }
+        if (filters.clientId) {
+          queryFilter.clientId = filters.clientId;
+        }
+        if (filters.attemptNumber) {
+          queryFilter.attemptNumber = filters.attemptNumber;
+        }
+      } else {
+        // Default: update specific answer for current user
+        queryFilter.userId = req.user.id;
+        queryFilter._id = answerId;
+      }
+
+      console.log('Query filter:', queryFilter);
+
+      // Find matching answers
+      const matchingAnswers = await UserAnswer.find(queryFilter)
+        .populate('questionId', 'question metadata');
+
+      if (matchingAnswers.length === 0) {
         return res.status(404).json({
           success: false,
-          message: "Answer not found",
+          message: "No answers found",
           error: {
-            code: "ANSWER_NOT_FOUND",
-            details: "The specified answer does not exist or you don't have permission to access it"
+            code: "ANSWERS_NOT_FOUND",
+            details: "No answers match the specified criteria"
           }
         });
       }
 
-      // Prepare the evaluation update
-      const evaluationUpdate = {};
-      const currentEvaluation = userAnswer.evaluation || {};
-
-      // Update only provided fields
-      if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
-      if (marks !== undefined) evaluationUpdate.marks = marks;
-      if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
-      if (feedback !== undefined) evaluationUpdate.feedback = feedback;
-      if (strengths !== undefined) evaluationUpdate.strengths = strengths;
-      if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
-      if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
-
-      // Merge with existing evaluation
-      const updatedEvaluation = {
-        ...currentEvaluation,
-        ...evaluationUpdate
-      };
+      // Get question details for validation
+      const questionData = matchingAnswers[0].questionId;
+      const maxMarks = questionData.metadata?.maximumMarks || 10;
 
       // Validate marks against question's maximum marks
-      const maxMarks = userAnswer.questionId.metadata?.maximumMarks || 10;
-      if (updatedEvaluation.marks > maxMarks) {
+      if (marks !== undefined && marks > maxMarks) {
         return res.status(400).json({
           success: false,
           message: "Invalid marks",
@@ -1897,37 +2021,492 @@ router.put('/questions/:questionId/answers/:answerId/evaluation',
         });
       }
 
-      // Update the answer
-      const updatedAnswer = await UserAnswer.findByIdAndUpdate(
-        answerId,
-        {
-          evaluation: updatedEvaluation,
-          evaluatedAt: new Date()
-        },
-        { new: true }
-      ).populate('questionId', 'question metadata');
+      // Prepare the evaluation update
+      const evaluationUpdate = {};
+      if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
+      if (marks !== undefined) evaluationUpdate.marks = marks;
+      if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
+      if (feedback !== undefined) evaluationUpdate.feedback = feedback;
+      if (strengths !== undefined) evaluationUpdate.strengths = strengths;
+      if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
+      if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
+
+      // Prepare update operations for each answer
+      const updateOperations = [];
+      const updateResults = [];
+
+      for (const answer of matchingAnswers) {
+        const currentEvaluation = answer.evaluation || {};
+        const updatedEvaluation = {
+          ...currentEvaluation,
+          ...evaluationUpdate
+        };
+
+        updateOperations.push({
+          updateOne: {
+            filter: { _id: answer._id },
+            update: {
+              evaluation: updatedEvaluation,
+              evaluatedAt: new Date()
+            }
+          }
+        });
+
+        updateResults.push({
+          answerId: answer._id,
+          userId: answer.userId,
+          attemptNumber: answer.attemptNumber,
+          previousEvaluation: currentEvaluation,
+          updatedEvaluation: updatedEvaluation
+        });
+      }
+
+      // Perform bulk update
+      const bulkResult = await UserAnswer.bulkWrite(updateOperations);
 
       res.status(200).json({
         success: true,
-        message: "Evaluation updated successfully",
+        message: `Evaluation updated successfully for ${matchingAnswers.length} answer(s)`,
         data: {
-          answerId: updatedAnswer._id,
-          questionId: questionId,
-          attemptNumber: updatedAnswer.attemptNumber,
-          previousEvaluation: currentEvaluation,
-          updatedEvaluation: updatedEvaluation,
+          totalUpdated: bulkResult.modifiedCount,
+          totalMatched: bulkResult.matchedCount,
           fieldsUpdated: Object.keys(evaluationUpdate),
-          evaluatedAt: updatedAnswer.evaluatedAt,
+          evaluatedAt: new Date(),
           question: {
-            id: updatedAnswer.questionId._id,
-            question: updatedAnswer.questionId.question,
-            maximumMarks: updatedAnswer.questionId.metadata?.maximumMarks
+            id: questionData._id,
+            question: questionData.question,
+            maximumMarks: questionData.metadata?.maximumMarks
+          },
+          updatedAnswers: updateResults,
+          bulkWriteResult: {
+            matchedCount: bulkResult.matchedCount,
+            modifiedCount: bulkResult.modifiedCount,
+            upsertedCount: bulkResult.upsertedCount
           }
         }
       });
 
     } catch (error) {
-      console.error('Update evaluation error:', error);
+      console.error('Bulk update evaluation error:', error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: {
+          code: "SERVER_ERROR",
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
+// Admin route for updating evaluations without authentication
+// Add this route to your userAnswers.js file
+
+router.put('/questions/:questionId/answers/evaluation-update',
+  [
+    param('questionId')
+      .isMongoId()
+      .withMessage('Question ID must be a valid MongoDB ObjectId'),
+    body('answerId')
+      .optional()
+      .isMongoId()
+      .withMessage('Answer ID must be a valid MongoDB ObjectId'),
+    body('userId')
+      .optional()
+      .isMongoId()
+      .withMessage('User ID must be a valid MongoDB ObjectId'),
+    body('accuracy')
+      .optional()
+      .isFloat({ min: 0, max: 100 })
+      .withMessage('Accuracy must be between 0 and 100'),
+    body('marks')
+      .optional()
+      .isFloat({ min: 0 })
+      .withMessage('Marks must be a positive number'),
+    body('strengths')
+      .optional()
+      .isArray()
+      .withMessage('Strengths must be an array'),
+    body('strengths.*')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Each strength must be a string'),
+    body('weaknesses')
+      .optional()
+      .isArray()
+      .withMessage('Weaknesses must be an array'),
+    body('weaknesses.*')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Each weakness must be a string'),
+    body('suggestions')
+      .optional()
+      .isArray()
+      .withMessage('Suggestions must be an array'),
+    body('suggestions.*')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Each suggestion must be a string'),
+    body('feedback')
+      .optional()
+      .isString()
+      .trim()
+      .isLength({ max: 2000 })
+      .withMessage('Feedback must be less than 2000 characters'),
+    body('extractedText')
+      .optional()
+      .isString()
+      .trim()
+      .withMessage('Extracted text must be a string'),
+    body('updateAll')
+      .optional()
+      .isBoolean()
+      .withMessage('updateAll must be a boolean'),
+    body('filters')
+      .optional()
+      .isObject()
+      .withMessage('Filters must be an object'),
+    body('filters.submissionStatus')
+      .optional()
+      .isIn(['draft', 'submitted', 'reviewed'])
+      .withMessage('Invalid submission status'),
+    body('filters.clientId')
+      .optional()
+      .isString()
+      .withMessage('Client ID must be a string'),
+    body('filters.attemptNumber')
+      .optional()
+      .isInt({ min: 1, max: 5 })
+      .withMessage('Attempt number must be between 1 and 5'),
+    body('adminKey')
+      .optional()
+      .isString()
+      .withMessage('Admin key must be a string')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid input data",
+          error: {
+            code: "INVALID_INPUT",
+            details: errors.array()
+          }
+        });
+      }
+
+      // Optional admin key validation (uncomment if you want basic security)
+      // const { adminKey } = req.body;
+      // if (adminKey && adminKey !== process.env.ADMIN_KEY) {
+      //   return res.status(401).json({
+      //     success: false,
+      //     message: "Invalid admin key",
+      //     error: {
+      //       code: "UNAUTHORIZED",
+      //       details: "Invalid or missing admin key"
+      //     }
+      //   });
+      // }
+
+      const { questionId } = req.params;
+      const { 
+        answerId,
+        userId,
+        accuracy, 
+        marks, 
+        strengths, 
+        weaknesses, 
+        suggestions, 
+        feedback, 
+        extractedText,
+        updateAll = false,
+        filters = {}
+      } = req.body;
+
+      // Build the query filter
+      let queryFilter = { questionId: questionId };
+
+      if (answerId && userId) {
+        // Update specific answer for specific user
+        queryFilter._id = answerId;
+        queryFilter.userId = userId;
+      } else if (answerId) {
+        // Update specific answer (any user)
+        queryFilter._id = answerId;
+      } else if (userId) {
+        // Update all answers for specific user
+        queryFilter.userId = userId;
+      } else if (updateAll) {
+        // Update for all users with optional filters
+        if (filters.submissionStatus) {
+          queryFilter.submissionStatus = filters.submissionStatus;
+        }
+        if (filters.clientId) {
+          queryFilter.clientId = filters.clientId;
+        }
+        if (filters.attemptNumber) {
+          queryFilter.attemptNumber = filters.attemptNumber;
+        }
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Missing required parameters",
+          error: {
+            code: "MISSING_PARAMETERS",
+            details: "Provide answerId, userId, or set updateAll to true"
+          }
+        });
+      }
+
+      console.log('Admin query filter:', queryFilter);
+
+      // Find matching answers
+      const matchingAnswers = await UserAnswer.find(queryFilter)
+        .populate('questionId', 'question metadata')
+        .populate('userId', 'name email');
+
+      if (matchingAnswers.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "No answers found",
+          error: {
+            code: "ANSWERS_NOT_FOUND",
+            details: "No answers match the specified criteria"
+          }
+        });
+      }
+
+      // Get question details for validation
+      const questionData = matchingAnswers[0].questionId;
+      const maxMarks = questionData.metadata?.maximumMarks || 10;
+
+      // Validate marks against question's maximum marks
+      if (marks !== undefined && marks > maxMarks) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid marks",
+          error: {
+            code: "MARKS_EXCEEDED",
+            details: `Marks cannot exceed maximum marks of ${maxMarks}`
+          }
+        });
+      }
+
+      // Prepare the evaluation update
+      const evaluationUpdate = {};
+      if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
+      if (marks !== undefined) evaluationUpdate.marks = marks;
+      if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
+      if (feedback !== undefined) evaluationUpdate.feedback = feedback;
+      if (strengths !== undefined) evaluationUpdate.strengths = strengths;
+      if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
+      if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
+
+      // Prepare update operations for each answer
+      const updateOperations = [];
+      const updateResults = [];
+
+      for (const answer of matchingAnswers) {
+        const currentEvaluation = answer.evaluation || {};
+        const updatedEvaluation = {
+          ...currentEvaluation,
+          ...evaluationUpdate
+        };
+
+        updateOperations.push({
+          updateOne: {
+            filter: { _id: answer._id },
+            update: {
+              evaluation: updatedEvaluation,
+              evaluatedAt: new Date(),
+              submissionStatus: 'reviewed',
+              reviewedAt: new Date()
+            }
+          }
+        });
+
+        updateResults.push({
+          answerId: answer._id,
+          userId: answer.userId._id,
+          userName: answer.userId.name || 'Unknown',
+          attemptNumber: answer.attemptNumber,
+          previousEvaluation: currentEvaluation,
+          updatedEvaluation: updatedEvaluation
+        });
+      }
+
+      // Perform bulk update
+      const bulkResult = await UserAnswer.bulkWrite(updateOperations);
+
+      res.status(200).json({
+        success: true,
+        message: `Admin evaluation update completed for ${matchingAnswers.length} answer(s)`,
+        data: {
+          totalUpdated: bulkResult.modifiedCount,
+          totalMatched: bulkResult.matchedCount,
+          fieldsUpdated: Object.keys(evaluationUpdate),
+          evaluatedAt: new Date(),
+          question: {
+            id: questionData._id,
+            question: questionData.question,
+            maximumMarks: questionData.metadata?.maximumMarks
+          },
+          updatedAnswers: updateResults,
+          bulkWriteResult: {
+            matchedCount: bulkResult.matchedCount,
+            modifiedCount: bulkResult.modifiedCount,
+            upsertedCount: bulkResult.upsertedCount
+          }
+        }
+      });
+
+    } catch (error) {
+      console.error('Admin evaluation update error:', error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: {
+          code: "SERVER_ERROR",
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
+// Admin route to get all answers for a question (for review purposes)
+router.get('/admin/questions/:questionId/answers',
+  [
+    param('questionId')
+      .isMongoId()
+      .withMessage('Question ID must be a valid MongoDB ObjectId'),
+    query('userId')
+      .optional()
+      .isMongoId()
+      .withMessage('User ID must be a valid MongoDB ObjectId'),
+    query('clientId')
+      .optional()
+      .isString()
+      .withMessage('Client ID must be a string'),
+    query('submissionStatus')
+      .optional()
+      .isIn(['draft', 'submitted', 'reviewed'])
+      .withMessage('Invalid submission status'),
+    query('page')
+      .optional()
+      .isInt({ min: 1 })
+      .withMessage('Page must be a positive integer'),
+    query('limit')
+      .optional()
+      .isInt({ min: 1, max: 100 })
+      .withMessage('Limit must be between 1 and 100'),
+    query('adminKey')
+      .optional()
+      .isString()
+      .withMessage('Admin key must be a string')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid input data",
+          error: {
+            code: "INVALID_INPUT",
+            details: errors.array()
+          }
+        });
+      }
+
+      // Optional admin key validation (uncomment if you want basic security)
+      // const { adminKey } = req.query;
+      // if (adminKey && adminKey !== process.env.ADMIN_KEY) {
+      //   return res.status(401).json({
+      //     success: false,
+      //     message: "Invalid admin key",
+      //     error: {
+      //       code: "UNAUTHORIZED",
+      //       details: "Invalid or missing admin key"
+      //     }
+      //   });
+      // }
+
+      const { questionId } = req.params;
+      const { 
+        userId, 
+        clientId, 
+        submissionStatus,
+        page = 1,
+        limit = 20
+      } = req.query;
+
+      // Build query filter
+      const queryFilter = { questionId };
+      if (userId) queryFilter.userId = userId;
+      if (clientId) queryFilter.clientId = clientId;
+      if (submissionStatus) queryFilter.submissionStatus = submissionStatus;
+
+      // Calculate pagination
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+
+      // Get answers with pagination
+      const [answers, totalCount] = await Promise.all([
+        UserAnswer.find(queryFilter)
+          .populate('userId', 'name email')
+          .populate('questionId', 'question metadata')
+          .sort({ submittedAt: -1 })
+          .skip(skip)
+          .limit(parseInt(limit)),
+        UserAnswer.countDocuments(queryFilter)
+      ]);
+
+      const totalPages = Math.ceil(totalCount / parseInt(limit));
+
+      res.status(200).json({
+        success: true,
+        message: "Answers retrieved successfully",
+        data: {
+          answers: answers.map(answer => ({
+            id: answer._id,
+            userId: answer.userId._id,
+            userName: answer.userId.name || 'Unknown',
+            userEmail: answer.userId.email || 'Unknown',
+            attemptNumber: answer.attemptNumber,
+            submissionStatus: answer.submissionStatus,
+            submittedAt: answer.submittedAt,
+            reviewedAt: answer.reviewedAt,
+            evaluatedAt: answer.evaluatedAt,
+            textAnswer: answer.textAnswer,
+            answerImages: answer.answerImages,
+            extractedTexts: answer.extractedTexts,
+            evaluation: answer.evaluation,
+            metadata: answer.metadata
+          })),
+          pagination: {
+            currentPage: parseInt(page),
+            totalPages,
+            totalCount,
+            limit: parseInt(limit),
+            hasNextPage: parseInt(page) < totalPages,
+            hasPrevPage: parseInt(page) > 1
+          },
+          question: answers.length > 0 ? {
+            id: answers[0].questionId._id,
+            question: answers[0].questionId.question,
+            maximumMarks: answers[0].questionId.metadata?.maximumMarks
+          } : null
+        }
+      });
+
+    } catch (error) {
+      console.error('Admin get answers error:', error);
       res.status(500).json({
         success: false,
         message: "Internal server error",
