@@ -8,9 +8,11 @@ const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
-const fetch = require('node-fetch'); // Make sure to install: npm install node-fetch
 const axios = require('axios');
-// API Configuration
+const apis = require('./answerapis');
+router.use('/check', apis);
+
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent';
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
@@ -73,35 +75,27 @@ const validateAnswerSubmission = [
   body('setId')
     .optional()
     .isMongoId()
-    .withMessage('Set ID must be a valid MongoDB ObjectId')
+    .withMessage('Set ID must be a valid MongoDB ObjectId'),
+  body('mode')
+    .optional()
+    .isIn(['auto', 'manual'])
+    .withMessage('Mode must be either auto or manual')
 ];
 
-// Improved OpenAI text extraction function
 const extractTextFromImages = async (imageUrls) => {
-  console.log('Starting OpenAI text extraction for', imageUrls.length, 'images');
   const extractedTexts = [];
-  
-  // Validate API key
   if (!OPENAI_API_KEY) {
     throw new Error('OpenAI API key is not configured');
   }
   
   for (let i = 0; i < imageUrls.length; i++) {
     const imageUrl = imageUrls[i];
-    console.log(`Processing image ${i + 1}/${imageUrls.length}:`, imageUrl);
-    
     try {
       let processedImageUrl = imageUrl;
       
-      // Check if it's a Cloudinary URL that can be used directly
       if (imageUrl.includes('cloudinary.com')) {
-        // Use Cloudinary URL directly - OpenAI can access public URLs
-        console.log('Using Cloudinary URL directly');
         processedImageUrl = imageUrl;
-      } else {
-        // For non-Cloudinary URLs, we need to download and convert to base64
-        console.log('Downloading image for base64 conversion');
-        
+      } else {        
         const imageResponse = await axios.get(imageUrl, {
           responseType: 'arraybuffer',
           timeout: 30000,
@@ -132,10 +126,7 @@ const extractTextFromImages = async (imageUrls) => {
         
         processedImageUrl = `data:image/${imageFormat};base64,${base64Image}`;
       }
-      
-      console.log('Sending request to OpenAI Vision API');
-      
-      // Call OpenAI Vision API
+
       const visionResponse = await axios.post(
         OPENAI_API_URL,
         {
@@ -178,11 +169,9 @@ Return only the extracted text content:`
             'Content-Type': 'application/json',
             'Authorization': `Bearer ${OPENAI_API_KEY}`
           },
-          timeout: 45000 // Increased timeout
+          timeout: 45000
         }
-      );
-      
-      console.log('OpenAI Vision API response status:', visionResponse.status);
+      );      
       
       if (!visionResponse.data || !visionResponse.data.choices || visionResponse.data.choices.length === 0) {
         throw new Error('Invalid response structure from OpenAI Vision API');
@@ -194,20 +183,12 @@ Return only the extracted text content:`
       }
       
       const extractedText = choice.message.content.trim();
-      
-      // Check if extraction was successful
       if (extractedText === "No readable text found" || extractedText.length === 0) {
-        console.log(`No text found in image ${i + 1}`);
         extractedTexts.push("No readable text found");
       } else {
-        console.log(`Successfully extracted ${extractedText.length} characters from image ${i + 1}`);
         extractedTexts.push(extractedText);
       }
-      
     } catch (error) {
-      console.error(`Error extracting text from image ${i + 1}:`, error.message);
-      
-      // Provide more specific error messages
       let errorMessage = "Failed to extract text";
       if (error.message.includes('timeout')) {
         errorMessage = "Text extraction timed out - image may be too large";
@@ -218,35 +199,26 @@ Return only the extracted text content:`
       } else if (error.message.includes('content type')) {
         errorMessage = "Invalid image format";
       }
-      
       extractedTexts.push(`${errorMessage}: ${error.message}`);
     }
   }
-  
-  console.log('Text extraction completed. Results:', extractedTexts.length);
   return extractedTexts;
 };
 
-// Simplified function for Gemini as backup (keeping your existing logic but simplified)
 const extractTextFromImagesGemini = async (imageUrls) => {
   if (!GEMINI_API_KEY) {
     throw new Error('Gemini API key is not configured');
   }
-  
-  console.log('Using Gemini API as fallback for', imageUrls.length, 'images');
   const extractedTexts = [];
-  
   for (const imageUrl of imageUrls) {
     try {
       const imageResponse = await axios.get(imageUrl, {
         responseType: 'arraybuffer',
         timeout: 30000
       });
-      
       const imageBuffer = Buffer.from(imageResponse.data);
       const base64Image = imageBuffer.toString('base64');
       const contentType = imageResponse.headers['content-type'] || 'image/jpeg';
-      
       const response = await axios.post(
         `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
         {
@@ -273,86 +245,57 @@ const extractTextFromImagesGemini = async (imageUrls) => {
           timeout: 30000
         }
       );
-
       const extractedText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No readable text found';
       extractedTexts.push(extractedText.trim());
-      
     } catch (error) {
-      console.error('Gemini extraction error:', error.message);
       extractedTexts.push(`Failed to extract text: ${error.message}`);
     }
   }
-  
   return extractedTexts;
 };
 
-// Main extraction function with improved error handling
 const extractTextFromImagesWithFallback = async (imageUrls) => {
   if (!imageUrls || imageUrls.length === 0) {
     return [];
-  }
-  
-  console.log('Starting text extraction with fallback for', imageUrls.length, 'images');
-  
+  }  
   try {
-    // Try OpenAI first (primary method)
-    console.log('Attempting text extraction with OpenAI Vision API');
     const results = await extractTextFromImages(imageUrls);
-    
-    // Check if any extractions failed and we have Gemini as backup
     const failedIndices = [];
     results.forEach((result, index) => {
       if (result.startsWith('Failed to extract text') || result.includes('Error')) {
         failedIndices.push(index);
       }
     });
-    
-    // If some failed and we have Gemini available, retry those with Gemini
     if (failedIndices.length > 0 && GEMINI_API_KEY) {
-      console.log(`Retrying ${failedIndices.length} failed extractions with Gemini`);
-      
       try {
         const failedUrls = failedIndices.map(i => imageUrls[i]);
         const geminiResults = await extractTextFromImagesGemini(failedUrls);
-        
-        // Replace failed results with Gemini results
         failedIndices.forEach((originalIndex, geminiIndex) => {
           if (geminiResults[geminiIndex] && !geminiResults[geminiIndex].startsWith('Failed')) {
             results[originalIndex] = geminiResults[geminiIndex];
-            console.log(`Successfully recovered text for image ${originalIndex + 1} using Gemini`);
           }
         });
       } catch (geminiError) {
-        console.error('Gemini fallback also failed:', geminiError.message);
+        console.error('Gemini fallback failed:', geminiError.message);
       }
     }
-    
     return results;
-    
   } catch (openaiError) {
-    console.error('OpenAI extraction completely failed:', openaiError.message);
-    
-    // If OpenAI completely fails, try Gemini for all images
     if (GEMINI_API_KEY) {
-      console.log('Falling back to Gemini for all images');
       try {
         return await extractTextFromImagesGemini(imageUrls);
       } catch (geminiError) {
         console.error('Both OpenAI and Gemini failed:', geminiError.message);
       }
     }
-    
-    // If both fail, return error messages
     return imageUrls.map((_, index) => 
       `Text extraction failed for image ${index + 1}. Please ensure the image is clear and contains readable text.`
     );
   }
 };
 
-// Add this helper function for generating evaluation prompts
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join('\n\n--- Next Image ---\n\n');
-  
   return `Please evaluate this student's answer to the given question.
 
 QUESTION:
@@ -383,7 +326,6 @@ DETAILED FEEDBACK:
 Please be fair, constructive, and specific in your evaluation.`;
 };
 
-// Helper function to parse evaluation response
 const parseEvaluationResponse = (evaluationText, question) => {
   try {
     const lines = evaluationText.split('\n');
@@ -395,12 +337,9 @@ const parseEvaluationResponse = (evaluationText, question) => {
       suggestions: [],
       feedback: ''
     };
-    
     let currentSection = '';
-    
     for (const line of lines) {
       const trimmedLine = line.trim();
-      
       if (trimmedLine.startsWith('ACCURACY:')) {
         const match = trimmedLine.match(/(\d+)/);
         if (match) evaluation.accuracy = parseInt(match[1]);
@@ -424,13 +363,13 @@ const parseEvaluationResponse = (evaluationText, question) => {
         evaluation.feedback += (evaluation.feedback ? ' ' : '') + trimmedLine;
       }
     }
-    
     return evaluation;
   } catch (error) {
     console.error('Error parsing evaluation:', error);
     return generateMockEvaluation(question);
   }
 };
+
 const generateMockEvaluation = (question) => {
   return {
     accuracy: Math.floor(Math.random() * 30) + 60, // 60-90%
@@ -452,6 +391,8 @@ const generateMockEvaluation = (question) => {
     feedback: 'The answer shows understanding of the topic but could be improved with more detailed explanations and examples.'
   };
 };
+
+// Updated answer submission handler with manual/auto mode support
 router.post('/questions/:questionId/answers',
   authenticateMobileUser,
   validateQuestionId,
@@ -482,9 +423,11 @@ router.post('/questions/:questionId/answers',
 
       const { questionId } = req.params;
       const userId = req.user.id;
-      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion } = req.body;
+      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion, mode } = req.body;
 
-      // Validate that at least one form of answer is provided
+      // Determine evaluation mode - default to 'auto' if not specified
+      const evaluationMode = mode || 'auto';
+
       if ((!req.files || req.files.length === 0) && (!textAnswer || textAnswer.trim() === '')) {
         return res.status(400).json({
           success: false,
@@ -496,7 +439,6 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Check submission limits
       const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
       if (!submissionStatus.canSubmit) {
         if (req.files && req.files.length > 0) {
@@ -518,7 +460,6 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Get question details
       const question = await AiswbQuestion.findById(questionId);
       if (!question) {
         if (req.files && req.files.length > 0) {
@@ -540,7 +481,6 @@ router.post('/questions/:questionId/answers',
         });
       }
 
-      // Get set info if provided
       let setInfo = null;
       if (setId) {
         setInfo = await AISWBSet.findById(setId);
@@ -556,10 +496,8 @@ router.post('/questions/:questionId/answers',
         }
       }
 
-      // Process uploaded images
       const answerImages = [];
-      if (req.files && req.files.length > 0) {        
-        console.log('Processing uploaded images:', req.files.length);
+      if (req.files && req.files.length > 0) {
         for (const file of req.files) {
           answerImages.push({
             imageUrl: file.path,
@@ -567,34 +505,23 @@ router.post('/questions/:questionId/answers',
             originalName: file.originalname,
             uploadedAt: new Date()
           });
-          console.log('Image processed:', file.path);
         }
       }
 
-      // Initialize evaluation data
       let evaluation = null;
       let extractedTexts = [];
-      
-      // Extract text and evaluate if images are provided
-      if (answerImages.length > 0) {
-        console.log('Starting text extraction for', answerImages.length, 'images');
-        
+      let evaluationStatus = 'not_evaluated';
+      let evaluatedAt = null;
+
+      // Handle evaluation based on mode
+      if (evaluationMode === 'auto' && answerImages.length > 0) {
+        // AUTO MODE: Extract text and evaluate automatically
         try {
-          // Check API keys before proceeding
           if (!OPENAI_API_KEY && !GEMINI_API_KEY) {
-            console.error('No API keys configured for text extraction');
             throw new Error('Text extraction service not configured');
           }
-          
-          // Extract text from images using the improved function
           const imageUrls = answerImages.map(img => img.imageUrl);
-          console.log('Image URLs for extraction:', imageUrls);
-          
-          // Use the improved extraction function
           extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
-          console.log('Text extraction completed. Results:', extractedTexts.map(text => `${text.substring(0, 50)}...`));
-
-          // Check if we have meaningful extracted text
           const hasValidText = extractedTexts.some(text => 
             text && 
             text.trim().length > 0 && 
@@ -604,14 +531,9 @@ router.post('/questions/:questionId/answers',
           );
 
           if (hasValidText) {
-            console.log('Valid text found, proceeding with evaluation');
-            
-            // Generate evaluation using the extracted text
             if (GEMINI_API_KEY) {
               try {
-                console.log('Attempting evaluation with Gemini API');
                 const prompt = generateEvaluationPrompt(question, extractedTexts);
-                
                 const response = await axios.post(
                   `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
                   {
@@ -632,24 +554,18 @@ router.post('/questions/:questionId/answers',
                     timeout: 30000
                   }
                 );
-
                 if (response.status === 200 && response.data?.candidates?.[0]?.content) {
                   const evaluationText = response.data.candidates[0].content.parts[0].text;
                   evaluation = parseEvaluationResponse(evaluationText, question);
-                  console.log('Evaluation completed successfully with Gemini');
+                  evaluationStatus = 'auto_evaluated';
+                  evaluatedAt = new Date();
                 } else {
                   throw new Error('Invalid response from Gemini API');
                 }
-                
               } catch (geminiError) {
-                console.error('Gemini evaluation failed:', geminiError.message);
-                
-                // Try OpenAI for evaluation if available
                 if (OPENAI_API_KEY) {
                   try {
-                    console.log('Trying OpenAI for evaluation as fallback');
                     const prompt = generateEvaluationPrompt(question, extractedTexts);
-                    
                     const response = await axios.post(
                       OPENAI_API_URL,
                       {
@@ -669,29 +585,28 @@ router.post('/questions/:questionId/answers',
                         timeout: 30000
                       }
                     );
-                    
                     if (response.data?.choices?.[0]?.message?.content) {
                       const evaluationText = response.data.choices[0].message.content;
                       evaluation = parseEvaluationResponse(evaluationText, question);
-                      console.log('Evaluation completed successfully with OpenAI');
+                      evaluationStatus = 'auto_evaluated';
+                      evaluatedAt = new Date();
                     } else {
                       throw new Error('Invalid response from OpenAI API');
                     }
-                    
                   } catch (openaiError) {
-                    console.error('OpenAI evaluation also failed:', openaiError.message);
                     evaluation = generateMockEvaluation(question);
+                    evaluationStatus = 'auto_evaluated';
+                    evaluatedAt = new Date();
                   }
                 } else {
                   evaluation = generateMockEvaluation(question);
+                  evaluationStatus = 'auto_evaluated';
+                  evaluatedAt = new Date();
                 }
               }
             } else if (OPENAI_API_KEY) {
-              // Use OpenAI for evaluation if Gemini is not available
               try {
-                console.log('Using OpenAI for evaluation');
                 const prompt = generateEvaluationPrompt(question, extractedTexts);
-                
                 const response = await axios.post(
                   OPENAI_API_URL,
                   {
@@ -711,43 +626,54 @@ router.post('/questions/:questionId/answers',
                     timeout: 30000
                   }
                 );
-                
                 if (response.data?.choices?.[0]?.message?.content) {
                   const evaluationText = response.data.choices[0].message.content;
                   evaluation = parseEvaluationResponse(evaluationText, question);
-                  console.log('Evaluation completed successfully with OpenAI');
+                  evaluationStatus = 'auto_evaluated';
+                  evaluatedAt = new Date();
                 } else {
                   throw new Error('Invalid response from OpenAI API');
                 }
-                
               } catch (openaiError) {
-                console.error('OpenAI evaluation failed:', openaiError.message);
                 evaluation = generateMockEvaluation(question);
+                evaluationStatus = 'auto_evaluated';
+                evaluatedAt = new Date();
               }
             } else {
-              console.log('No API keys available for evaluation, using mock evaluation');
               evaluation = generateMockEvaluation(question);
+              evaluationStatus = 'auto_evaluated';
+              evaluatedAt = new Date();
             }
           } else {
-            console.log('No valid text extracted, using mock evaluation');
             evaluation = generateMockEvaluation(question);
-            // Update extracted texts to indicate the issue
+            evaluationStatus = 'auto_evaluated';
+            evaluatedAt = new Date();
             extractedTexts = extractedTexts.map(text => 
               text.startsWith('Failed') || text.includes('extraction failed') ? 
               text : 'No readable text could be extracted from this image'
             );
           }
-          
         } catch (extractionError) {
-          console.error('Text extraction process failed:', extractionError.message);
           evaluation = generateMockEvaluation(question);
+          evaluationStatus = 'auto_evaluated';
+          evaluatedAt = new Date();
           extractedTexts = [`Text extraction service error: ${extractionError.message}. Please try again or contact support if the issue persists.`];
         }
-      } else {
-        console.log('No images provided, skipping text extraction');
+      } else if (evaluationMode === 'manual' && answerImages.length > 0) {
+        // MANUAL MODE: Only extract text, don't evaluate
+        try {
+          if (OPENAI_API_KEY || GEMINI_API_KEY) {
+            const imageUrls = answerImages.map(img => img.imageUrl);
+            extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+          }
+        } catch (extractionError) {
+          console.error('Text extraction error in manual mode:', extractionError);
+          extractedTexts = [`Text extraction failed: ${extractionError.message}`];
+        }
+        // Keep evaluation as null and evaluationStatus as 'not_evaluated'
+        evaluationStatus = 'not_evaluated';
       }
 
-      // Prepare user answer data
       const userAnswerData = {
         userId: userId,
         questionId: questionId,
@@ -763,30 +689,49 @@ router.post('/questions/:questionId/answers',
         },
         evaluation: evaluation,
         extractedTexts: extractedTexts,
-        evaluatedAt: evaluation ? new Date() : null
+        evaluatedAt: evaluatedAt,
+        evaluationStatus: evaluationStatus,
+        evaluationMode: evaluationMode
       };
 
       if (setId) {
         userAnswerData.setId = setId;
       }
 
-      // Save the answer
       let userAnswer;
       try {
         userAnswer = await UserAnswer.createNewAttemptSafe(userAnswerData);
-      } catch (saferError) {        
-        if (saferError.code === 'SUBMISSION_LIMIT_EXCEEDED') {
-          throw saferError;
+        
+        // Auto-progress status based on evaluation mode
+        if (evaluationMode === 'auto' && evaluation) {
+          // AUTO MODE: Auto-publish after successful evaluation
+          await userAnswer.updateStatus('evaluation', 'evaluated', 'Auto-evaluation completed');
+          await userAnswer.updateStatus('main', 'published', 'Auto-published after successful evaluation');
+          await userAnswer.updateStatus('review', 'review_completed', 'Auto-completed review for auto evaluation');
+        } else if (evaluationMode === 'manual') {
+          // MANUAL MODE: Keep as pending, not evaluated, not published
+          await userAnswer.updateStatus('main', 'pending', 'Pending manual review and evaluation');
+          await userAnswer.updateStatus('evaluation', 'not_evaluated', 'Awaiting manual evaluation');
+          await userAnswer.updateStatus('review', 'review_pending', 'Awaiting manual review');
         }
-        try {
-          userAnswer = await UserAnswer.createNewAttempt(userAnswerData);
-        } catch (transactionError) {
-          throw transactionError;
+      } catch (creationError) {
+        if (creationError.code === 'SUBMISSION_LIMIT_EXCEEDED') {
+          throw creationError;
         }
+        if (creationError.code === 'CREATION_FAILED') {
+          throw creationError;
+        }
+        throw creationError;
       }
+
+      // Prepare response message based on mode
+      const responseMessage = evaluationMode === 'auto' 
+        ? "Answer submitted and evaluated successfully"
+        : "Answer submitted successfully. Awaiting manual evaluation";
+
       res.status(200).json({
         success: true,
-        message: "Answer submitted and evaluated successfully",
+        message: responseMessage,
         data: {
           answerId: userAnswer._id,
           attemptNumber: userAnswer.attemptNumber,
@@ -797,6 +742,10 @@ router.post('/questions/:questionId/answers',
           submittedAt: userAnswer.submittedAt,
           isFinalAttempt: userAnswer.isFinalAttempt(),
           remainingAttempts: Math.max(0, 5 - userAnswer.attemptNumber),
+          status: userAnswer.status,
+          evaluationStatus: userAnswer.evaluationStatus,
+          evaluationMode: userAnswer.evaluationMode,
+          reviewStatus: userAnswer.reviewStatus,
           question: {
             id: question._id,
             question: question.question,
@@ -811,7 +760,7 @@ router.post('/questions/:questionId/answers',
               itemType: setInfo.itemType
             }
           }),
-          ...(evaluation && {
+          ...(evaluation && evaluationMode === 'auto' && {
             evaluation: evaluation
           }),
           ...(extractedTexts.length > 0 && {
@@ -820,13 +769,13 @@ router.post('/questions/:questionId/answers',
         }
       });
     } catch (error) {
-      console.error('Route handler error:', error);
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
           try {
             await cloudinary.uploader.destroy(file.filename);
           } catch (cleanupError) {
-            console.error('Error cleaning up file:', cleanupError);          }
+            console.error('Error cleaning up file:', cleanupError);
+          }
         }
       }
       if (error.name === 'ValidationError') {
@@ -865,1657 +814,27 @@ router.post('/questions/:questionId/answers',
         });
       }
       if (error.code === 11000 || error.message.includes('E11000')) {
-        console.error('Duplicate key error still occurring:', error);
         return res.status(409).json({
           success: false,
           message: "Submission processing failed due to duplicate entry",
           error: {
             code: "DUPLICATE_SUBMISSION_ERROR",
-            details: "This submission already exists. Please refresh and try again."
+            details: " submission already exists. Please refresh and try again."
           }
         });
       }
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-router.get('/questions/:questionId/answers/:answerId/evaluation',
-  authenticateMobileUser,
-  [
-    ...validateQuestionId,
-    param('answerId')
-      .isMongoId()
-      .withMessage('Answer ID must be a valid MongoDB ObjectId')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId, answerId } = req.params;
-      const userId = req.user.id;
-
-      const userAnswer = await UserAnswer.findOne({
-        _id: answerId,
-        userId: userId,
-        questionId: questionId
-      }).populate('questionId', 'question metadata');
-
-      if (!userAnswer) {
-        return res.status(404).json({
-          success: false,
-          message: "Answer not found",
-          error: {
-            code: "ANSWER_NOT_FOUND",
-            details: "The specified answer does not exist or you don't have permission to access it"
-          }
-        });
-      }
-
-      if (!userAnswer.evaluation) {
-        return res.status(404).json({
-          success: false,
-          message: "Evaluation not found",
-          error: {
-            code: "EVALUATION_NOT_FOUND",
-            details: "This answer has not been evaluated yet"
-          }
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          answerId: userAnswer._id,
-          questionId: userAnswer.questionId._id,
-          question: {
-            question: userAnswer.questionId.question,
-            maximumMarks: userAnswer.questionId.metadata?.maximumMarks
-          },
-          evaluation: userAnswer.evaluation,
-          extractedTexts: userAnswer.extractedTexts,
-          evaluatedAt: userAnswer.evaluatedAt
-        }
-      });
-
-    } catch (error) {
-      console.error('Get evaluation error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-router.get('/questions/:questionId/submission-status',
-  authenticateMobileUser,
-  validateQuestionId,
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId } = req.params;
-      const userId = req.user.id;
-
-      const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
-
-      res.status(200).json({
-        success: true,
-        data: {
-          questionId: questionId,
-          userId: userId,
-          canSubmit: submissionStatus.canSubmit,
-          currentAttempts: submissionStatus.currentAttempts,
-          remainingAttempts: submissionStatus.remainingAttempts,
-          maxAttempts: 5
-        }
-      });
-    } catch (error) {
-      console.error('Check submission status error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-router.get('/questions/:questionId/answers/latest',
-  authenticateMobileUser,
-  validateQuestionId,
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId } = req.params;
-      const userId = req.user.id;
-
-      const userAnswer = await UserAnswer.getUserLatestAttempt(userId, questionId)
-        .populate('questionId', 'question detailedAnswer metadata languageMode')
-        .populate('setId', 'name itemType');
-
-      if (!userAnswer) {
-        return res.status(404).json({
-          success: false,
-          message: "Answer not found",
-          error: {
-            code: "ANSWER_NOT_FOUND",
-            details: "No answer found for this question and user"
-          }
-        });
-      }
-
-      const formattedImages = userAnswer.answerImages.map(img => ({
-        url: img.imageUrl,
-        originalName: img.originalName,
-        uploadedAt: img.uploadedAt
-      }));
-
-      res.status(200).json({
-        success: true,
-        data: {
-          answer: {
-            id: userAnswer._id,
-            attemptNumber: userAnswer.attemptNumber,
-            textAnswer: userAnswer.textAnswer,
-            images: formattedImages,
-            submissionStatus: userAnswer.submissionStatus,
-            submittedAt: userAnswer.submittedAt,
-            timeSpent: userAnswer.metadata.timeSpent,
-            sourceType: userAnswer.metadata.sourceType,
-            isFinalAttempt: userAnswer.isFinalAttempt()
-          },
-          question: {
-            id: userAnswer.questionId._id,
-            question: userAnswer.questionId.question,
-            detailedAnswer: userAnswer.questionId.detailedAnswer,
-            metadata: userAnswer.questionId.metadata,
-            languageMode: userAnswer.questionId.languageMode
-          },
-          ...(userAnswer.setId && {
-            set: {
-              id: userAnswer.setId._id,
-              name: userAnswer.setId.name,
-              itemType: userAnswer.setId.itemType
-            }
-          }),
-          ...(userAnswer.evaluation && {
-            evaluation: userAnswer.evaluation
-          }),
-          ...(userAnswer.extractedTexts && {
-            extractedTexts: userAnswer.extractedTexts
-          })
-        }
-      });
-
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-router.get('/questions/:questionId/answers/attempts',
-  authenticateMobileUser,
-  validateQuestionId,
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId } = req.params;
-      const userId = req.user.id;
-
-      const userAttempts = await UserAnswer.getUserAttempts(userId, questionId)
-        .populate('questionId', 'question metadata languageMode')
-        .populate('setId', 'name itemType');
-
-      const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
-
-      res.status(200).json({
-        success: true,
-        data: {
-          questionId: questionId,
-          totalAttempts: userAttempts.length,
-          maxAttempts: 5,
-          canSubmitMore: submissionStatus.canSubmit,
-          remainingAttempts: submissionStatus.remainingAttempts,
-          attempts: userAttempts.map(attempt => ({
-            id: attempt._id,
-            attemptNumber: attempt.attemptNumber,
-            textAnswer: attempt.textAnswer,
-            imagesCount: attempt.answerImages.length,
-            images: attempt.answerImages.map(img => ({
-              url: img.imageUrl,
-              originalName: img.originalName,
-              uploadedAt: img.uploadedAt
-            })),
-            submissionStatus: attempt.submissionStatus,
-            submittedAt: attempt.submittedAt,
-            timeSpent: attempt.metadata.timeSpent,
-            sourceType: attempt.metadata.sourceType,
-            isFinalAttempt: attempt.isFinalAttempt(),
-            ...(attempt.setId && {
-              set: {
-                id: attempt.setId._id,
-                name: attempt.setId.name,
-                itemType: attempt.setId.itemType
-              }
-            }),
-            ...(attempt.evaluation && {
-              evaluation: attempt.evaluation
-            }),
-            ...(attempt.extractedTexts && {
-              extractedTexts: attempt.extractedTexts
-            })
-          }))
-        }
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-router.get('/questions/:questionId/answers/attempts/:attemptNumber',
-  authenticateMobileUser,
-  [
-    ...validateQuestionId,
-    param('attemptNumber')
-      .isInt({ min: 1, max: 5 })
-      .withMessage('Attempt number must be between 1 and 5')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId, attemptNumber } = req.params;
-      const userId = req.user.id;
-
-      const userAnswer = await UserAnswer.findOne({
-        userId: userId,
-        questionId: questionId,
-        attemptNumber: parseInt(attemptNumber)
-      }).populate('questionId', 'question detailedAnswer metadata languageMode')
-        .populate('setId', 'name itemType');
-
-      if (!userAnswer) {
-        return res.status(404).json({
-          success: false,
-          message: "Answer not found",
-          error: {
-            code: "ANSWER_NOT_FOUND",
-            details: `No attempt ${attemptNumber} found for this question and user`
-          }
-        });
-      }
-
-      const formattedImages = userAnswer.answerImages.map(img => ({
-        url: img.imageUrl,
-        originalName: img.originalName,
-        uploadedAt: img.uploadedAt
-      }));
-
-      res.status(200).json({
-        success: true,
-        data: {
-          answer: {
-            id: userAnswer._id,
-            attemptNumber: userAnswer.attemptNumber,
-            textAnswer: userAnswer.textAnswer,
-            images: formattedImages,
-            submissionStatus: userAnswer.submissionStatus,
-            submittedAt: userAnswer.submittedAt,
-            timeSpent: userAnswer.metadata.timeSpent,
-            sourceType: userAnswer.metadata.sourceType,
-            isFinalAttempt: userAnswer.isFinalAttempt()
-          },
-          question: {
-            id: userAnswer.questionId._id,
-            question: userAnswer.questionId.question,
-            detailedAnswer: userAnswer.questionId.detailedAnswer,
-            metadata: userAnswer.questionId.metadata,
-            languageMode: userAnswer.questionId.languageMode
-          },
-          ...(userAnswer.setId && {
-            set: {
-              id: userAnswer.setId._id,
-              name: userAnswer.setId.name,
-              itemType: userAnswer.setId.itemType
-            }
-          }),
-          ...(userAnswer.evaluation && {
-            evaluation: userAnswer.evaluation
-          }),
-          ...(userAnswer.extractedTexts && {
-            extractedTexts: userAnswer.extractedTexts
-          })
-        }
-      });
-    } catch (error) {
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-router.get('/questions/:questionId/evaluations',
-  authenticateMobileUser,
-  validateQuestionId,
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId } = req.params;
-      const userId = req.user.id;
-      console.log(questionId,"hii");
-      console.log(req.params);
-
-      const answers = await UserAnswer.find({
-        userId: userId,
-        questionId: questionId,
-        evaluation: { $exists: true }
-      }).sort({ attemptNumber: 1 })
-        .populate('questionId', 'question metadata');
-
-      if (answers.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No evaluations found",
-          error: {
-            code: "NO_EVALUATIONS_FOUND",
-            details: "No evaluations found for this question and user"
-          }
-        });
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          questionId: questionId,
-          question: answers[0].questionId.question,
-          maximumMarks: answers[0].questionId.metadata?.maximumMarks,
-          evaluations: answers.map(answer => ({
-            answerId: answer._id,
-            attemptNumber: answer.attemptNumber,
-            submittedAt: answer.submittedAt,
-            evaluatedAt: answer.evaluatedAt,
-            evaluation: answer.evaluation,
-            extractedTexts: answer.extractedTexts
-          }))
-        }
-      });
-
-    } catch (error) {
-      console.error('Get evaluations error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// Add these three new API endpoints to your userAnswers.js router
-
-router.get('/questions/:questionId/complete-data-all-users',
-  authenticateMobileUser, // You might want to change this to admin authentication
-  validateQuestionId,
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId } = req.params;
       
-      // Optional query parameters for filtering and pagination
-      const { 
-        page = 1, 
-        limit = 50, 
-        submissionStatus, 
-        clientId,
-        sortBy = 'submittedAt',
-        sortOrder = 'desc'
-      } = req.query;
-
-      // Build filter object
-      const filter = { questionId: questionId };
-      if (submissionStatus) {
-        filter.submissionStatus = submissionStatus;
-      }
-      if (clientId) {
-        filter.clientId = clientId;
-      }
-
-      // Calculate pagination
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-
-      // Get all user answers for this question with populated data
-      const userAnswers = await UserAnswer.find(filter)
-        .sort({ [sortBy]: sortOrder === 'desc' ? -1 : 1 })
-        .skip(skip)
-        .limit(parseInt(limit))
-        .populate('questionId', 'question detailedAnswer metadata languageMode')
-        .populate('setId', 'name itemType')
-        .populate('reviewedBy', 'username email')
-        .populate({
-          path: 'userId',
-          select: 'mobile clientId isVerified lastLoginAt createdAt',
-          populate: {
-            path: 'profile',
-            select: 'name age gender exams nativeLanguage isComplete'
-          }
-        });
-
-      if (userAnswers.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No answers found",
-          error: {
-            code: "NO_ANSWERS_FOUND",
-            details: "No answers found for this question"
-          }
-        });
-      }
-
-      // Get total count for pagination
-      const totalAnswers = await UserAnswer.countDocuments(filter);
-      
-      // Get question details from first answer
-      const questionData = userAnswers[0].questionId;
-
-      // Group answers by user
-      const userGroupedAnswers = {};
-      
-      userAnswers.forEach(answer => {
-        const userId = answer.userId._id.toString();
-        
-        if (!userGroupedAnswers[userId]) {
-          userGroupedAnswers[userId] = {
-            userInfo: {
-              id: answer.userId._id,
-              mobile: answer.userId.mobile,
-              clientId: answer.userId.clientId,
-              isVerified: answer.userId.isVerified,
-              lastLoginAt: answer.userId.lastLoginAt,
-              createdAt: answer.userId.createdAt,
-              profile: answer.userId.profile ? {
-                name: answer.userId.profile.name,
-                age: answer.userId.profile.age,
-                gender: answer.userId.profile.gender,
-                exams: answer.userId.profile.exams,
-                nativeLanguage: answer.userId.profile.nativeLanguage,
-                isComplete: answer.userId.profile.isComplete
-              } : null
-            },
-            totalAttempts: 0,
-            attempts: []
-          };
-        }
-        
-        userGroupedAnswers[userId].totalAttempts++;
-        userGroupedAnswers[userId].attempts.push({
-          id: answer._id,
-          attemptNumber: answer.attemptNumber,
-          textAnswer: answer.textAnswer,
-          submissionStatus: answer.submissionStatus,
-          submittedAt: answer.submittedAt,
-          reviewedAt: answer.reviewedAt,
-          evaluatedAt: answer.evaluatedAt,
-          isFinalAttempt: answer.isFinalAttempt(),
-          
-          // Images data
-          images: {
-            count: answer.answerImages.length,
-            details: answer.answerImages.map(img => ({
-              imageUrl: img.imageUrl,
-              cloudinaryPublicId: img.cloudinaryPublicId,
-              originalName: img.originalName,
-              uploadedAt: img.uploadedAt
-            }))
-          },
-          
-          // Extracted texts
-          extractedTexts: answer.extractedTexts || [],
-          
-          // Evaluation data
-          evaluation: answer.evaluation ? {
-            accuracy: answer.evaluation.accuracy,
-            marks: answer.evaluation.marks,
-            extractedText: answer.evaluation.extractedText,
-            strengths: answer.evaluation.strengths || [],
-            weaknesses: answer.evaluation.weaknesses || [],
-            suggestions: answer.evaluation.suggestions || [],
-            feedback: answer.evaluation.feedback
-          } : null,
-          
-          // Feedback data (if reviewed manually)
-          feedback: answer.feedback ? {
-            score: answer.feedback.score,
-            comments: answer.feedback.comments,
-            suggestions: answer.feedback.suggestions || []
-          } : null,
-          
-          // Metadata
-          metadata: {
-            timeSpent: answer.metadata.timeSpent,
-            deviceInfo: answer.metadata.deviceInfo,
-            appVersion: answer.metadata.appVersion,
-            sourceType: answer.metadata.sourceType
-          },
-          
-          // Set information
-          ...(answer.setId && {
-            set: {
-              id: answer.setId._id,
-              name: answer.setId.name,
-              itemType: answer.setId.itemType
-            }
-          }),
-          
-          // Reviewer information
-          ...(answer.reviewedBy && {
-            reviewedBy: {
-              id: answer.reviewedBy._id,
-              username: answer.reviewedBy.username,
-              email: answer.reviewedBy.email
-            }
-          })
-        });
-      });
-
-      // Sort attempts within each user group
-      Object.values(userGroupedAnswers).forEach(userData => {
-        userData.attempts.sort((a, b) => a.attemptNumber - b.attemptNumber);
-      });
-
-      // Calculate statistics
-      const statistics = {
-        totalUsers: Object.keys(userGroupedAnswers).length,
-        totalAnswers: totalAnswers,
-        averageAttemptsPerUser: totalAnswers / Object.keys(userGroupedAnswers).length,
-        submissionStatusBreakdown: {},
-        evaluationStats: {
-          averageAccuracy: 0,
-          averageMarks: 0,
-          totalEvaluated: 0
-        }
-      };
-
-      // Calculate submission status breakdown
-      userAnswers.forEach(answer => {
-        statistics.submissionStatusBreakdown[answer.submissionStatus] = 
-          (statistics.submissionStatusBreakdown[answer.submissionStatus] || 0) + 1;
-      });
-
-      // Calculate evaluation statistics
-      const evaluatedAnswers = userAnswers.filter(answer => answer.evaluation);
-      if (evaluatedAnswers.length > 0) {
-        statistics.evaluationStats.totalEvaluated = evaluatedAnswers.length;
-        statistics.evaluationStats.averageAccuracy = 
-          evaluatedAnswers.reduce((sum, answer) => sum + (answer.evaluation.accuracy || 0), 0) / evaluatedAnswers.length;
-        statistics.evaluationStats.averageMarks = 
-          evaluatedAnswers.reduce((sum, answer) => sum + (answer.evaluation.marks || 0), 0) / evaluatedAnswers.length;
-      }
-
-      // Prepare comprehensive response
-      const completeData = {
-        question: {
-          id: questionData._id,
-          question: questionData.question,
-          detailedAnswer: questionData.detailedAnswer,
-          metadata: questionData.metadata,
-          languageMode: questionData.languageMode
-        },
-        statistics: statistics,
-        pagination: {
-          currentPage: parseInt(page),
-          totalPages: Math.ceil(totalAnswers / parseInt(limit)),
-          totalAnswers: totalAnswers,
-          answersPerPage: parseInt(limit),
-          hasNextPage: parseInt(page) < Math.ceil(totalAnswers / parseInt(limit)),
-          hasPrevPage: parseInt(page) > 1
-        },
-        users: Object.values(userGroupedAnswers)
-      };
-
-      res.status(200).json({
-        success: true,
-        message: "Complete question data for all users retrieved successfully",
-        data: completeData
-      });
-
-    } catch (error) {
-      console.error('Get complete question data (all users) error:', error);
+      console.error('Submission error:', error);
       res.status(500).json({
         success: false,
         message: "Internal server error",
         error: {
           code: "SERVER_ERROR",
-          details: error.message
+          details: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
         }
       });
     }
   }
 );
 
-// 2. API for re-evaluation of an answer
-router.post('/questions/:questionId/answers/:answerId/re-evaluate',
-  authenticateMobileUser,
-  [
-    ...validateQuestionId,
-    param('answerId')
-      .isMongoId()
-      .withMessage('Answer ID must be a valid MongoDB ObjectId')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",  
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId, answerId } = req.params;
-      const userId = req.user.id;
-
-      // Find the answer
-      const userAnswer = await UserAnswer.findOne({
-        _id: answerId,
-        userId: userId,
-        questionId: questionId
-      }).populate('questionId', 'question metadata');
-
-      if (!userAnswer) {
-        return res.status(404).json({
-          success: false,
-          message: "Answer not found",
-          error: {
-            code: "ANSWER_NOT_FOUND",
-            details: "The specified answer does not exist or you don't have permission to access it"
-          }
-        });
-      }
-
-      // Check if answer has images or extracted texts to re-evaluate
-      if ((!userAnswer.answerImages || userAnswer.answerImages.length === 0) && 
-          (!userAnswer.extractedTexts || userAnswer.extractedTexts.length === 0) &&
-          (!userAnswer.textAnswer || userAnswer.textAnswer.trim() === '')) {
-        return res.status(400).json({
-          success: false,
-          message: "No content to evaluate",
-          error: {
-            code: "NO_CONTENT",
-            details: "This answer has no images, extracted text, or text content to evaluate"
-          }
-        });
-      }
-
-      let evaluation = null;
-      let extractedTexts = userAnswer.extractedTexts || [];
-
-      try {
-        // If we have images but no extracted texts, extract them first
-        if (userAnswer.answerImages && userAnswer.answerImages.length > 0 && extractedTexts.length === 0) {
-          console.log('Re-extracting text from images for re-evaluation');
-          const imageUrls = userAnswer.answerImages.map(img => img.imageUrl);
-          extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
-          
-          // Update the answer with new extracted texts
-          await UserAnswer.findByIdAndUpdate(answerId, {
-            extractedTexts: extractedTexts
-          });
-        }
-
-        // Determine what content to evaluate
-        let contentToEvaluate = [];
-        if (extractedTexts.length > 0) {
-          contentToEvaluate = extractedTexts;
-        }
-        if (userAnswer.textAnswer && userAnswer.textAnswer.trim()) {
-          contentToEvaluate.push(userAnswer.textAnswer);
-        }
-
-        if (contentToEvaluate.length === 0) {
-          throw new Error('No content available for evaluation');
-        }
-
-        // Generate new evaluation
-        const question = userAnswer.questionId;
-        
-        if (GEMINI_API_KEY) {
-          try {
-            console.log('Re-evaluating with Gemini API');
-            const prompt = generateEvaluationPrompt(question, contentToEvaluate);
-            
-            const response = await axios.post(
-              `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
-              {
-                contents: [{
-                  parts: [{
-                    text: prompt
-                  }]
-                }],
-                generationConfig: {
-                  temperature: 0.7,
-                  topK: 40,
-                  topP: 0.95,
-                  maxOutputTokens: 2048,
-                }
-              },
-              {
-                headers: { 'Content-Type': 'application/json' },
-                timeout: 30000
-              }
-            );
-
-            if (response.status === 200 && response.data?.candidates?.[0]?.content) {
-              const evaluationText = response.data.candidates[0].content.parts[0].text;
-              evaluation = parseEvaluationResponse(evaluationText, question);
-              console.log('Re-evaluation completed successfully with Gemini');
-            } else {
-              throw new Error('Invalid response from Gemini API');
-            }
-            
-          } catch (geminiError) {
-            console.error('Gemini re-evaluation failed:', geminiError.message);
-            
-            // Try OpenAI as fallback
-            if (OPENAI_API_KEY) {
-              const prompt = generateEvaluationPrompt(question, contentToEvaluate);
-              
-              const response = await axios.post(
-                OPENAI_API_URL,
-                {
-                  model: "gpt-4o-mini",
-                  messages: [{
-                    role: "user",
-                    content: prompt
-                  }],
-                  max_tokens: 1500,
-                  temperature: 0.7
-                },
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${OPENAI_API_KEY}`
-                  },
-                  timeout: 30000
-                }
-              );
-              
-              if (response.data?.choices?.[0]?.message?.content) {
-                const evaluationText = response.data.choices[0].message.content;
-                evaluation = parseEvaluationResponse(evaluationText, question);
-                console.log('Re-evaluation completed successfully with OpenAI');
-              } else {
-                throw new Error('Invalid response from OpenAI API');
-              }
-            } else {
-              evaluation = generateMockEvaluation(question);
-            }
-          }
-        } else if (OPENAI_API_KEY) {
-          // Use OpenAI for re-evaluation
-          const prompt = generateEvaluationPrompt(question, contentToEvaluate);
-          
-          const response = await axios.post(
-            OPENAI_API_URL,
-            {
-              model: "gpt-4o-mini",
-              messages: [{
-                role: "user",
-                content: prompt
-              }],
-              max_tokens: 1500,
-              temperature: 0.7
-            },
-            {
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${OPENAI_API_KEY}`
-              },
-              timeout: 30000
-            }
-          );
-          
-          if (response.data?.choices?.[0]?.message?.content) {
-            const evaluationText = response.data.choices[0].message.content;
-            evaluation = parseEvaluationResponse(evaluationText, question);
-            console.log('Re-evaluation completed successfully with OpenAI');
-          } else {
-            throw new Error('Invalid response from OpenAI API');
-          }
-        } else {
-          console.log('No API keys available for re-evaluation, using mock evaluation');
-          evaluation = generateMockEvaluation(question);
-        }
-
-        // Update the answer with new evaluation
-        const updatedAnswer = await UserAnswer.findByIdAndUpdate(
-          answerId,
-          {
-            evaluation: evaluation,
-            evaluatedAt: new Date(),
-            extractedTexts: extractedTexts
-          },
-          { new: true }
-        );
-
-        res.status(200).json({
-          success: true,
-          message: "Answer re-evaluated successfully",
-          data: {
-            answerId: updatedAnswer._id,
-            questionId: questionId,
-            attemptNumber: updatedAnswer.attemptNumber,
-            previousEvaluation: userAnswer.evaluation,
-            newEvaluation: evaluation,
-            extractedTexts: extractedTexts,
-            evaluatedAt: updatedAnswer.evaluatedAt,
-            question: {
-              id: question._id,
-              question: question.question,
-              maximumMarks: question.metadata?.maximumMarks
-            }
-          }
-        });
-
-      } catch (evaluationError) {
-        console.error('Re-evaluation error:', evaluationError.message);
-        res.status(500).json({
-          success: false,
-          message: "Re-evaluation failed",
-          error: {
-            code: "EVALUATION_ERROR",
-            details: evaluationError.message
-          }
-        });
-      }
-
-    } catch (error) {
-      console.error('Re-evaluate answer error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// Update evaluation for multiple users or specific user
-router.put('/questions/:questionId/answers/:answerId/evaluation-bulk',
-  authenticateMobileUser, // Consider changing to admin authentication for bulk operations
-  [
-    ...validateQuestionId,
-    param('answerId')
-      .isMongoId()
-      .withMessage('Answer ID must be a valid MongoDB ObjectId'),
-    body('userId')
-      .optional()
-      .isMongoId()
-      .withMessage('User ID must be a valid MongoDB ObjectId'),
-    body('accuracy')
-      .optional()
-      .isFloat({ min: 0, max: 100 })
-      .withMessage('Accuracy must be between 0 and 100'),
-    body('marks')
-      .optional()
-      .isFloat({ min: 0 })
-      .withMessage('Marks must be a positive number'),
-    body('strengths')
-      .optional()
-      .isArray()
-      .withMessage('Strengths must be an array'),
-    body('strengths.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each strength must be a string'),
-    body('weaknesses')
-      .optional()
-      .isArray()
-      .withMessage('Weaknesses must be an array'),
-    body('weaknesses.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each weakness must be a string'),
-    body('suggestions')
-      .optional()
-      .isArray()
-      .withMessage('Suggestions must be an array'),
-    body('suggestions.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each suggestion must be a string'),
-    body('feedback')
-      .optional()
-      .isString()
-      .trim()
-      .isLength({ max: 2000 })
-      .withMessage('Feedback must be less than 2000 characters'),
-    body('extractedText')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Extracted text must be a string'),
-    body('updateAll')
-      .optional()
-      .isBoolean()
-      .withMessage('updateAll must be a boolean'),
-    body('filters')
-      .optional()
-      .isObject()
-      .withMessage('Filters must be an object'),
-    body('filters.submissionStatus')
-      .optional()
-      .isIn(['draft', 'submitted', 'reviewed'])
-      .withMessage('Invalid submission status'),
-    body('filters.clientId')
-      .optional()
-      .isString()
-      .withMessage('Client ID must be a string'),
-    body('filters.attemptNumber')
-      .optional()
-      .isInt({ min: 1, max: 5 })
-      .withMessage('Attempt number must be between 1 and 5')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { questionId, answerId } = req.params;
-      const { 
-        userId,
-        accuracy, 
-        marks, 
-        strengths, 
-        weaknesses, 
-        suggestions, 
-        feedback, 
-        extractedText,
-        updateAll = false,
-        filters = {}
-      } = req.body;
-
-      // Build the query filter
-      let queryFilter = { questionId: questionId };
-
-      if (userId) {
-        // Update for specific user
-        queryFilter.userId = userId;
-        queryFilter._id = answerId;
-      } else if (updateAll) {
-        // Update for all users (remove answerId from filter)
-        // Apply additional filters if provided
-        if (filters.submissionStatus) {
-          queryFilter.submissionStatus = filters.submissionStatus;
-        }
-        if (filters.clientId) {
-          queryFilter.clientId = filters.clientId;
-        }
-        if (filters.attemptNumber) {
-          queryFilter.attemptNumber = filters.attemptNumber;
-        }
-      } else {
-        // Default: update specific answer for current user
-        queryFilter.userId = req.user.id;
-        queryFilter._id = answerId;
-      }
-
-      console.log('Query filter:', queryFilter);
-
-      // Find matching answers
-      const matchingAnswers = await UserAnswer.find(queryFilter)
-        .populate('questionId', 'question metadata');
-
-      if (matchingAnswers.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No answers found",
-          error: {
-            code: "ANSWERS_NOT_FOUND",
-            details: "No answers match the specified criteria"
-          }
-        });
-      }
-
-      // Get question details for validation
-      const questionData = matchingAnswers[0].questionId;
-      const maxMarks = questionData.metadata?.maximumMarks || 10;
-
-      // Validate marks against question's maximum marks
-      if (marks !== undefined && marks > maxMarks) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid marks",
-          error: {
-            code: "MARKS_EXCEEDED",
-            details: `Marks cannot exceed maximum marks of ${maxMarks}`
-          }
-        });
-      }
-
-      // Prepare the evaluation update
-      const evaluationUpdate = {};
-      if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
-      if (marks !== undefined) evaluationUpdate.marks = marks;
-      if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
-      if (feedback !== undefined) evaluationUpdate.feedback = feedback;
-      if (strengths !== undefined) evaluationUpdate.strengths = strengths;
-      if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
-      if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
-
-      // Prepare update operations for each answer
-      const updateOperations = [];
-      const updateResults = [];
-
-      for (const answer of matchingAnswers) {
-        const currentEvaluation = answer.evaluation || {};
-        const updatedEvaluation = {
-          ...currentEvaluation,
-          ...evaluationUpdate
-        };
-
-        updateOperations.push({
-          updateOne: {
-            filter: { _id: answer._id },
-            update: {
-              evaluation: updatedEvaluation,
-              evaluatedAt: new Date()
-            }
-          }
-        });
-
-        updateResults.push({
-          answerId: answer._id,
-          userId: answer.userId,
-          attemptNumber: answer.attemptNumber,
-          previousEvaluation: currentEvaluation,
-          updatedEvaluation: updatedEvaluation
-        });
-      }
-
-      // Perform bulk update
-      const bulkResult = await UserAnswer.bulkWrite(updateOperations);
-
-      res.status(200).json({
-        success: true,
-        message: `Evaluation updated successfully for ${matchingAnswers.length} answer(s)`,
-        data: {
-          totalUpdated: bulkResult.modifiedCount,
-          totalMatched: bulkResult.matchedCount,
-          fieldsUpdated: Object.keys(evaluationUpdate),
-          evaluatedAt: new Date(),
-          question: {
-            id: questionData._id,
-            question: questionData.question,
-            maximumMarks: questionData.metadata?.maximumMarks
-          },
-          updatedAnswers: updateResults,
-          bulkWriteResult: {
-            matchedCount: bulkResult.matchedCount,
-            modifiedCount: bulkResult.modifiedCount,
-            upsertedCount: bulkResult.upsertedCount
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('Bulk update evaluation error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// Admin route for updating evaluations without authentication
-// Add this route to your userAnswers.js file
-
-router.put('/questions/:questionId/answers/evaluation-update',
-  [
-    param('questionId')
-      .isMongoId()
-      .withMessage('Question ID must be a valid MongoDB ObjectId'),
-    body('answerId')
-      .optional()
-      .isMongoId()
-      .withMessage('Answer ID must be a valid MongoDB ObjectId'),
-    body('userId')
-      .optional()
-      .isMongoId()
-      .withMessage('User ID must be a valid MongoDB ObjectId'),
-    body('accuracy')
-      .optional()
-      .isFloat({ min: 0, max: 100 })
-      .withMessage('Accuracy must be between 0 and 100'),
-    body('marks')
-      .optional()
-      .isFloat({ min: 0 })
-      .withMessage('Marks must be a positive number'),
-    body('strengths')
-      .optional()
-      .isArray()
-      .withMessage('Strengths must be an array'),
-    body('strengths.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each strength must be a string'),
-    body('weaknesses')
-      .optional()
-      .isArray()
-      .withMessage('Weaknesses must be an array'),
-    body('weaknesses.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each weakness must be a string'),
-    body('suggestions')
-      .optional()
-      .isArray()
-      .withMessage('Suggestions must be an array'),
-    body('suggestions.*')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Each suggestion must be a string'),
-    body('feedback')
-      .optional()
-      .isString()
-      .trim()
-      .isLength({ max: 2000 })
-      .withMessage('Feedback must be less than 2000 characters'),
-    body('extractedText')
-      .optional()
-      .isString()
-      .trim()
-      .withMessage('Extracted text must be a string'),
-    body('updateAll')
-      .optional()
-      .isBoolean()
-      .withMessage('updateAll must be a boolean'),
-    body('filters')
-      .optional()
-      .isObject()
-      .withMessage('Filters must be an object'),
-    body('filters.submissionStatus')
-      .optional()
-      .isIn(['draft', 'submitted', 'reviewed'])
-      .withMessage('Invalid submission status'),
-    body('filters.clientId')
-      .optional()
-      .isString()
-      .withMessage('Client ID must be a string'),
-    body('filters.attemptNumber')
-      .optional()
-      .isInt({ min: 1, max: 5 })
-      .withMessage('Attempt number must be between 1 and 5'),
-    body('adminKey')
-      .optional()
-      .isString()
-      .withMessage('Admin key must be a string')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      // Optional admin key validation (uncomment if you want basic security)
-      // const { adminKey } = req.body;
-      // if (adminKey && adminKey !== process.env.ADMIN_KEY) {
-      //   return res.status(401).json({
-      //     success: false,
-      //     message: "Invalid admin key",
-      //     error: {
-      //       code: "UNAUTHORIZED",
-      //       details: "Invalid or missing admin key"
-      //     }
-      //   });
-      // }
-
-      const { questionId } = req.params;
-      const { 
-        answerId,
-        userId,
-        accuracy, 
-        marks, 
-        strengths, 
-        weaknesses, 
-        suggestions, 
-        feedback, 
-        extractedText,
-        updateAll = false,
-        filters = {}
-      } = req.body;
-
-      // Build the query filter
-      let queryFilter = { questionId: questionId };
-
-      if (answerId && userId) {
-        // Update specific answer for specific user
-        queryFilter._id = answerId;
-        queryFilter.userId = userId;
-      } else if (answerId) {
-        // Update specific answer (any user)
-        queryFilter._id = answerId;
-      } else if (userId) {
-        // Update all answers for specific user
-        queryFilter.userId = userId;
-      } else if (updateAll) {
-        // Update for all users with optional filters
-        if (filters.submissionStatus) {
-          queryFilter.submissionStatus = filters.submissionStatus;
-        }
-        if (filters.clientId) {
-          queryFilter.clientId = filters.clientId;
-        }
-        if (filters.attemptNumber) {
-          queryFilter.attemptNumber = filters.attemptNumber;
-        }
-      } else {
-        return res.status(400).json({
-          success: false,
-          message: "Missing required parameters",
-          error: {
-            code: "MISSING_PARAMETERS",
-            details: "Provide answerId, userId, or set updateAll to true"
-          }
-        });
-      }
-
-      console.log('Admin query filter:', queryFilter);
-
-      // Find matching answers
-      const matchingAnswers = await UserAnswer.find(queryFilter)
-        .populate('questionId', 'question metadata')
-        .populate('userId', 'name email');
-
-      if (matchingAnswers.length === 0) {
-        return res.status(404).json({
-          success: false,
-          message: "No answers found",
-          error: {
-            code: "ANSWERS_NOT_FOUND",
-            details: "No answers match the specified criteria"
-          }
-        });
-      }
-
-      // Get question details for validation
-      const questionData = matchingAnswers[0].questionId;
-      const maxMarks = questionData.metadata?.maximumMarks || 10;
-
-      // Validate marks against question's maximum marks
-      if (marks !== undefined && marks > maxMarks) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid marks",
-          error: {
-            code: "MARKS_EXCEEDED",
-            details: `Marks cannot exceed maximum marks of ${maxMarks}`
-          }
-        });
-      }
-
-      // Prepare the evaluation update
-      const evaluationUpdate = {};
-      if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
-      if (marks !== undefined) evaluationUpdate.marks = marks;
-      if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
-      if (feedback !== undefined) evaluationUpdate.feedback = feedback;
-      if (strengths !== undefined) evaluationUpdate.strengths = strengths;
-      if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
-      if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
-
-      // Prepare update operations for each answer
-      const updateOperations = [];
-      const updateResults = [];
-
-      for (const answer of matchingAnswers) {
-        const currentEvaluation = answer.evaluation || {};
-        const updatedEvaluation = {
-          ...currentEvaluation,
-          ...evaluationUpdate
-        };
-
-        updateOperations.push({
-          updateOne: {
-            filter: { _id: answer._id },
-            update: {
-              evaluation: updatedEvaluation,
-              evaluatedAt: new Date(),
-              submissionStatus: 'reviewed',
-              reviewedAt: new Date()
-            }
-          }
-        });
-
-        updateResults.push({
-          answerId: answer._id,
-          userId: answer.userId._id,
-          userName: answer.userId.name || 'Unknown',
-          attemptNumber: answer.attemptNumber,
-          previousEvaluation: currentEvaluation,
-          updatedEvaluation: updatedEvaluation
-        });
-      }
-
-      // Perform bulk update
-      const bulkResult = await UserAnswer.bulkWrite(updateOperations);
-
-      res.status(200).json({
-        success: true,
-        message: `Admin evaluation update completed for ${matchingAnswers.length} answer(s)`,
-        data: {
-          totalUpdated: bulkResult.modifiedCount,
-          totalMatched: bulkResult.matchedCount,
-          fieldsUpdated: Object.keys(evaluationUpdate),
-          evaluatedAt: new Date(),
-          question: {
-            id: questionData._id,
-            question: questionData.question,
-            maximumMarks: questionData.metadata?.maximumMarks
-          },
-          updatedAnswers: updateResults,
-          bulkWriteResult: {
-            matchedCount: bulkResult.matchedCount,
-            modifiedCount: bulkResult.modifiedCount,
-            upsertedCount: bulkResult.upsertedCount
-          }
-        }
-      });
-
-    } catch (error) {
-      console.error('Admin evaluation update error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// Admin route to get all answers for a question (for review purposes)
-router.get('/admin/questions/:questionId/answers',
-  [
-    param('questionId')
-      .isMongoId()
-      .withMessage('Question ID must be a valid MongoDB ObjectId'),
-    query('userId')
-      .optional()
-      .isMongoId()
-      .withMessage('User ID must be a valid MongoDB ObjectId'),
-    query('clientId')
-      .optional()
-      .isString()
-      .withMessage('Client ID must be a string'),
-    query('submissionStatus')
-      .optional()
-      .isIn(['draft', 'submitted', 'reviewed'])
-      .withMessage('Invalid submission status'),
-    query('page')
-      .optional()
-      .isInt({ min: 1 })
-      .withMessage('Page must be a positive integer'),
-    query('limit')
-      .optional()
-      .isInt({ min: 1, max: 100 })
-      .withMessage('Limit must be between 1 and 100'),
-    query('adminKey')
-      .optional()
-      .isString()
-      .withMessage('Admin key must be a string')
-  ],
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      // Optional admin key validation (uncomment if you want basic security)
-      // const { adminKey } = req.query;
-      // if (adminKey && adminKey !== process.env.ADMIN_KEY) {
-      //   return res.status(401).json({
-      //     success: false,
-      //     message: "Invalid admin key",
-      //     error: {
-      //       code: "UNAUTHORIZED",
-      //       details: "Invalid or missing admin key"
-      //     }
-      //   });
-      // }
-
-      const { questionId } = req.params;
-      const { 
-        userId, 
-        clientId, 
-        submissionStatus,
-        page = 1,
-        limit = 20
-      } = req.query;
-
-      // Build query filter
-      const queryFilter = { questionId };
-      if (userId) queryFilter.userId = userId;
-      if (clientId) queryFilter.clientId = clientId;
-      if (submissionStatus) queryFilter.submissionStatus = submissionStatus;
-
-      // Calculate pagination
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-
-      // Get answers with pagination
-      const [answers, totalCount] = await Promise.all([
-        UserAnswer.find(queryFilter)
-          .populate('userId', 'name email')
-          .populate('questionId', 'question metadata')
-          .sort({ submittedAt: -1 })
-          .skip(skip)
-          .limit(parseInt(limit)),
-        UserAnswer.countDocuments(queryFilter)
-      ]);
-
-      const totalPages = Math.ceil(totalCount / parseInt(limit));
-
-      res.status(200).json({
-        success: true,
-        message: "Answers retrieved successfully",
-        data: {
-          answers: answers.map(answer => ({
-            id: answer._id,
-            userId: answer.userId._id,
-            userName: answer.userId.name || 'Unknown',
-            userEmail: answer.userId.email || 'Unknown',
-            attemptNumber: answer.attemptNumber,
-            submissionStatus: answer.submissionStatus,
-            submittedAt: answer.submittedAt,
-            reviewedAt: answer.reviewedAt,
-            evaluatedAt: answer.evaluatedAt,
-            textAnswer: answer.textAnswer,
-            answerImages: answer.answerImages,
-            extractedTexts: answer.extractedTexts,
-            evaluation: answer.evaluation,
-            metadata: answer.metadata
-          })),
-          pagination: {
-            currentPage: parseInt(page),
-            totalPages,
-            totalCount,
-            limit: parseInt(limit),
-            hasNextPage: parseInt(page) < totalPages,
-            hasPrevPage: parseInt(page) > 1
-          },
-          question: answers.length > 0 ? {
-            id: answers[0].questionId._id,
-            question: answers[0].questionId.question,
-            maximumMarks: answers[0].questionId.metadata?.maximumMarks
-          } : null
-        }
-      });
-
-    } catch (error) {
-      console.error('Admin get answers error:', error);
-      res.status(500).json({
-        success: false,
-        message: "Internal server error",
-        error: {
-          code: "SERVER_ERROR",
-          details: error.message
-        }
-      });
-    }
-  }
-);
 module.exports = router;
