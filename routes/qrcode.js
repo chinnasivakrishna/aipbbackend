@@ -105,7 +105,7 @@ router.get('/books/:bookId', async (req, res) => {
 
     res.json({
       success: true,
-      qrCodeDataURL,
+      qrCodeDataURL, 
       qrCodeType: 'book',
       qrCodeColor: '#0047AB',
       book: {

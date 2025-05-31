@@ -94,6 +94,45 @@ const userAnswerSchema = new mongoose.Schema({
       enum: ['qr_scan', 'direct_access', 'set_practice'],
       default: 'qr_scan'
     }
+  },
+  evaluation: {
+    accuracy: {
+      type: Number,
+      min: 0,
+      max: 100,
+      default: 0
+    },
+    extractedText: {
+      type: String,
+      trim: true
+    },
+    strengths: [{
+      type: String,
+      trim: true
+    }],
+    weaknesses: [{
+      type: String,
+      trim: true
+    }],
+    suggestions: [{
+      type: String,
+      trim: true
+    }],
+    marks: {
+      type: Number,
+      min: 0
+    },
+    feedback: {
+      type: String,
+      trim: true
+    }
+  },
+  extractedTexts: [{
+    type: String,
+    trim: true
+  }],
+  evaluatedAt: {
+    type: Date
   }
 }, {
   timestamps: true
