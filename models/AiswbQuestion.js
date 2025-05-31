@@ -82,6 +82,12 @@ const questionSchema = new mongoose.Schema({
     enum: ['english', 'hindi'],
     required: true
   },
+  evaluationMode: {
+    type: String,
+    enum: ['auto', 'manual'],
+    required: true,
+    default: 'auto'
+  },
   setId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AISWBSet'

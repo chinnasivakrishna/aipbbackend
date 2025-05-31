@@ -3,6 +3,7 @@ const AISWBSet = require('../models/AISWBSet');
 const { validationResult } = require('express-validator');
 const UserAnswer = require('../models/UserAnswer');
 const UserProfile = require('../models/UserProfile');
+
 // Question Controllers
 const addQuestion = async (req, res) => {
   try {
@@ -61,6 +62,7 @@ const addQuestion = async (req, res) => {
         modalAnswer: question.modalAnswer,
         metadata: question.metadata,
         languageMode: question.languageMode,
+        evaluationMode: question.evaluationMode,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -122,6 +124,7 @@ const updateQuestion = async (req, res) => {
         modalAnswer: question.modalAnswer,
         metadata: question.metadata,
         languageMode: question.languageMode,
+        evaluationMode: question.evaluationMode,
         updatedAt: question.updatedAt.toISOString()
       }
     });
@@ -206,6 +209,7 @@ const getQuestionDetails = async (req, res) => {
         modalAnswer: question.modalAnswer,
         metadata: question.metadata,
         languageMode: question.languageMode,
+        evaluationMode: question.evaluationMode,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -431,7 +435,8 @@ const getQuestionsInSet = async (req, res) => {
           }))
         }
       },
-      languageMode: question.languageMode
+      languageMode: question.languageMode,
+      evaluationMode: question.evaluationMode
     }));
 
     res.status(200).json({
@@ -513,7 +518,8 @@ const addQuestionToSet = async (req, res) => {
             }))
           }
         },
-        languageMode: question.languageMode
+        languageMode: question.languageMode,
+        evaluationMode: question.evaluationMode
       }
     });
 

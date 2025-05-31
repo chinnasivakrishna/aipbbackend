@@ -49,7 +49,7 @@ const userAnswerSchema = new mongoose.Schema({
   },
   submissionStatus: {
     type: String,
-    enum: ['draft', 'submitted', 'reviewed'],
+    enum: ['draft', 'submitted', 'reviewed', 'evaluated'],
     default: 'submitted'
   },
   submittedAt: {
@@ -127,35 +127,20 @@ const userAnswerSchema = new mongoose.Schema({
       trim: true
     }
   },
-  // Main status for overall answer processing
   status: {
     type: String,
-    enum: ['pending', 'rejected', 'published', 'not_published'],
-    default: 'pending'
+    enum: ['published', 'not_published'],
+    default: 'not_published'
   },
-  // Review status for manual review process
   reviewStatus: {
     type: String,
     enum: ['review_pending', 'review_accepted', 'review_completed'],
     default: 'review_pending'
   },
-  // Popularity status
   popularityStatus: {
     type: String,
     enum: ['popular', 'not_popular'],
     default: 'not_popular'
-  },
-  // Evaluation status to track evaluation completion
-  evaluationStatus: {
-    type: String,
-    enum: ['evaluated','not_evaluated', 'auto_evaluated', 'manual_evaluated', 'evaluation_failed'],
-    default: 'not_evaluated'
-  },
-  // Evaluation mode
-  evaluationMode: {
-    type: String,
-    enum: ['auto', 'manual'],
-    default: 'auto'
   },
   extractedTexts: [{
     type: String,
@@ -163,25 +148,7 @@ const userAnswerSchema = new mongoose.Schema({
   }],
   evaluatedAt: {
     type: Date
-  },
-  // Status update history for tracking
-  statusHistory: [{
-    status: {
-      type: String,
-      required: true
-    },
-    statusType: {
-      type: String,
-      enum: ['main', 'review', 'popularity', 'evaluation'],
-      required: true
-    },
-    changedAt: {
-      type: Date,
-      default: Date.now
-    },
-    previousStatus: String,
-    reason: String
-  }]
+  }
 }, {
   timestamps: true
 });
@@ -192,44 +159,6 @@ userAnswerSchema.index({ userId: 1, clientId: 1 }); // Non-unique index
 userAnswerSchema.index({ questionId: 1, clientId: 1 }); // Non-unique index
 userAnswerSchema.index({ submissionStatus: 1 }); // Non-unique index
 userAnswerSchema.index({ userId: 1, questionId: 1 }); // Non-unique index for querying user's attempts
-userAnswerSchema.index({ status: 1 }); // Index for main status
-userAnswerSchema.index({ reviewStatus: 1 }); // Index for review status
-userAnswerSchema.index({ evaluationStatus: 1 }); // Index for evaluation status
-userAnswerSchema.index({ evaluationMode: 1 }); // Index for evaluation mode
-
-// Method to update status with history tracking
-userAnswerSchema.methods.updateStatus = function(statusType, newStatus, reason = '') {
-  // Use let instead of const since we need to reassign the variable
-  let statusField = `${statusType}Status`;
-  if (statusType === 'main') {
-    statusField = 'status';
-  }
-  
-  const previousStatus = this[statusField];
-  this[statusField] = newStatus;
-  
-  // Add to status history
-  this.statusHistory.push({
-    status: newStatus,
-    statusType: statusType,
-    previousStatus: previousStatus,
-    reason: reason,
-    changedAt: new Date()
-  });
-  
-  return this.save();
-};
-
-// Method to auto-progress status after evaluation
-userAnswerSchema.methods.autoProgressAfterEvaluation = async function() {
-  if (this.evaluationMode === 'auto' && this.evaluationStatus === 'auto_evaluated') {
-    // Auto mode: after evaluation -> published
-    await this.updateStatus('main', 'published', 'Auto-published after successful evaluation');
-    await this.updateStatus('review', 'review_completed', 'Auto-completed review for auto evaluation');
-    return true;
-  }
-  return false;
-};
 
 // Add a method to clean up old indexes when the model is initialized
 userAnswerSchema.statics.cleanupOldIndexes = async function() {

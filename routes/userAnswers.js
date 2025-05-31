@@ -9,8 +9,9 @@ const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const axios = require('axios');
-const apis = require('./answerapis');
-router.use('/check', apis);
+
+const answerapis = require('./answerapis');
+router.use('/crud', answerapis);
 
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -75,11 +76,7 @@ const validateAnswerSubmission = [
   body('setId')
     .optional()
     .isMongoId()
-    .withMessage('Set ID must be a valid MongoDB ObjectId'),
-  body('mode')
-    .optional()
-    .isIn(['auto', 'manual'])
-    .withMessage('Mode must be either auto or manual')
+    .withMessage('Set ID must be a valid MongoDB ObjectId')
 ];
 
 const extractTextFromImages = async (imageUrls) => {
@@ -87,12 +84,11 @@ const extractTextFromImages = async (imageUrls) => {
   if (!OPENAI_API_KEY) {
     throw new Error('OpenAI API key is not configured');
   }
-  
+
   for (let i = 0; i < imageUrls.length; i++) {
     const imageUrl = imageUrls[i];
     try {
       let processedImageUrl = imageUrl;
-      
       if (imageUrl.includes('cloudinary.com')) {
         processedImageUrl = imageUrl;
       } else {        
@@ -103,27 +99,27 @@ const extractTextFromImages = async (imageUrls) => {
             'User-Agent': 'Mozilla/5.0 (compatible; TextExtractor/1.0)'
           }
         });
-        
+
         if (imageResponse.status !== 200) {
           throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
         }
-        
+
         const contentType = imageResponse.headers['content-type'];
         if (!contentType || !contentType.startsWith('image/')) {
           throw new Error(`Invalid content type: ${contentType}`);
         }
-        
+
         const imageBuffer = Buffer.from(imageResponse.data);
         if (imageBuffer.length === 0) {
           throw new Error('Empty image buffer received');
         }
-        
+
         const base64Image = imageBuffer.toString('base64');
         let imageFormat = 'jpeg';
         if (contentType.includes('png')) imageFormat = 'png';
         else if (contentType.includes('webp')) imageFormat = 'webp';
         else if (contentType.includes('gif')) imageFormat = 'gif';
-        
+
         processedImageUrl = `data:image/${imageFormat};base64,${base64Image}`;
       }
 
@@ -172,22 +168,25 @@ Return only the extracted text content:`
           timeout: 45000
         }
       );      
-      
+
       if (!visionResponse.data || !visionResponse.data.choices || visionResponse.data.choices.length === 0) {
         throw new Error('Invalid response structure from OpenAI Vision API');
       }
-      
+
       const choice = visionResponse.data.choices[0];
       if (!choice.message || !choice.message.content) {
         throw new Error('No content in OpenAI Vision API response');
       }
-      
+
       const extractedText = choice.message.content.trim();
       if (extractedText === "No readable text found" || extractedText.length === 0) {
+        console.log(`No text found in image ${i + 1}`);
         extractedTexts.push("No readable text found");
       } else {
+        console.log(`Successfully extracted ${extractedText.length} characters from image ${i + 1}`);
         extractedTexts.push(extractedText);
       }
+
     } catch (error) {
       let errorMessage = "Failed to extract text";
       if (error.message.includes('timeout')) {
@@ -199,9 +198,11 @@ Return only the extracted text content:`
       } else if (error.message.includes('content type')) {
         errorMessage = "Invalid image format";
       }
+
       extractedTexts.push(`${errorMessage}: ${error.message}`);
     }
   }
+
   return extractedTexts;
 };
 
@@ -209,6 +210,7 @@ const extractTextFromImagesGemini = async (imageUrls) => {
   if (!GEMINI_API_KEY) {
     throw new Error('Gemini API key is not configured');
   }
+
   const extractedTexts = [];
   for (const imageUrl of imageUrls) {
     try {
@@ -216,9 +218,11 @@ const extractTextFromImagesGemini = async (imageUrls) => {
         responseType: 'arraybuffer',
         timeout: 30000
       });
+
       const imageBuffer = Buffer.from(imageResponse.data);
       const base64Image = imageBuffer.toString('base64');
       const contentType = imageResponse.headers['content-type'] || 'image/jpeg';
+
       const response = await axios.post(
         `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
         {
@@ -245,12 +249,16 @@ const extractTextFromImagesGemini = async (imageUrls) => {
           timeout: 30000
         }
       );
+
       const extractedText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || 'No readable text found';
       extractedTexts.push(extractedText.trim());
+
     } catch (error) {
+      console.error('Gemini extraction error:', error.message);
       extractedTexts.push(`Failed to extract text: ${error.message}`);
     }
   }
+
   return extractedTexts;
 };
 
@@ -258,36 +266,45 @@ const extractTextFromImagesWithFallback = async (imageUrls) => {
   if (!imageUrls || imageUrls.length === 0) {
     return [];
   }  
+
   try {
     const results = await extractTextFromImages(imageUrls);
+    
     const failedIndices = [];
     results.forEach((result, index) => {
       if (result.startsWith('Failed to extract text') || result.includes('Error')) {
         failedIndices.push(index);
       }
     });
+
     if (failedIndices.length > 0 && GEMINI_API_KEY) {
       try {
         const failedUrls = failedIndices.map(i => imageUrls[i]);
         const geminiResults = await extractTextFromImagesGemini(failedUrls);
+        
         failedIndices.forEach((originalIndex, geminiIndex) => {
           if (geminiResults[geminiIndex] && !geminiResults[geminiIndex].startsWith('Failed')) {
             results[originalIndex] = geminiResults[geminiIndex];
+            console.log(`Successfully recovered text for image ${originalIndex + 1} using Gemini`);
           }
         });
       } catch (geminiError) {
-        console.error('Gemini fallback failed:', geminiError.message);
+        console.error('Gemini fallback also failed:', geminiError.message);
       }
     }
+
     return results;
+    
   } catch (openaiError) {
     if (GEMINI_API_KEY) {
+      console.log('Falling back to Gemini for all images');
       try {
         return await extractTextFromImagesGemini(imageUrls);
       } catch (geminiError) {
         console.error('Both OpenAI and Gemini failed:', geminiError.message);
       }
     }
+
     return imageUrls.map((_, index) => 
       `Text extraction failed for image ${index + 1}. Please ensure the image is clear and contains readable text.`
     );
@@ -296,6 +313,7 @@ const extractTextFromImagesWithFallback = async (imageUrls) => {
 
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join('\n\n--- Next Image ---\n\n');
+  
   return `Please evaluate this student's answer to the given question.
 
 QUESTION:
@@ -337,9 +355,11 @@ const parseEvaluationResponse = (evaluationText, question) => {
       suggestions: [],
       feedback: ''
     };
+
     let currentSection = '';
     for (const line of lines) {
       const trimmedLine = line.trim();
+      
       if (trimmedLine.startsWith('ACCURACY:')) {
         const match = trimmedLine.match(/(\d+)/);
         if (match) evaluation.accuracy = parseInt(match[1]);
@@ -363,6 +383,7 @@ const parseEvaluationResponse = (evaluationText, question) => {
         evaluation.feedback += (evaluation.feedback ? ' ' : '') + trimmedLine;
       }
     }
+
     return evaluation;
   } catch (error) {
     console.error('Error parsing evaluation:', error);
@@ -372,7 +393,7 @@ const parseEvaluationResponse = (evaluationText, question) => {
 
 const generateMockEvaluation = (question) => {
   return {
-    accuracy: Math.floor(Math.random() * 30) + 60, // 60-90%
+    accuracy: Math.floor(Math.random() * 30) + 60,
     extractedText: "The answer demonstrates a good understanding of the topic with clear explanations and relevant examples. The content is well-structured and addresses the main points of the question.",
     strengths: [
       'Shows understanding of core concepts',
@@ -392,7 +413,7 @@ const generateMockEvaluation = (question) => {
   };
 };
 
-// Updated answer submission handler with manual/auto mode support
+// POST /questions/:questionId/answers - Submit answer for a question
 router.post('/questions/:questionId/answers',
   authenticateMobileUser,
   validateQuestionId,
@@ -402,6 +423,7 @@ router.post('/questions/:questionId/answers',
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
+        // Clean up uploaded files on validation error
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
             try {
@@ -411,6 +433,7 @@ router.post('/questions/:questionId/answers',
             }
           }
         }
+
         return res.status(400).json({
           success: false,
           message: "Invalid input data",
@@ -423,11 +446,9 @@ router.post('/questions/:questionId/answers',
 
       const { questionId } = req.params;
       const userId = req.user.id;
-      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion, mode } = req.body;
+      const { textAnswer, timeSpent, sourceType, setId, deviceInfo, appVersion } = req.body;
 
-      // Determine evaluation mode - default to 'auto' if not specified
-      const evaluationMode = mode || 'auto';
-
+      // Validate that at least one form of answer is provided
       if ((!req.files || req.files.length === 0) && (!textAnswer || textAnswer.trim() === '')) {
         return res.status(400).json({
           success: false,
@@ -439,8 +460,10 @@ router.post('/questions/:questionId/answers',
         });
       }
 
+      // Check submission limits
       const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
       if (!submissionStatus.canSubmit) {
+        // Clean up uploaded files
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
             try {
@@ -450,6 +473,7 @@ router.post('/questions/:questionId/answers',
             }
           }
         }
+
         return res.status(400).json({
           success: false,
           message: "Maximum submission limit reached",
@@ -460,8 +484,10 @@ router.post('/questions/:questionId/answers',
         });
       }
 
+      // Get question details
       const question = await AiswbQuestion.findById(questionId);
       if (!question) {
+        // Clean up uploaded files
         if (req.files && req.files.length > 0) {
           for (const file of req.files) {
             try {
@@ -471,6 +497,7 @@ router.post('/questions/:questionId/answers',
             }
           }
         }
+
         return res.status(404).json({
           success: false,
           message: "Question not found",
@@ -481,6 +508,7 @@ router.post('/questions/:questionId/answers',
         });
       }
 
+      // Validate set if provided
       let setInfo = null;
       if (setId) {
         setInfo = await AISWBSet.findById(setId);
@@ -496,8 +524,9 @@ router.post('/questions/:questionId/answers',
         }
       }
 
+      // Process uploaded images
       const answerImages = [];
-      if (req.files && req.files.length > 0) {
+      if (req.files && req.files.length > 0) {        
         for (const file of req.files) {
           answerImages.push({
             imageUrl: file.path,
@@ -505,23 +534,51 @@ router.post('/questions/:questionId/answers',
             originalName: file.originalname,
             uploadedAt: new Date()
           });
+          console.log('Image processed:', file.path);
         }
       }
-
+      
+      // Initialize variables for status and evaluation
+      let submissionStatusValue, reviewStatusValue, statusValue, popularityStatusValue;
       let evaluation = null;
       let extractedTexts = [];
-      let evaluationStatus = 'not_evaluated';
-      let evaluatedAt = null;
+      
+      // Check evaluation mode and set statuses accordingly
+      const isAutoEvaluation = question.evaluationMode === 'auto';
+      
+      if (isAutoEvaluation) {
+        console.log('Auto evaluation mode - AI evaluation with auto-publish');
+        
+        // For auto evaluation mode - auto publish after AI evaluation
+        submissionStatusValue = 'evaluated';
+        reviewStatusValue = null; // No review process for auto evaluation
+        statusValue = 'published';
+        popularityStatusValue = 'not_popular';
+        
+      } else {
+        console.log('Manual evaluation mode - AI evaluation but manual approval required');
+        
+        // For manual evaluation mode - AI evaluation but requires human approval
+        submissionStatusValue = 'submitted'; // Keep as submitted for human review
+        reviewStatusValue = 'review_pending';
+        statusValue = 'not_published'; // Don't publish until human approval
+        popularityStatusValue = 'not_popular';
+      }
 
-      // Handle evaluation based on mode
-      if (evaluationMode === 'auto' && answerImages.length > 0) {
-        // AUTO MODE: Extract text and evaluate automatically
+      // PERFORM AI EVALUATION FOR BOTH MODES
+      console.log('Performing AI evaluation for both auto and manual modes');
+      
+      // Process images and evaluate for both modes
+      if (answerImages.length > 0) {        
         try {
           if (!OPENAI_API_KEY && !GEMINI_API_KEY) {
+            console.error('No API keys configured for text extraction');
             throw new Error('Text extraction service not configured');
           }
-          const imageUrls = answerImages.map(img => img.imageUrl);
+
+          const imageUrls = answerImages.map(img => img.imageUrl);          
           extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+
           const hasValidText = extractedTexts.some(text => 
             text && 
             text.trim().length > 0 && 
@@ -530,7 +587,8 @@ router.post('/questions/:questionId/answers',
             !text.includes('Text extraction failed')
           );
 
-          if (hasValidText) {
+          if (hasValidText) {            
+            // Try Gemini first, then OpenAI as fallback
             if (GEMINI_API_KEY) {
               try {
                 const prompt = generateEvaluationPrompt(question, extractedTexts);
@@ -554,15 +612,17 @@ router.post('/questions/:questionId/answers',
                     timeout: 30000
                   }
                 );
+
                 if (response.status === 200 && response.data?.candidates?.[0]?.content) {
                   const evaluationText = response.data.candidates[0].content.parts[0].text;
                   evaluation = parseEvaluationResponse(evaluationText, question);
-                  evaluationStatus = 'auto_evaluated';
-                  evaluatedAt = new Date();
+                  console.log('AI evaluation completed successfully using Gemini');
                 } else {
                   throw new Error('Invalid response from Gemini API');
                 }
               } catch (geminiError) {
+                console.log('Gemini evaluation failed, trying OpenAI fallback');
+                
                 if (OPENAI_API_KEY) {
                   try {
                     const prompt = generateEvaluationPrompt(question, extractedTexts);
@@ -585,23 +645,21 @@ router.post('/questions/:questionId/answers',
                         timeout: 30000
                       }
                     );
+
                     if (response.data?.choices?.[0]?.message?.content) {
                       const evaluationText = response.data.choices[0].message.content;
                       evaluation = parseEvaluationResponse(evaluationText, question);
-                      evaluationStatus = 'auto_evaluated';
-                      evaluatedAt = new Date();
+                      console.log('AI evaluation completed successfully using OpenAI');
                     } else {
                       throw new Error('Invalid response from OpenAI API');
                     }
                   } catch (openaiError) {
+                    console.log('Both AI services failed, using mock evaluation');
                     evaluation = generateMockEvaluation(question);
-                    evaluationStatus = 'auto_evaluated';
-                    evaluatedAt = new Date();
                   }
                 } else {
+                  console.log('No OpenAI key available, using mock evaluation');
                   evaluation = generateMockEvaluation(question);
-                  evaluationStatus = 'auto_evaluated';
-                  evaluatedAt = new Date();
                 }
               }
             } else if (OPENAI_API_KEY) {
@@ -626,149 +684,279 @@ router.post('/questions/:questionId/answers',
                     timeout: 30000
                   }
                 );
+
                 if (response.data?.choices?.[0]?.message?.content) {
                   const evaluationText = response.data.choices[0].message.content;
                   evaluation = parseEvaluationResponse(evaluationText, question);
-                  evaluationStatus = 'auto_evaluated';
-                  evaluatedAt = new Date();
+                  console.log('AI evaluation completed successfully using OpenAI');
                 } else {
                   throw new Error('Invalid response from OpenAI API');
                 }
               } catch (openaiError) {
+                console.log('OpenAI evaluation failed, using mock evaluation');
                 evaluation = generateMockEvaluation(question);
-                evaluationStatus = 'auto_evaluated';
-                evaluatedAt = new Date();
               }
             } else {
+              console.log('No AI API keys available, using mock evaluation');
               evaluation = generateMockEvaluation(question);
-              evaluationStatus = 'auto_evaluated';
-              evaluatedAt = new Date();
             }
           } else {
+            console.log('No valid text extracted from images, using mock evaluation');
             evaluation = generateMockEvaluation(question);
-            evaluationStatus = 'auto_evaluated';
-            evaluatedAt = new Date();
             extractedTexts = extractedTexts.map(text => 
               text.startsWith('Failed') || text.includes('extraction failed') ? 
               text : 'No readable text could be extracted from this image'
             );
           }
         } catch (extractionError) {
+          console.error('Text extraction error:', extractionError);
           evaluation = generateMockEvaluation(question);
-          evaluationStatus = 'auto_evaluated';
-          evaluatedAt = new Date();
           extractedTexts = [`Text extraction service error: ${extractionError.message}. Please try again or contact support if the issue persists.`];
         }
-      } else if (evaluationMode === 'manual' && answerImages.length > 0) {
-        // MANUAL MODE: Only extract text, don't evaluate
-        try {
-          if (OPENAI_API_KEY || GEMINI_API_KEY) {
-            const imageUrls = answerImages.map(img => img.imageUrl);
-            extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+      } else {
+        // For text-only answers - still perform AI evaluation
+        console.log('Text-only answer, performing AI evaluation');
+        
+        if (textAnswer && textAnswer.trim()) {
+          // Create evaluation for text answer
+          try {
+            const textEvaluationPrompt = `Please evaluate this student's text answer to the given question.
+
+QUESTION:
+${question.question}
+
+MAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}
+
+STUDENT'S ANSWER:
+${textAnswer}
+
+Please provide a detailed evaluation in the following format:
+
+ACCURACY: [Score out of 100]
+MARKS AWARDED: [Marks out of ${question.metadata?.maximumMarks || 10}]
+
+STRENGTHS:
+- [List 2-3 specific strengths]
+
+WEAKNESSES:
+- [List 2-3 areas for improvement]
+
+SUGGESTIONS:
+- [List 2-3 specific recommendations]
+
+DETAILED FEEDBACK:
+[Provide constructive feedback about the answer]
+
+Please be fair, constructive, and specific in your evaluation.`;
+
+            if (GEMINI_API_KEY) {
+              try {
+                const response = await axios.post(
+                  `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
+                  {
+                    contents: [{
+                      parts: [{
+                        text: textEvaluationPrompt
+                      }]
+                    }],
+                    generationConfig: {
+                      temperature: 0.7,
+                      topK: 40,
+                      topP: 0.95,
+                      maxOutputTokens: 2048,
+                    }
+                  },
+                  {
+                    headers: { 'Content-Type': 'application/json' },
+                    timeout: 30000
+                  }
+                );
+
+                if (response.status === 200 && response.data?.candidates?.[0]?.content) {
+                  const evaluationText = response.data.candidates[0].content.parts[0].text;
+                  evaluation = parseEvaluationResponse(evaluationText, question);
+                  console.log('Text AI evaluation completed successfully using Gemini');
+                } else {
+                  throw new Error('Invalid response from Gemini API');
+                }
+              } catch (geminiError) {
+                if (OPENAI_API_KEY) {
+                  try {
+                    const response = await axios.post(
+                      OPENAI_API_URL,
+                      {
+                        model: "gpt-4o-mini",
+                        messages: [{
+                          role: "user",
+                          content: textEvaluationPrompt
+                        }],
+                        max_tokens: 1500,
+                        temperature: 0.7
+                      },
+                      {
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${OPENAI_API_KEY}`
+                        },
+                        timeout: 30000
+                      }
+                    );
+
+                    if (response.data?.choices?.[0]?.message?.content) {
+                      const evaluationText = response.data.choices[0].message.content;
+                      evaluation = parseEvaluationResponse(evaluationText, question);
+                      console.log('Text AI evaluation completed successfully using OpenAI');
+                    } else {
+                      throw new Error('Invalid response from OpenAI API');
+                    }
+                  } catch (openaiError) {
+                    evaluation = generateMockEvaluation(question);
+                  }
+                } else {
+                  evaluation = generateMockEvaluation(question);
+                }
+              }
+            } else if (OPENAI_API_KEY) {
+              try {
+                const response = await axios.post(
+                  OPENAI_API_URL,
+                  {
+                    model: "gpt-4o-mini",
+                    messages: [{
+                      role: "user",
+                      content: textEvaluationPrompt
+                    }],
+                    max_tokens: 1500,
+                    temperature: 0.7
+                  },
+                  {
+                    headers: {
+                      'Content-Type': 'application/json',
+                      'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    timeout: 30000
+                  }
+                );
+
+                if (response.data?.choices?.[0]?.message?.content) {
+                  const evaluationText = response.data.choices[0].message.content;
+                  evaluation = parseEvaluationResponse(evaluationText, question);
+                  console.log('Text AI evaluation completed successfully using OpenAI');
+                } else {
+                  throw new Error('Invalid response from OpenAI API');
+                }
+              } catch (openaiError) {
+                evaluation = generateMockEvaluation(question);
+              }
+            } else {
+              evaluation = generateMockEvaluation(question);
+            }
+          } catch (textEvaluationError) {
+            console.error('Text evaluation error:', textEvaluationError);
+            evaluation = generateMockEvaluation(question);
           }
-        } catch (extractionError) {
-          console.error('Text extraction error in manual mode:', extractionError);
-          extractedTexts = [`Text extraction failed: ${extractionError.message}`];
+        } else {
+          evaluation = generateMockEvaluation(question);
         }
-        // Keep evaluation as null and evaluationStatus as 'not_evaluated'
-        evaluationStatus = 'not_evaluated';
       }
 
+      // Prepare user answer data
       const userAnswerData = {
         userId: userId,
         questionId: questionId,
         clientId: req.user.clientId,
         answerImages: answerImages,
         textAnswer: textAnswer || '',
-        submissionStatus: 'submitted',
+        submissionStatus: submissionStatusValue,
+        reviewStatus: reviewStatusValue,
+        status: statusValue,
+        popularityStatus: popularityStatusValue,
         metadata: {
           timeSpent: parseInt(timeSpent) || 0,
           deviceInfo: deviceInfo || '',
           appVersion: appVersion || '',
           sourceType: sourceType || 'qr_scan'
         },
-        evaluation: evaluation,
+        evaluation: evaluation, // AI evaluation saved for both modes
         extractedTexts: extractedTexts,
-        evaluatedAt: evaluatedAt,
-        evaluationStatus: evaluationStatus,
-        evaluationMode: evaluationMode
+        evaluatedAt: new Date() // Always set evaluation timestamp since AI evaluation is performed
       };
 
       if (setId) {
         userAnswerData.setId = setId;
       }
 
+      // Create the answer with proper attempt handling
       let userAnswer;
       try {
         userAnswer = await UserAnswer.createNewAttemptSafe(userAnswerData);
-        
-        // Auto-progress status based on evaluation mode
-        if (evaluationMode === 'auto' && evaluation) {
-          // AUTO MODE: Auto-publish after successful evaluation
-          await userAnswer.updateStatus('evaluation', 'evaluated', 'Auto-evaluation completed');
-          await userAnswer.updateStatus('main', 'published', 'Auto-published after successful evaluation');
-          await userAnswer.updateStatus('review', 'review_completed', 'Auto-completed review for auto evaluation');
-        } else if (evaluationMode === 'manual') {
-          // MANUAL MODE: Keep as pending, not evaluated, not published
-          await userAnswer.updateStatus('main', 'pending', 'Pending manual review and evaluation');
-          await userAnswer.updateStatus('evaluation', 'not_evaluated', 'Awaiting manual evaluation');
-          await userAnswer.updateStatus('review', 'review_pending', 'Awaiting manual review');
+      } catch (saferError) {        
+        if (saferError.code === 'SUBMISSION_LIMIT_EXCEEDED') {
+          throw saferError;
         }
-      } catch (creationError) {
-        if (creationError.code === 'SUBMISSION_LIMIT_EXCEEDED') {
-          throw creationError;
+        // Fallback to transaction method
+        try {
+          userAnswer = await UserAnswer.createNewAttempt(userAnswerData);
+        } catch (transactionError) {
+          throw transactionError;
         }
-        if (creationError.code === 'CREATION_FAILED') {
-          throw creationError;
-        }
-        throw creationError;
       }
 
-      // Prepare response message based on mode
-      const responseMessage = evaluationMode === 'auto' 
-        ? "Answer submitted and evaluated successfully"
-        : "Answer submitted successfully. Awaiting manual evaluation";
+      // Prepare response data
+      const responseData = {
+        answerId: userAnswer._id,
+        attemptNumber: userAnswer.attemptNumber,
+        questionId: question._id,
+        userId: userId,
+        imagesCount: answerImages.length,
+        submissionStatus: userAnswer.submissionStatus,
+        reviewStatus: userAnswer.reviewStatus,
+        status: userAnswer.status,
+        popularityStatus: userAnswer.popularityStatus,
+        submittedAt: userAnswer.submittedAt,
+        isFinalAttempt: userAnswer.isFinalAttempt(),
+        remainingAttempts: Math.max(0, 5 - userAnswer.attemptNumber),
+        evaluationMode: question.evaluationMode,
+        question: {
+          id: question._id,
+          question: question.question,
+          difficultyLevel: question.metadata?.difficultyLevel,
+          maximumMarks: question.metadata?.maximumMarks,
+          estimatedTime: question.metadata?.estimatedTime,
+          evaluationMode: question.evaluationMode
+        },
+        // Always include evaluation data since AI evaluation is performed for both modes
+        evaluation: evaluation,
+        evaluatedAt: userAnswer.evaluatedAt
+      };
+
+      // Add set info if available
+      if (setInfo) {
+        responseData.set = {
+          id: setInfo._id,
+          name: setInfo.name,
+          itemType: setInfo.itemType
+        };
+      }
+
+      // Add extracted texts if available
+      if (extractedTexts.length > 0) {
+        responseData.extractedTexts = extractedTexts;
+      }
+
+      // Different success messages based on evaluation mode
+      const successMessage = isAutoEvaluation 
+        ? "Answer submitted and automatically evaluated & published" 
+        : "Answer submitted and AI evaluated - pending human review for publication";
 
       res.status(200).json({
         success: true,
-        message: responseMessage,
-        data: {
-          answerId: userAnswer._id,
-          attemptNumber: userAnswer.attemptNumber,
-          questionId: question._id,
-          userId: userId,
-          imagesCount: answerImages.length,
-          submissionStatus: userAnswer.submissionStatus,
-          submittedAt: userAnswer.submittedAt,
-          isFinalAttempt: userAnswer.isFinalAttempt(),
-          remainingAttempts: Math.max(0, 5 - userAnswer.attemptNumber),
-          status: userAnswer.status,
-          evaluationStatus: userAnswer.evaluationStatus,
-          evaluationMode: userAnswer.evaluationMode,
-          reviewStatus: userAnswer.reviewStatus,
-          question: {
-            id: question._id,
-            question: question.question,
-            difficultyLevel: question.metadata?.difficultyLevel,
-            maximumMarks: question.metadata?.maximumMarks,
-            estimatedTime: question.metadata?.estimatedTime
-          },
-          ...(setInfo && {
-            set: {
-              id: setInfo._id,
-              name: setInfo.name,
-              itemType: setInfo.itemType
-            }
-          }),
-          ...(evaluation && evaluationMode === 'auto' && {
-            evaluation: evaluation
-          }),
-          ...(extractedTexts.length > 0 && {
-            extractedTexts: extractedTexts
-          })
-        }
+        message: successMessage,
+        data: responseData
       });
+
     } catch (error) {
+      // Clean up uploaded files on any error
       if (req.files && req.files.length > 0) {
         for (const file of req.files) {
           try {
@@ -778,12 +966,15 @@ router.post('/questions/:questionId/answers',
           }
         }
       }
+
+      // Handle specific error types
       if (error.name === 'ValidationError') {
         const validationErrors = Object.values(error.errors).map(err => ({
           field: err.path,
           message: err.message,
           value: err.value
         }));
+
         return res.status(400).json({
           success: false,
           message: "Validation failed",
@@ -793,6 +984,7 @@ router.post('/questions/:questionId/answers',
           }
         });
       }
+
       if (error.code === 'SUBMISSION_LIMIT_EXCEEDED') {
         return res.status(400).json({
           success: false,
@@ -803,6 +995,7 @@ router.post('/questions/:questionId/answers',
           }
         });
       }
+
       if (error.code === 'CREATION_FAILED') {
         return res.status(409).json({
           success: false,
@@ -813,24 +1006,25 @@ router.post('/questions/:questionId/answers',
           }
         });
       }
+
       if (error.code === 11000 || error.message.includes('E11000')) {
         return res.status(409).json({
           success: false,
           message: "Submission processing failed due to duplicate entry",
           error: {
             code: "DUPLICATE_SUBMISSION_ERROR",
-            details: " submission already exists. Please refresh and try again."
+            details: "This submission already exists. Please refresh and try again."
           }
         });
       }
-      
-      console.error('Submission error:', error);
+
+      // Generic server error
       res.status(500).json({
         success: false,
         message: "Internal server error",
         error: {
           code: "SERVER_ERROR",
-          details: process.env.NODE_ENV === 'development' ? error.message : 'An unexpected error occurred'
+          details: error.message
         }
       });
     }

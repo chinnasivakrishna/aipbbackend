@@ -62,6 +62,12 @@ const validateQuestion = [
     .isIn(['english', 'hindi'])
     .withMessage('Language mode must be english or hindi'),
   
+  body('question.evaluationMode')
+    .notEmpty()
+    .withMessage('Evaluation mode is required')
+    .isIn(['auto', 'manual'])
+    .withMessage('Evaluation mode must be auto or manual'),
+  
   body('setId')
     .optional()
     .isMongoId()
@@ -155,7 +161,13 @@ const validateQuestionToSet = [
     .notEmpty()
     .withMessage('Language mode is required')
     .isIn(['english', 'hindi'])
-    .withMessage('Language mode must be english or hindi')
+    .withMessage('Language mode must be english or hindi'),
+  
+  body('evaluationMode')
+    .notEmpty()
+    .withMessage('Evaluation mode is required')
+    .isIn(['auto', 'manual'])
+    .withMessage('Evaluation mode must be auto or manual')
 ];
 
 const validateQuestionSubmissionsQuery = [
