@@ -21,6 +21,20 @@ const validateQuestion = [
     .withMessage('Modal answer must be a string')
     .trim(),
   
+  body('question.answerVideoUrl')
+    .optional()
+    .isString()
+    .withMessage('Answer video URL must be a string')
+    .trim()
+    .custom((value) => {
+      if (!value) return true; // Optional field
+      const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+(&[\w=]*)?$/;
+      if (!youtubeRegex.test(value)) {
+        throw new Error('Answer video URL must be a valid YouTube URL');
+      }
+      return true;
+    }),
+  
   body('question.metadata.keywords')
     .optional()
     .isArray()
@@ -127,6 +141,20 @@ const validateQuestionToSet = [
     .isString()
     .withMessage('Detailed answer must be a string')
     .trim(),
+  
+  body('answerVideoUrl')
+    .optional()
+    .isString()
+    .withMessage('Answer video URL must be a string')
+    .trim()
+    .custom((value) => {
+      if (!value) return true; // Optional field
+      const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+(&[\w=]*)?$/;
+      if (!youtubeRegex.test(value)) {
+        throw new Error('Answer video URL must be a valid YouTube URL');
+      }
+      return true;
+    }),
   
   body('metadata.keywords')
     .optional()

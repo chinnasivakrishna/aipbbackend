@@ -60,6 +60,7 @@ const addQuestion = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
+        answerVideoUrl: question.answerVideoUrl, // Add this line
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -122,6 +123,7 @@ const updateQuestion = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
+        answerVideoUrl: question.answerVideoUrl, // Add this line
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -207,6 +209,7 @@ const getQuestionDetails = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
+        answerVideoUrl: question.answerVideoUrl, // Add this line
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -426,6 +429,7 @@ const getQuestionsInSet = async (req, res) => {
       id: question._id.toString(),
       question: question.question,
       detailedAnswer: question.detailedAnswer,
+      answerVideoUrl: question.answerVideoUrl, // Add this line
       metadata: {
         ...question.metadata.toObject(),
         qualityParameters: {
@@ -509,6 +513,7 @@ const addQuestionToSet = async (req, res) => {
         id: question._id.toString(),
         question: question.question,
         detailedAnswer: question.detailedAnswer,
+        answerVideoUrl: question.answerVideoUrl, // Add this line
         metadata: {
           ...question.metadata.toObject(),
           qualityParameters: {
