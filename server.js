@@ -27,8 +27,10 @@ const userAnswersRoutes = require('./routes/userAnswers');
 const evaluationRoutes = require('./routes/evaluations'); // Updated evaluation routes
 const { checkClientAccess } = require('./middleware/mobileAuth');
 const adminAnswers = require('./routes/adminAnswers');
-
+const myBooksRoutes = require('./routes/myBooks');
+const evaluatorsRoutes = require('./routes/evaluators');
 const app = express();
+const mainBookstoreRoutes = require('./routes/mainBookstore');
 
 app.use(cors());
 app.use(express.json());
@@ -63,7 +65,9 @@ app.use('/api/workbooks', workbookRoutes);
 app.use('/api/qrcode', qrCodeRoutes);
 app.use('/api/books', pdfSplitsRoutes);
 app.use('/api/aiswb', aiswbRoutes);
-
+app.use('/api/mybooks', myBooksRoutes);
+app.use('/api/evaluators', evaluatorsRoutes);
+app.use('/api/homepage', mainBookstoreRoutes);
 // Global Evaluation routes (accessible without client-specific middleware)
 // These handle the main Assessment Dashboard APIs as per PDF requirements
 app.use('/api/aiswb', evaluationRoutes);
@@ -76,6 +80,32 @@ app.use('/api/clients/:clientId/mobile/auth',
     next();
   }, 
   mobileAuthRoutes
+);
+app.use('/api/clients/:clientId/homepage', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mainBookstoreRoutes
+);
+
+app.use('/api/clients/:clientId', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mainBookstoreRoutes
+);
+
+app.use('/api/clients/:clientId/mobile/mybooks', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  myBooksRoutes
 );
 
 app.use('/api/clients/:clientId/mobile/books', 
