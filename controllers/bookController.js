@@ -200,7 +200,7 @@ exports.createBook = async (req, res) => {
   try {
     const { 
       title, description, author, publisher, language, mainCategory, subCategory, 
-      customSubCategory, tags, clientId, isPublic 
+      customSubCategory, exam, paper, subject, tags, clientId, isPublic 
     } = req.body;
 
     const currentUser = await User.findById(req.user.id);
@@ -234,10 +234,25 @@ exports.createBook = async (req, res) => {
       tags: parsedTags
     };
 
+    // Handle the new fields: exam, paper, subject
+    if (exam && exam.trim()) {
+      bookData.exam = exam.trim();
+    }
+    
+    if (paper && paper.trim()) {
+      bookData.paper = paper.trim();
+    }
+    
+    if (subject && subject.trim()) {
+      bookData.subject = subject.trim();
+    }
+
+    // Handle custom subcategory
     if (subCategory === 'Other' && customSubCategory?.trim()) {
       bookData.customSubCategory = customSubCategory.trim();
     }
 
+    // Handle cover image upload
     if (req.file) {
       bookData.coverImage = req.file.path;
     }
@@ -253,6 +268,7 @@ exports.createBook = async (req, res) => {
       message: 'Book created successfully'
     });
   } catch (error) {
+    // Clean up uploaded file if there's an error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }

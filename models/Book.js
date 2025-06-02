@@ -1,4 +1,4 @@
-// models/Book.js - Enhanced with complete category system and trending functionality
+// models/Book.js - Enhanced with exam, paper, subject fields and complete category system
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -89,6 +89,30 @@ const BookSchema = new mongoose.Schema({
     trim: true,
     maxlength: [50, 'Custom subcategory cannot be more than 50 characters'],
   },
+  
+  // NEW FIELDS: Exam, Paper, Subject
+  exam: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Exam name cannot be more than 100 characters'],
+    default: '',
+    index: true
+  },
+  paper: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Paper name cannot be more than 100 characters'],
+    default: '',
+    index: true
+  },
+  subject: {
+    type: String,
+    trim: true,
+    maxlength: [100, 'Subject name cannot be more than 100 characters'],
+    default: '',
+    index: true
+  },
+  
   tags: [{
     type: String,
     trim: true,
@@ -229,7 +253,7 @@ const BookSchema = new mongoose.Schema({
   }
 });
 
-// Enhanced indexes
+// Enhanced indexes including new fields
 BookSchema.index({ clientId: 1, mainCategory: 1, categoryOrder: 1 });
 BookSchema.index({ clientId: 1, subCategory: 1, categoryOrder: 1 });
 BookSchema.index({ clientId: 1, isHighlighted: 1, highlightOrder: 1 });
@@ -238,6 +262,14 @@ BookSchema.index({ clientId: 1, viewCount: -1 });
 BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, createdAt: -1 });
 BookSchema.index({ trendingStartDate: 1, trendingEndDate: 1 });
+// New indexes for exam, paper, subject
+BookSchema.index({ clientId: 1, exam: 1 });
+BookSchema.index({ clientId: 1, paper: 1 });
+BookSchema.index({ clientId: 1, subject: 1 });
+BookSchema.index({ clientId: 1, exam: 1, paper: 1 });
+BookSchema.index({ clientId: 1, exam: 1, subject: 1 });
+BookSchema.index({ clientId: 1, paper: 1, subject: 1 });
+BookSchema.index({ clientId: 1, exam: 1, paper: 1, subject: 1 });
 
 // Enhanced category mappings
 const CATEGORY_MAPPINGS = {
@@ -254,9 +286,76 @@ const CATEGORY_MAPPINGS = {
   'Other': ['Other']
 };
 
+// Common exam mappings for better organization
+const EXAM_MAPPINGS = {
+  'Civil Services': {
+    'UPSC(IAS)': ['Prelims', 'Mains', 'Interview', 'Combined'],
+    'BPSC': ['Prelims', 'Mains', 'Interview', 'Combined'],
+    'UPPCS': ['Prelims', 'Mains', 'Interview', 'Combined'],
+    'JPSC': ['Prelims', 'Mains', 'Interview', 'Combined'],
+    'RPSC': ['Prelims', 'Mains', 'Interview', 'Combined'],
+    'MPPCS': ['Prelims', 'Mains', 'Interview', 'Combined']
+  },
+  'SSC': {
+    'SSC-CGL': ['Tier-1', 'Tier-2', 'Tier-3', 'Tier-4'],
+    'SSC-CHSL': ['Tier-1', 'Tier-2', 'Tier-3'],
+    'SSC-GD': ['Computer Based Test', 'Physical Test', 'Medical Test']
+  },
+  'Defense': {
+    'NDA': ['Mathematics', 'General Ability Test', 'SSB Interview'],
+    'CDS': ['English', 'General Knowledge', 'Mathematics'],
+    'AFCAT': ['General Awareness', 'Verbal Ability', 'Numerical Ability', 'Reasoning']
+  },
+  'Teacher': {
+    'DSSSB': ['Paper-1', 'Paper-2', 'Subject Specific'],
+    'CTET': ['Paper-1', 'Paper-2'],
+    'UPTET': ['Paper-1', 'Paper-2'],
+    'Bihar-TET': ['Paper-1', 'Paper-2']
+  },
+  'Law': {
+    'CLAT': ['English', 'Current Affairs', 'Legal Reasoning', 'Logical Reasoning', 'Quantitative Techniques'],
+    'DU-LLB': ['English', 'General Knowledge', 'Legal Aptitude', 'Analytical Abilities'],
+    'JUDICIARY': ['Preliminary', 'Mains', 'Interview']
+  },
+  'CA': {
+    'CA-Foundation': ['Principles of Accounting', 'Business Laws', 'Business Mathematics', 'Business Economics'],
+    'CA-Inter': ['Accounting', 'Corporate Laws', 'Cost Accounting', 'Taxation', 'Advanced Accounting', 'Auditing', 'EIS & SM', 'FM & Economics'],
+    'CA-Final': ['Financial Reporting', 'Strategic FM', 'Advanced Auditing', 'Corporate Laws', 'Strategic Management', 'Information Systems', 'Direct Tax', 'Indirect Tax']
+  },
+  'CMA': {
+    'CMA-Foundation': ['Fundamentals of Accounting', 'Fundamentals of Business Mathematics', 'Fundamentals of Business Economics', 'Fundamentals of Business Laws'],
+    'CMA-Inter': ['Financial Accounting', 'Corporate Laws', 'Direct Taxation', 'Cost Accounting', 'Operations Management', 'Strategic Management'],
+    'CMA-Final': ['Strategic Financial Management', 'Strategic Cost Management', 'Strategic Performance Management', 'Corporate Laws', 'Strategic Management']
+  },
+  'CS': {
+    'CS-Executive': ['Company Law', 'Cost Accounting', 'Tax Laws', 'Corporate Restructuring', 'Economic Laws', 'Industrial Laws', 'Securities Laws', 'Capital Markets'],
+    'CS-Professional': ['Corporate Governance', 'Advanced Tax Laws', 'Drafting & Conveyancing', 'Foreign Exchange Management', 'Human Resource Management', 'Information Technology', 'Intellectual Property Rights', 'International Business Laws']
+  }
+};
+
+// Common subjects for better categorization
+const SUBJECT_MAPPINGS = {
+  'General': ['History', 'Geography', 'Polity', 'Economics', 'Science', 'Current Affairs', 'General Knowledge', 'English', 'Hindi', 'Mathematics', 'Reasoning', 'Computer'],
+  'Civil Services': ['Ancient History', 'Medieval History', 'Modern History', 'Art & Culture', 'Geography', 'Indian Polity', 'Economics', 'Science & Technology', 'Environment', 'Current Affairs', 'Ethics', 'Essay', 'Optional Subject'],
+  'Law': ['Constitutional Law', 'Criminal Law', 'Civil Law', 'Corporate Law', 'International Law', 'Legal Reasoning', 'Legal Aptitude', 'Current Legal Affairs'],
+  'Accounting': ['Financial Accounting', 'Cost Accounting', 'Management Accounting', 'Auditing', 'Taxation', 'Corporate Accounting', 'Advanced Accounting'],
+  'NCERT': ['Mathematics', 'Science', 'Social Science', 'English', 'Hindi', 'Environmental Studies', 'Physics', 'Chemistry', 'Biology', 'History', 'Geography', 'Political Science', 'Economics']
+};
+
 // Pre-save middleware
 BookSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
+  
+  // Clean and validate new fields
+  if (this.exam) {
+    this.exam = this.exam.trim();
+  }
+  if (this.paper) {
+    this.paper = this.paper.trim();
+  }
+  if (this.subject) {
+    this.subject = this.subject.trim();
+  }
   
   // Handle highlighting logic
   if (this.isModified('isHighlighted')) {
@@ -327,6 +426,29 @@ BookSchema.statics.getValidSubCategories = function(mainCategory) {
   return CATEGORY_MAPPINGS[mainCategory] || [];
 };
 
+// NEW: Get exam mappings
+BookSchema.statics.getExamMappings = function() {
+  return EXAM_MAPPINGS;
+};
+
+// NEW: Get papers for exam
+BookSchema.statics.getPapersForExam = function(mainCategory, subCategory) {
+  if (EXAM_MAPPINGS[mainCategory] && EXAM_MAPPINGS[mainCategory][subCategory]) {
+    return EXAM_MAPPINGS[mainCategory][subCategory];
+  }
+  return [];
+};
+
+// NEW: Get subject mappings
+BookSchema.statics.getSubjectMappings = function() {
+  return SUBJECT_MAPPINGS;
+};
+
+// NEW: Get subjects for category
+BookSchema.statics.getSubjectsForCategory = function(mainCategory) {
+  return SUBJECT_MAPPINGS[mainCategory] || SUBJECT_MAPPINGS['General'] || [];
+};
+
 // Get highlighted books
 BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
   const query = this.find({ 
@@ -369,6 +491,30 @@ BookSchema.statics.getBooksByCategory = function(clientId, mainCategory, subCate
   const query = this.find(filter)
     .populate('user', 'name email userId')
     .sort({ categoryOrder: 1, createdAt: -1 });
+  
+  if (limit) query.limit(limit);
+  return query;
+};
+
+// NEW: Get books by exam
+BookSchema.statics.getBooksByExam = function(clientId, exam, paper = null, subject = null, limit = null) {
+  const filter = { clientId: clientId, exam: exam };
+  if (paper) filter.paper = paper;
+  if (subject) filter.subject = subject;
+  
+  const query = this.find(filter)
+    .populate('user', 'name email userId')
+    .sort({ createdAt: -1 });
+  
+  if (limit) query.limit(limit);
+  return query;
+};
+
+// NEW: Get books by subject
+BookSchema.statics.getBooksBySubject = function(clientId, subject, limit = null) {
+  const query = this.find({ clientId: clientId, subject: subject })
+    .populate('user', 'name email userId')
+    .sort({ createdAt: -1 });
   
   if (limit) query.limit(limit);
   return query;
@@ -461,6 +607,15 @@ BookSchema.virtual('effectiveSubCategory').get(function() {
 BookSchema.virtual('fullCategory').get(function() {
   const effectiveSub = this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
   return `${this.mainCategory} > ${effectiveSub}`;
+});
+
+// NEW: Virtual for full classification
+BookSchema.virtual('fullClassification').get(function() {
+  let classification = this.fullCategory;
+  if (this.exam) classification += ` > ${this.exam}`;
+  if (this.paper) classification += ` > ${this.paper}`;
+  if (this.subject) classification += ` > ${this.subject}`;
+  return classification;
 });
 
 BookSchema.virtual('isCurrentlyTrending').get(function() {
