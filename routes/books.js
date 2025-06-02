@@ -1,4 +1,4 @@
-// routes/books.js with trending functionality
+// routes/books.js - Complete router with all functionality
 const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
@@ -9,16 +9,22 @@ const {
   updateBook, 
   deleteBook,
   uploadCoverImage,
-  // Highlights functionality
+  getCurrentUser,
+  getCategoryMappings,
+  getValidSubCategories,
+  // Highlight functionality
   getHighlightedBooks,
   addBookToHighlights,
   removeBookFromHighlights,
   updateHighlightDetails,
-  // NEW: Trending functionality
+  // Trending functionality
   getTrendingBooks,
   addBookToTrending,
   removeBookFromTrending,
-  updateTrendingDetails
+  updateTrendingDetails,
+  // Category order functionality
+  updateCategoryOrder,
+  resetCategoryOrder
 } = require('../controllers/bookController');
 const { 
   getChapters, 
@@ -42,7 +48,51 @@ const {
   deleteSubTopic
 } = require('../controllers/subtopicController');
 
-// Book routes
+// ==================== UTILITY ROUTES ====================
+// Get current user info
+router.get('/user', verifyToken, getCurrentUser);
+
+// Get category mappings
+router.get('/category-mappings', verifyToken, getCategoryMappings);
+
+// Get valid subcategories for a main category
+router.get('/categories/:mainCategory/subcategories', verifyToken, getValidSubCategories);
+
+// ==================== HIGHLIGHT ROUTES ====================
+// Get all highlighted books
+router.get('/highlighted', verifyToken, getHighlightedBooks);
+
+// Add book to highlights
+router.post('/:id/highlight', verifyToken, addBookToHighlights);
+
+// Remove book from highlights
+router.delete('/:id/highlight', verifyToken, removeBookFromHighlights);
+
+// Update highlight details (note, order)
+router.put('/:id/highlight', verifyToken, updateHighlightDetails);
+
+// ==================== TRENDING ROUTES ====================
+// Get all trending books
+router.get('/trending', verifyToken, getTrendingBooks);
+
+// Add book to trending
+router.post('/:id/trending', verifyToken, addBookToTrending);
+
+// Remove book from trending
+router.delete('/:id/trending', verifyToken, removeBookFromTrending);
+
+// Update trending details (score, end date)
+router.put('/:id/trending', verifyToken, updateTrendingDetails);
+
+// ==================== CATEGORY ORDER ROUTES ====================
+// Update category order for a book
+router.put('/:id/category-order', verifyToken, updateCategoryOrder);
+
+// Reset category order for a book
+router.delete('/:id/category-order', verifyToken, resetCategoryOrder);
+
+// ==================== BASIC BOOK ROUTES ====================
+// Main book routes
 router.route('/')
   .get(verifyToken, getBooks)
   .post(verifyToken, uploadCoverImage, createBook);
@@ -52,25 +102,8 @@ router.route('/:id')
   .put(verifyToken, uploadCoverImage, updateBook)
   .delete(verifyToken, deleteBook);
 
-// Highlights routes
-router.route('/highlights')
-  .get(verifyToken, getHighlightedBooks);
-
-router.route('/:id/highlights')
-  .post(verifyToken, addBookToHighlights)
-  .delete(verifyToken, removeBookFromHighlights)
-  .put(verifyToken, updateHighlightDetails);
-
-// NEW: Trending routes
-router.route('/trending')
-  .get(verifyToken, getTrendingBooks);
-
-router.route('/:id/trending')
-  .post(verifyToken, addBookToTrending)
-  .delete(verifyToken, removeBookFromTrending)
-  .put(verifyToken, updateTrendingDetails);
-
-// Chapter routes
+// ==================== CHAPTER ROUTES ====================
+// Chapter routes for books
 router.route('/:bookId/chapters')
   .get(verifyToken, getChapters)
   .post(verifyToken, createChapter);
@@ -80,7 +113,8 @@ router.route('/:bookId/chapters/:id')
   .put(verifyToken, updateChapter)
   .delete(verifyToken, deleteChapter);
 
-// Topic routes
+// ==================== TOPIC ROUTES ====================
+// Topic routes for chapters
 router.route('/:bookId/chapters/:chapterId/topics')
   .get(verifyToken, getTopics)
   .post(verifyToken, createTopic);
@@ -90,7 +124,8 @@ router.route('/:bookId/chapters/:chapterId/topics/:id')
   .put(verifyToken, updateTopic)
   .delete(verifyToken, deleteTopic);
 
-// Subtopic routes
+// ==================== SUBTOPIC ROUTES ====================
+// Subtopic routes for topics
 router.route('/:bookId/chapters/:chapterId/topics/:topicId/subtopics')
   .get(verifyToken, getSubTopics)
   .post(verifyToken, createSubTopic);

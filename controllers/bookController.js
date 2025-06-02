@@ -7,7 +7,7 @@ const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
 
-// Multer configuration for cover image upload
+// Multer configuration
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/covers';
@@ -33,63 +33,114 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({
   storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB max size
-  },
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max size
   fileFilter: fileFilter
 });
 
 exports.uploadCoverImage = upload.single('coverImage');
 
 // Helper function to format book with user info
-const formatBookWithUserInfo = (book) => {
-  const bookObj = book.toObject();
-  return {
-    ...bookObj,
-    createdBy: book.user ? {
-      id: book.user._id,
-      name: book.user.name,
-      email: book.user.email,
-      userId: book.user.userId || book.user._id.toString()
-    } : null,
-    highlightedByUser: book.highlightedBy ? {
-      id: book.highlightedBy._id,
-      name: book.highlightedBy.name,
-      email: book.highlightedBy.email,
-      userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
-    } : null
-  };
+const formatBookWithUserInfo = (book) => ({
+  ...book.toObject(),
+  createdBy: book.user ? {
+    id: book.user._id,
+    name: book.user.name,
+    email: book.user.email,
+    userId: book.user.userId || book.user._id.toString()
+  } : null,
+  highlightedByUser: book.highlightedBy ? {
+    id: book.highlightedBy._id,
+    name: book.highlightedBy.name,
+    email: book.highlightedBy.email,
+    userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
+  } : null,
+  trendingByUser: book.trendingBy ? {
+    id: book.trendingBy._id,
+    name: book.trendingBy.name,
+    email: book.trendingBy.email,
+    userId: book.trendingBy.userId || book.trendingBy._id.toString()
+  } : null,
+  categoryOrderByUser: book.categoryOrderBy ? {
+    id: book.categoryOrderBy._id,
+    name: book.categoryOrderBy.name,
+    email: book.categoryOrderBy.email,
+    userId: book.categoryOrderBy.userId || book.categoryOrderBy._id.toString()
+  } : null
+});
+
+// Helper function to get client ID
+const getClientId = (user) => {
+  return user.role === 'client' && user.userId ? user.userId : user._id.toString();
 };
 
-// Get all books
+// ==================== BASIC BOOK OPERATIONS ====================
+
 exports.getBooks = async (req, res) => {
   try {
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let books;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      books = await Book.find({ clientId: currentUser.userId })
-        .populate('user', 'name email userId')
-        .populate('highlightedBy', 'name email userId')
-        .sort({ createdAt: -1 });
-    } else {
-      books = await Book.find({ user: req.user.id })
-        .populate('user', 'name email userId')
-        .populate('highlightedBy', 'name email userId')
-        .sort({ createdAt: -1 });
+    const clientId = getClientId(currentUser);
+    const { category, subcategory, trending, highlighted, search, limit, page = 1 } = req.query;
+    
+    let filter = { clientId };
+    
+    // Apply filters
+    if (category) filter.mainCategory = category;
+    if (subcategory) filter.subCategory = subcategory;
+    if (trending === 'true') {
+      filter.isTrending = true;
+      filter.trendingStartDate = { $lte: new Date() };
+      filter.$or = [
+        { trendingEndDate: { $gte: new Date() } },
+        { trendingEndDate: null }
+      ];
     }
+    if (highlighted === 'true') filter.isHighlighted = true;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { author: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    // Build query
+    let query = Book.find(filter)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
+
+    // Apply sorting
+    if (trending === 'true') {
+      query = query.sort({ trendingScore: -1, viewCount: -1 });
+    } else if (highlighted === 'true') {
+      query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
+    } else if (category) {
+      query = query.sort({ categoryOrder: 1, createdAt: -1 });
+    } else {
+      query = query.sort({ createdAt: -1 });
+    }
+
+    // Apply pagination
+    if (limit) {
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      query = query.skip(skip).limit(parseInt(limit));
+    }
+
+    const books = await query;
+    const total = await Book.countDocuments(filter);
 
     const booksWithUserInfo = books.map(formatBookWithUserInfo);
 
     return res.status(200).json({
       success: true,
       count: books.length,
+      total,
       books: booksWithUserInfo,
       currentUser: {
         id: currentUser._id,
@@ -101,91 +152,60 @@ exports.getBooks = async (req, res) => {
     });
   } catch (error) {
     console.error('Get books error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Get single book
 exports.getBook = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id)
       .populate('user', 'name email userId')
-      .populate('highlightedBy', 'name email userId');
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
 
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let hasAccess = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      hasAccess = book.clientId === currentUser.userId;
-    } else {
-      hasAccess = book.user._id.toString() === req.user.id;
-    }
-
+    const clientId = getClientId(currentUser);
+    let hasAccess = book.clientId === clientId || book.user._id.toString() === req.user.id;
+    
     if (!hasAccess && book.isPublic) {
       hasAccess = true;
     }
 
     if (!hasAccess) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to access this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to access this book' });
     }
+
+    // Increment view count
+    await book.incrementView();
 
     const bookWithUserInfo = formatBookWithUserInfo(book);
 
-    return res.status(200).json({
-      success: true,
-      book: bookWithUserInfo
-    });
+    return res.status(200).json({ success: true, book: bookWithUserInfo });
   } catch (error) {
     console.error('Get book error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Create book
 exports.createBook = async (req, res) => {
   try {
     const { 
-      title, 
-      description, 
-      author, 
-      publisher, 
-      language, 
-      mainCategory, 
-      subCategory, 
-      customSubCategory,
-      tags,
-      clientId,
-      isPublic 
+      title, description, author, publisher, language, mainCategory, subCategory, 
+      customSubCategory, tags, clientId, isPublic 
     } = req.body;
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     let parsedTags = [];
@@ -197,14 +217,7 @@ exports.createBook = async (req, res) => {
       }
     }
 
-    let effectiveClientId;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      effectiveClientId = currentUser.userId;
-    } else if (clientId && clientId.trim()) {
-      effectiveClientId = clientId.trim();
-    } else {
-      effectiveClientId = currentUser._id.toString();
-    }
+    const effectiveClientId = clientId?.trim() || getClientId(currentUser);
 
     const bookData = {
       title: title.trim(),
@@ -212,8 +225,8 @@ exports.createBook = async (req, res) => {
       author: author.trim(),
       publisher: publisher.trim(),
       language: language || 'English',
-      mainCategory: mainCategory || 'Others',
-      subCategory: subCategory || 'Others',
+      mainCategory: mainCategory || 'Other',
+      subCategory: subCategory || 'Other',
       clientId: effectiveClientId,
       user: req.user.id,
       userType: 'User',
@@ -221,7 +234,7 @@ exports.createBook = async (req, res) => {
       tags: parsedTags
     };
 
-    if (subCategory === 'Others' && customSubCategory && customSubCategory.trim()) {
+    if (subCategory === 'Other' && customSubCategory?.trim()) {
       bookData.customSubCategory = customSubCategory.trim();
     }
 
@@ -240,68 +253,44 @@ exports.createBook = async (req, res) => {
       message: 'Book created successfully'
     });
   } catch (error) {
-    if (req.file) {
-      fs.unlink(req.file.path, err => {
-        if (err) console.error('Error deleting file:', err);
-      });
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
     }
 
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({
-        success: false,
-        message: messages
-      });
+      return res.status(400).json({ success: false, message: messages });
     } else if (error.code === 11000) {
-      return res.status(400).json({
-        success: false,
-        message: 'A book with this title already exists for this user'
-      });
+      return res.status(400).json({ success: false, message: 'A book with this title already exists for this user' });
     } else {
-      return res.status(500).json({
-        success: false,
-        message: 'Server Error'
-      });
+      console.error('Create book error:', error);
+      return res.status(500).json({ success: false, message: 'Server Error' });
     }
   }
 };
 
-// Update book
 exports.updateBook = async (req, res) => {
   try {
     let book = await Book.findById(req.params.id).populate('user', 'name email userId');
     
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canUpdate = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canUpdate = book.clientId === currentUser.userId;
-    } else {
-      canUpdate = book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canUpdate = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canUpdate) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to update this book' });
     }
 
     const updateData = { ...req.body };
-
+    
     if (updateData.tags) {
       try {
         updateData.tags = typeof updateData.tags === 'string' ? JSON.parse(updateData.tags) : updateData.tags;
@@ -322,74 +311,53 @@ exports.updateBook = async (req, res) => {
       runValidators: true
     })
     .populate('user', 'name email userId')
-    .populate('highlightedBy', 'name email userId');
+    .populate('highlightedBy', 'name email userId')
+    .populate('trendingBy', 'name email userId')
+    .populate('categoryOrderBy', 'name email userId');
 
     const bookWithUserInfo = formatBookWithUserInfo(book);
 
-    return res.status(200).json({
-      success: true,
-      book: bookWithUserInfo
-    });
+    return res.status(200).json({ success: true, book: bookWithUserInfo });
   } catch (error) {
-    if (req.file) {
-      fs.unlink(req.file.path, err => {
-        if (err) console.error('Error deleting file:', err);
-      });
+    if (req.file && fs.existsSync(req.file.path)) {
+      fs.unlinkSync(req.file.path);
     }
 
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({
-        success: false,
-        message: messages
-      });
+      return res.status(400).json({ success: false, message: messages });
     } else {
-      return res.status(500).json({
-        success: false,
-        message: 'Server Error'
-      });
+      console.error('Update book error:', error);
+      return res.status(500).json({ success: false, message: 'Server Error' });
     }
   }
 };
 
-// Delete book
 exports.deleteBook = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id);
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canDelete = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canDelete = book.clientId === currentUser.userId;
-    } else {
-      canDelete = book.user.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canDelete = book.clientId === clientId || book.user.toString() === req.user.id;
 
     if (!canDelete) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to delete this book' });
     }
 
+    // Delete cover image if exists
     if (book.coverImage && fs.existsSync(book.coverImage)) {
       fs.unlinkSync(book.coverImage);
     }
 
-    // Delete related data
+    // Delete all related content
     const chapters = await Chapter.find({ book: req.params.id });
     for (const chapter of chapters) {
       const topics = await Topic.find({ chapter: chapter._id });
@@ -399,46 +367,29 @@ exports.deleteBook = async (req, res) => {
       await Topic.deleteMany({ chapter: chapter._id });
     }
     await Chapter.deleteMany({ book: req.params.id });
+
     await Book.deleteOne({ _id: req.params.id });
 
-    return res.status(200).json({
-      success: true,
-      message: 'Book deleted successfully'
-    });
+    return res.status(200).json({ success: true, message: 'Book deleted successfully' });
   } catch (error) {
     console.error('Delete book error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// ============== HIGHLIGHTS FUNCTIONALITY ==============
+// ==================== HIGHLIGHT FUNCTIONALITY ====================
 
-// Get highlighted books
 exports.getHighlightedBooks = async (req, res) => {
   try {
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let clientId;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      clientId = currentUser.userId;
-    } else {
-      clientId = currentUser._id.toString();
-    }
+    const clientId = getClientId(currentUser);
+    const { limit } = req.query;
 
-    const highlightedBooks = await Book.getHighlightedBooks(
-      clientId, 
-      req.query.limit ? parseInt(req.query.limit) : null
-    );
-
+    const highlightedBooks = await Book.getHighlightedBooks(clientId, limit ? parseInt(limit) : null);
     const booksWithUserInfo = highlightedBooks.map(formatBookWithUserInfo);
 
     return res.status(200).json({
@@ -448,63 +399,38 @@ exports.getHighlightedBooks = async (req, res) => {
     });
   } catch (error) {
     console.error('Get highlighted books error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Add book to highlights
 exports.addBookToHighlights = async (req, res) => {
   try {
     const { note, order } = req.body;
     const book = await Book.findById(req.params.id).populate('user', 'name email userId');
-
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canHighlight = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canHighlight = book.clientId === currentUser.userId;
-    } else {
-      canHighlight = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canHighlight = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canHighlight) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to highlight this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to highlight this book' });
     }
 
     if (book.isHighlighted) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is already highlighted'
-      });
+      return res.status(400).json({ success: false, message: 'Book is already highlighted' });
     }
 
-    // Check if order is already taken
     if (order && order > 0) {
-      let clientId = currentUser.role === 'client' && currentUser.userId ? 
-                    currentUser.userId : 
-                    currentUser._id.toString();
-      
       const existingBookWithOrder = await Book.findOne({ 
-        clientId: clientId, 
+        clientId, 
         isHighlighted: true, 
         highlightOrder: order,
         _id: { $ne: req.params.id }
@@ -518,15 +444,10 @@ exports.addBookToHighlights = async (req, res) => {
       }
     }
 
-    const userType = 'User';
-    await book.toggleHighlight(
-      currentUser._id, 
-      userType, 
-      note || '', 
-      order || 0
-    );
-
+    const userType = 'User'; // Assuming web users are 'User' type
+    await book.toggleHighlight(currentUser._id, userType, note || '', order || 0);
     await book.populate('highlightedBy', 'name email userId');
+
     const bookWithUserInfo = formatBookWithUserInfo(book);
 
     return res.status(200).json({
@@ -536,67 +457,38 @@ exports.addBookToHighlights = async (req, res) => {
     });
   } catch (error) {
     console.error('Add book to highlights error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Remove book from highlights
 exports.removeBookFromHighlights = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id).populate('user', 'name email userId');
-
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canRemoveHighlight = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canRemoveHighlight = book.clientId === currentUser.userId;
-    } else {
-      canRemoveHighlight = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canRemoveHighlight = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canRemoveHighlight) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to remove highlight from this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to remove highlight from this book' });
     }
 
     if (!book.isHighlighted) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is not highlighted'
-      });
+      return res.status(400).json({ success: false, message: 'Book is not highlighted' });
     }
 
-    const userType = 'User';
+    const userType = 'User'; // Assuming web users are 'User' type
     await book.toggleHighlight(currentUser._id, userType);
-
-    const bookWithUserInfo = {
-      ...book.toObject(),
-      createdBy: book.user ? {
-        id: book.user._id,
-        name: book.user.name,
-        email: book.user.email,
-        userId: book.user.userId || book.user._id.toString()
-      } : null,
-      highlightedByUser: null
-    };
+    
+    const bookWithUserInfo = formatBookWithUserInfo(book);
 
     return res.status(200).json({
       success: true,
@@ -605,70 +497,45 @@ exports.removeBookFromHighlights = async (req, res) => {
     });
   } catch (error) {
     console.error('Remove book from highlights error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Update highlight details
 exports.updateHighlightDetails = async (req, res) => {
   try {
     const { note, order } = req.body;
     const book = await Book.findById(req.params.id)
       .populate('user', 'name email userId')
       .populate('highlightedBy', 'name email userId');
-
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canUpdate = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canUpdate = book.clientId === currentUser.userId;
-    } else {
-      canUpdate = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canUpdate = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canUpdate) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update highlight for this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to update highlight for this book' });
     }
 
     if (!book.isHighlighted) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is not highlighted'
-      });
+      return res.status(400).json({ success: false, message: 'Book is not highlighted' });
     }
 
-    // Check if new order is already taken
     if (order && order !== book.highlightOrder && order > 0) {
-      let clientId = currentUser.role === 'client' && currentUser.userId ? 
-                    currentUser.userId : 
-                    currentUser._id.toString();
-      
       const existingBookWithOrder = await Book.findOne({ 
-        clientId: clientId, 
+        clientId, 
         isHighlighted: true, 
         highlightOrder: order,
         _id: { $ne: req.params.id }
       });
-      
+
       if (existingBookWithOrder) {
         return res.status(400).json({
           success: false,
@@ -698,38 +565,23 @@ exports.updateHighlightDetails = async (req, res) => {
     });
   } catch (error) {
     console.error('Update highlight details error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// ============== TRENDING FUNCTIONALITY ==============
+// ==================== TRENDING FUNCTIONALITY ====================
 
-// Get trending books
 exports.getTrendingBooks = async (req, res) => {
   try {
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let clientId;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      clientId = currentUser.userId;
-    } else {
-      clientId = currentUser._id.toString();
-    }
+    const clientId = getClientId(currentUser);
+    const { limit } = req.query;
 
-    const trendingBooks = await Book.getTrendingBooks(
-      clientId, 
-      req.query.limit ? parseInt(req.query.limit) : null
-    );
-
+    const trendingBooks = await Book.getTrendingBooks(clientId, limit ? parseInt(limit) : null);
     const booksWithUserInfo = trendingBooks.map(formatBookWithUserInfo);
 
     return res.status(200).json({
@@ -739,138 +591,82 @@ exports.getTrendingBooks = async (req, res) => {
     });
   } catch (error) {
     console.error('Get trending books error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Add book to trending
 exports.addBookToTrending = async (req, res) => {
   try {
-    const { note, order } = req.body;
+    const { score, endDate } = req.body;
     const book = await Book.findById(req.params.id).populate('user', 'name email userId');
-
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canMarkTrending = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canMarkTrending = book.clientId === currentUser.userId;
-    } else {
-      canMarkTrending = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canMakeTrending = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
-    if (!canMarkTrending) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to mark this book as trending'
-      });
+    if (!canMakeTrending) {
+      return res.status(403).json({ success: false, message: 'Not authorized to make this book trending' });
     }
 
     if (book.isTrending) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is already marked as trending'
-      });
+      return res.status(400).json({ success: false, message: 'Book is already trending' });
     }
 
-    // Check if order is already taken
-    if (order && order > 0) {
-      let clientId = currentUser.role === 'client' && currentUser.userId ? 
-                    currentUser.userId : 
-                    currentUser._id.toString();
-      
-      const existingBookWithOrder = await Book.findOne({ 
-        clientId: clientId, 
-        isTrending: true, 
-        trendingOrder: order,
-        _id: { $ne: req.params.id }
-      });
+    const userType = 'User'; // Assuming web users are 'User' type
+    const parsedScore = score ? parseInt(score) : 0;
+    const parsedEndDate = endDate ? new Date(endDate) : null;
 
-      if (existingBookWithOrder) {
-        return res.status(400).json({
-          success: false,
-          message: `Trending order ${order} is already taken by another book`
-        });
-      }
-    }
-
-    await book.toggleTrending(note || '', order || 0);
+    await book.toggleTrending(currentUser._id, userType, parsedScore, parsedEndDate);
+    await book.populate('trendingBy', 'name email userId');
 
     const bookWithUserInfo = formatBookWithUserInfo(book);
 
     return res.status(200).json({
       success: true,
-      message: 'Book marked as trending successfully',
+      message: 'Book added to trending successfully',
       book: bookWithUserInfo
     });
   } catch (error) {
     console.error('Add book to trending error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Remove book from trending
-// Remove book from trending
 exports.removeBookFromTrending = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id).populate('user', 'name email userId');
-
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canRemoveTrending = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canRemoveTrending = book.clientId === currentUser.userId;
-    } else {
-      canRemoveTrending = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canRemoveTrending = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canRemoveTrending) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to remove trending status from this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to remove trending from this book' });
     }
 
     if (!book.isTrending) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is not marked as trending'
-      });
+      return res.status(400).json({ success: false, message: 'Book is not trending' });
     }
 
-    await book.toggleTrending();
-
+    const userType = 'User'; // Assuming web users are 'User' type
+    await book.toggleTrending(currentUser._id, userType);
+    
     const bookWithUserInfo = formatBookWithUserInfo(book);
 
     return res.status(200).json({
@@ -880,87 +676,48 @@ exports.removeBookFromTrending = async (req, res) => {
     });
   } catch (error) {
     console.error('Remove book from trending error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Update trending details
 exports.updateTrendingDetails = async (req, res) => {
   try {
-    const { note, order } = req.body;
+    const { score, endDate } = req.body;
     const book = await Book.findById(req.params.id)
-      .populate('user', 'name email userId');
-
+      .populate('user', 'name email userId')
+      .populate('trendingBy', 'name email userId');
+    
     if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
+      return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
-      return res.status(404).json({
-        success: false,
-        message: 'User not found'
-      });
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
 
-    let canUpdate = false;
-    if (currentUser.role === 'client' && currentUser.userId) {
-      canUpdate = book.clientId === currentUser.userId;
-    } else {
-      canUpdate = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
-    }
+    const clientId = getClientId(currentUser);
+    const canUpdate = book.clientId === clientId || book.user._id.toString() === req.user.id;
 
     if (!canUpdate) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update trending details for this book'
-      });
+      return res.status(403).json({ success: false, message: 'Not authorized to update trending for this book' });
     }
 
     if (!book.isTrending) {
-      return res.status(400).json({
-        success: false,
-        message: 'Book is not marked as trending'
-      });
-    }
-
-    // Check if new order is already taken
-    if (order && order !== book.trendingOrder && order > 0) {
-      let clientId = currentUser.role === 'client' && currentUser.userId ? 
-                    currentUser.userId : 
-                    currentUser._id.toString();
-      
-      const existingBookWithOrder = await Book.findOne({ 
-        clientId: clientId, 
-        isTrending: true, 
-        trendingOrder: order,
-        _id: { $ne: req.params.id }
-      });
-      
-      if (existingBookWithOrder) {
-        return res.status(400).json({
-          success: false,
-          message: `Trending order ${order} is already taken by another book`
-        });
-      }
+      return res.status(400).json({ success: false, message: 'Book is not trending' });
     }
 
     const updateData = {};
-    if (note !== undefined) updateData.trendingNote = note;
-    if (order !== undefined) updateData.trendingOrder = order;
+    if (score !== undefined) updateData.trendingScore = parseInt(score);
+    if (endDate !== undefined) updateData.trendingEndDate = endDate ? new Date(endDate) : null;
 
     const updatedBook = await Book.findByIdAndUpdate(
       req.params.id,
       updateData,
       { new: true, runValidators: true }
     )
-    .populate('user', 'name email userId');
+    .populate('user', 'name email userId')
+    .populate('trendingBy', 'name email userId');
 
     const bookWithUserInfo = formatBookWithUserInfo(updatedBook);
 
@@ -971,9 +728,135 @@ exports.updateTrendingDetails = async (req, res) => {
     });
   } catch (error) {
     console.error('Update trending details error:', error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// ==================== CATEGORY ORDER FUNCTIONALITY ====================
+
+exports.updateCategoryOrder = async (req, res) => {
+  try {
+    const { order } = req.body;
+    const book = await Book.findById(req.params.id).populate('user', 'name email userId');
+    
+    if (!book) {
+      return res.status(404).json({ success: false, message: 'Book not found' });
+    }
+
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    const canUpdateOrder = book.clientId === clientId || book.user._id.toString() === req.user.id;
+
+    if (!canUpdateOrder) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update category order for this book' });
+    }
+
+    if (order && order > 0) {
+      const existingBookWithOrder = await Book.findOne({ 
+        clientId, 
+        mainCategory: book.mainCategory,
+        subCategory: book.subCategory,
+        categoryOrder: order,
+        _id: { $ne: req.params.id }
+      });
+
+      if (existingBookWithOrder) {
+        return res.status(400).json({
+          success: false,
+          message: `Category order ${order} is already taken by another book in this category`
+        });
+      }
+    }
+
+    const userType = 'User'; // Assuming web users are 'User' type
+    await book.setCategoryOrder(currentUser._id, userType, order || 0);
+    await book.populate('categoryOrderBy', 'name email userId');
+
+    const bookWithUserInfo = formatBookWithUserInfo(book);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Category order updated successfully',
+      book: bookWithUserInfo
     });
+  } catch (error) {
+    console.error('Update category order error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.resetCategoryOrder = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id).populate('user', 'name email userId');
+    
+    if (!book) {
+      return res.status(404).json({ success: false, message: 'Book not found' });
+    }
+
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    const canResetOrder = book.clientId === clientId || book.user._id.toString() === req.user.id;
+
+    if (!canResetOrder) {
+      return res.status(403).json({ success: false, message: 'Not authorized to reset category order for this book' });
+    }
+
+    const userType = 'User'; // Assuming web users are 'User' type
+    await book.setCategoryOrder(currentUser._id, userType, 0);
+    
+    const bookWithUserInfo = formatBookWithUserInfo(book);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Category order reset successfully',
+      book: bookWithUserInfo
+    });
+  } catch (error) {
+    console.error('Reset category order error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// ==================== UTILITY FUNCTIONS ====================
+
+exports.getCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('-password');
+    if (!user) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    console.error('Get user error:', error);
+    res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.getCategoryMappings = async (req, res) => {
+  try {
+    const mappings = Book.getCategoryMappings();
+    return res.status(200).json({ success: true, mappings });
+  } catch (error) {
+    console.error('Get category mappings error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+exports.getValidSubCategories = async (req, res) => {
+  try {
+    const { mainCategory } = req.params;
+    const subCategories = Book.getValidSubCategories(mainCategory);
+    return res.status(200).json({ success: true, subCategories });
+  } catch (error) {
+    console.error('Get valid subcategories error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

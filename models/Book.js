@@ -1,4 +1,4 @@
-// models/Book.js - Updated with trending functionality and new exam categories
+// models/Book.js - Enhanced with complete category system and trending functionality
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -49,43 +49,41 @@ const BookSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  // Updated main category (Exam focused)
+  // Enhanced category system
   mainCategory: {
     type: String,
     required: [true, 'Please select a main category'],
-    enum: ['Civil Services', 'SSC', 'Defense', 'Teacher', 'Law', 'CA', 'CMA', 'CS', 'NCERT', 'Others'],
-    default: 'Others'
+    enum: ['Civil Services', 'SSC', 'Defense', 'Teacher', 'Law', 'CA', 'CMA', 'CS', 'NCERT', 'Other'],
+    default: 'Other'
   },
-  // Updated subcategory (specific classification under main category)
   subCategory: {
     type: String,
     required: [true, 'Please select a subcategory'],
     enum: [
-      // Civil Services subcategories
-      'UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'HPSC', 'MPPCS',
-      // SSC subcategories
+      // Civil Services
+      'UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'MPPCS',
+      // SSC
       'SSC-CGL', 'SSC-CHSL', 'SSC-GD',
-      // Defense subcategories
-      'NDA', 'FAC', 'CDS',
-      // Teacher subcategories
+      // Defense
+      'NDA', 'CDS', 'AFCAT',
+      // Teacher
       'DSSSB', 'CTET', 'UPTET', 'Bihar-TET',
-      // Law subcategories
+      // Law
       'CLAT', 'DU-LLB', 'JUDICIARY',
-      // CA subcategories
-      'Foundation', 'Inter', 'Final',
-      // CMA subcategories (same as CA)
-      'Foundation', 'Inter', 'Final',
-      // CS subcategories
-      'CSEET', 'Executive', 'Professional',
-      // NCERT subcategories
-      '1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS', 
+      // CA
+      'CA-Foundation', 'CA-Inter', 'CA-Final',
+      // CMA
+      'CMA-Foundation', 'CMA-Inter', 'CMA-Final',
+      // CS
+      'CS-Executive', 'CS-Professional',
+      // NCERT
+      '1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS',
       '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS',
-      // Others
-      'Others'
+      // Other
+      'Other'
     ],
-    default: 'Others'
+    default: 'Other'
   },
-  // Custom subcategory when subCategory is 'Others'
   customSubCategory: {
     type: String,
     trim: true,
@@ -96,32 +94,12 @@ const BookSchema = new mongoose.Schema({
     trim: true,
     maxlength: [30, 'Tag cannot be more than 30 characters']
   }],
-  // NEW: Trending functionality
-  isTrending: {
-    type: Boolean,
-    default: false,
-    index: true // Add index for efficient queries
-  },
-  trendingAt: {
-    type: Date,
-    default: null
-  },
-  trendingOrder: {
-    type: Number,
-    default: 0,
-    index: true // For sorting trending books
-  },
-  trendingNote: {
-    type: String,
-    trim: true,
-    maxlength: [200, 'Trending note cannot be more than 200 characters'],
-    default: ''
-  },
+  
   // Highlights functionality
   isHighlighted: {
     type: Boolean,
     default: false,
-    index: true // Add index for efficient queries
+    index: true
   },
   highlightedAt: {
     type: Date,
@@ -140,7 +118,7 @@ const BookSchema = new mongoose.Schema({
   highlightOrder: {
     type: Number,
     default: 0,
-    index: true // For sorting highlighted books
+    index: true
   },
   highlightNote: {
     type: String,
@@ -148,12 +126,84 @@ const BookSchema = new mongoose.Schema({
     maxlength: [200, 'Highlight note cannot be more than 200 characters'],
     default: ''
   },
-  // Client ID - stores the User's userId field (for client users) or user._id (fallback)
-  // This identifies which client/organization the book belongs to
+  
+  // Category Order functionality
+  categoryOrder: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  categoryOrderBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    refPath: 'categoryOrderByType',
+    default: null
+  },
+  categoryOrderByType: {
+    type: String,
+    enum: ['User', 'MobileUser'],
+    default: null
+  },
+  categoryOrderedAt: {
+    type: Date,
+    default: null
+  },
+  
+  // Trending functionality
+  isTrending: {
+    type: Boolean,
+    default: false,
+    index: true
+  },
+  trendingScore: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  trendingStartDate: {
+    type: Date,
+    default: null
+  },
+  trendingEndDate: {
+    type: Date,
+    default: null
+  },
+  trendingBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    refPath: 'trendingByType',
+    default: null
+  },
+  trendingByType: {
+    type: String,
+    enum: ['User', 'MobileUser'],
+    default: null
+  },
+  
+  // Analytics for trending calculation
+  viewCount: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  downloadCount: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  shareCount: {
+    type: Number,
+    default: 0,
+    index: true
+  },
+  lastViewedAt: {
+    type: Date,
+    default: null
+  },
+  
+  // Client and user info
   clientId: {
     type: String,
     required: true,
-    index: true // Add index for better query performance
+    index: true
   },
   user: {
     type: mongoose.Schema.Types.ObjectId,
@@ -179,68 +229,32 @@ const BookSchema = new mongoose.Schema({
   }
 });
 
-// Create compound indexes for efficient queries
-BookSchema.index({ clientId: 1, mainCategory: 1 });
-BookSchema.index({ clientId: 1, subCategory: 1 });
-BookSchema.index({ clientId: 1, mainCategory: 1, subCategory: 1 });
-BookSchema.index({ clientId: 1, user: 1 });
-BookSchema.index({ clientId: 1, tags: 1 });
-BookSchema.index({ clientId: 1, rating: -1 });
-BookSchema.index({ clientId: 1, author: 1 });
-BookSchema.index({ clientId: 1, language: 1 });
-// Indexes for highlights
+// Enhanced indexes
+BookSchema.index({ clientId: 1, mainCategory: 1, categoryOrder: 1 });
+BookSchema.index({ clientId: 1, subCategory: 1, categoryOrder: 1 });
 BookSchema.index({ clientId: 1, isHighlighted: 1, highlightOrder: 1 });
-BookSchema.index({ clientId: 1, isHighlighted: 1, highlightedAt: -1 });
-// NEW: Indexes for trending
-BookSchema.index({ clientId: 1, isTrending: 1, trendingOrder: 1 });
-BookSchema.index({ clientId: 1, isTrending: 1, trendingAt: -1 });
+BookSchema.index({ clientId: 1, isTrending: 1, trendingScore: -1 });
+BookSchema.index({ clientId: 1, viewCount: -1 });
+BookSchema.index({ clientId: 1, rating: -1 });
+BookSchema.index({ clientId: 1, createdAt: -1 });
+BookSchema.index({ trendingStartDate: 1, trendingEndDate: 1 });
 
-// Define new category mappings with order
+// Enhanced category mappings
 const CATEGORY_MAPPINGS = {
-  'Civil Services': {
-    order: 1,
-    subcategories: ['UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'HPSC', 'MPPCS']
-  },
-  'SSC': {
-    order: 2,
-    subcategories: ['SSC-CGL', 'SSC-CHSL', 'SSC-GD']
-  },
-  'Defense': {
-    order: 3,
-    subcategories: ['NDA', 'FAC', 'CDS']
-  },
-  'Teacher': {
-    order: 4,
-    subcategories: ['DSSSB', 'CTET', 'UPTET', 'Bihar-TET']
-  },
-  'Law': {
-    order: 5,
-    subcategories: ['CLAT', 'DU-LLB', 'JUDICIARY']
-  },
-  'CA': {
-    order: 6,
-    subcategories: ['Foundation', 'Inter', 'Final']
-  },
-  'CMA': {
-    order: 7,
-    subcategories: ['Foundation', 'Inter', 'Final']
-  },
-  'CS': {
-    order: 8,
-    subcategories: ['CSEET', 'Executive', 'Professional']
-  },
-  'NCERT': {
-    order: 9,
-    subcategories: ['1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS', 
-                   '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS']
-  },
-  'Others': {
-    order: 999,
-    subcategories: ['Others']
-  }
+  'Civil Services': ['UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'MPPCS'],
+  'SSC': ['SSC-CGL', 'SSC-CHSL', 'SSC-GD'],
+  'Defense': ['NDA', 'CDS', 'AFCAT'],
+  'Teacher': ['DSSSB', 'CTET', 'UPTET', 'Bihar-TET'],
+  'Law': ['CLAT', 'DU-LLB', 'JUDICIARY'],
+  'CA': ['CA-Foundation', 'CA-Inter', 'CA-Final'],
+  'CMA': ['CMA-Foundation', 'CMA-Inter', 'CMA-Final'],
+  'CS': ['CS-Executive', 'CS-Professional'],
+  'NCERT': ['1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS', 
+           '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS'],
+  'Other': ['Other']
 };
 
-// Update timestamp on save
+// Pre-save middleware
 BookSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   
@@ -257,33 +271,46 @@ BookSchema.pre('save', function(next) {
     }
   }
   
+  // Handle category ordering
+  if (this.isModified('categoryOrder') && this.categoryOrder > 0) {
+    if (!this.categoryOrderedAt) {
+      this.categoryOrderedAt = new Date();
+    }
+  } else if (this.categoryOrder === 0) {
+    this.categoryOrderedAt = null;
+    this.categoryOrderBy = null;
+    this.categoryOrderByType = null;
+  }
+  
   // Handle trending logic
   if (this.isModified('isTrending')) {
-    if (this.isTrending && !this.trendingAt) {
-      this.trendingAt = new Date();
+    if (this.isTrending && !this.trendingStartDate) {
+      this.trendingStartDate = new Date();
+      if (!this.trendingEndDate) {
+        // Default trending period of 30 days
+        this.trendingEndDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+      }
     } else if (!this.isTrending) {
-      this.trendingAt = null;
-      this.trendingOrder = 0;
-      this.trendingNote = '';
+      this.trendingStartDate = null;
+      this.trendingEndDate = null;
+      this.trendingBy = null;
+      this.trendingByType = null;
+      this.trendingScore = 0;
     }
   }
   
   // Validate category-subcategory relationship
-  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
-  if (categoryData) {
-    const validSubCategories = categoryData.subcategories || [];
-    if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Others') {
-      console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
-      console.log(`Valid subcategories for '${this.mainCategory}':`, validSubCategories);
-    }
+  const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
+  if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Other') {
+    console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
   }
   
-  // If subCategory is not 'Others', clear customSubCategory
-  if (this.subCategory !== 'Others') {
+  // Clear customSubCategory if subCategory is not 'Other'
+  if (this.subCategory !== 'Other') {
     this.customSubCategory = undefined;
   }
   
-  // Clean up tags - remove empty strings and duplicates
+  // Clean up tags
   if (this.tags && this.tags.length > 0) {
     this.tags = [...new Set(this.tags.filter(tag => tag && tag.trim().length > 0))];
   }
@@ -291,64 +318,63 @@ BookSchema.pre('save', function(next) {
   next();
 });
 
-// Custom validation for category-subcategory relationship
-BookSchema.path('subCategory').validate(function(value) {
-  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
-  if (!categoryData) return false;
-  
-  const validSubCategories = categoryData.subcategories || [];
-  const isValid = validSubCategories.includes(value) || value === 'Others';
-  
-  if (!isValid) {
-    console.log(`Validation failed: '${value}' is not a valid subcategory for '${this.mainCategory}'`);
-    console.log(`Valid subcategories:`, validSubCategories);
-  }
-  
-  return isValid;
-}, function() {
-  return `Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`;
-});
-
-// Virtual to get the effective subcategory
-BookSchema.virtual('effectiveSubCategory').get(function() {
-  return this.subCategory === 'Others' ? this.customSubCategory : this.subCategory;
-});
-
-// Virtual to get full category path
-BookSchema.virtual('fullCategory').get(function() {
-  const effectiveSub = this.subCategory === 'Others' ? this.customSubCategory : this.subCategory;
-  return `${this.mainCategory} > ${effectiveSub}`;
-});
-
-// Virtual to get category order for sorting
-BookSchema.virtual('categoryOrder').get(function() {
-  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
-  return categoryData ? categoryData.order : 999;
-});
-
-// Static method to get category mappings
+// Static methods
 BookSchema.statics.getCategoryMappings = function() {
   return CATEGORY_MAPPINGS;
 };
 
-// Static method to get categories sorted by order
-BookSchema.statics.getCategoriesSortedByOrder = function() {
-  return Object.entries(CATEGORY_MAPPINGS)
-    .sort(([,a], [,b]) => a.order - b.order)
-    .map(([category, data]) => ({
-      name: category,
-      order: data.order,
-      subcategories: data.subcategories
-    }));
-};
-
-// Static method to get valid subcategories for a main category
 BookSchema.statics.getValidSubCategories = function(mainCategory) {
-  const categoryData = CATEGORY_MAPPINGS[mainCategory];
-  return categoryData ? categoryData.subcategories : [];
+  return CATEGORY_MAPPINGS[mainCategory] || [];
 };
 
-// Method to update rating
+// Get highlighted books
+BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
+  const query = this.find({ 
+    clientId: clientId, 
+    isHighlighted: true 
+  })
+  .populate('user', 'name email userId')
+  .populate('highlightedBy', 'name email userId')
+  .sort({ highlightOrder: 1, highlightedAt: -1 });
+  
+  if (limit) query.limit(limit);
+  return query;
+};
+
+// Get trending books
+BookSchema.statics.getTrendingBooks = function(clientId, limit = null) {
+  const now = new Date();
+  const query = this.find({ 
+    clientId: clientId, 
+    isTrending: true,
+    trendingStartDate: { $lte: now },
+    $or: [
+      { trendingEndDate: { $gte: now } },
+      { trendingEndDate: null }
+    ]
+  })
+  .populate('user', 'name email userId')
+  .populate('trendingBy', 'name email userId')
+  .sort({ trendingScore: -1, viewCount: -1, createdAt: -1 });
+  
+  if (limit) query.limit(limit);
+  return query;
+};
+
+// Get books by category with order
+BookSchema.statics.getBooksByCategory = function(clientId, mainCategory, subCategory = null, limit = null) {
+  const filter = { clientId: clientId, mainCategory: mainCategory };
+  if (subCategory) filter.subCategory = subCategory;
+  
+  const query = this.find(filter)
+    .populate('user', 'name email userId')
+    .sort({ categoryOrder: 1, createdAt: -1 });
+  
+  if (limit) query.limit(limit);
+  return query;
+};
+
+// Instance methods
 BookSchema.methods.updateRating = function(newRating) {
   const totalRating = (this.rating * this.ratingCount) + newRating;
   this.ratingCount += 1;
@@ -356,7 +382,6 @@ BookSchema.methods.updateRating = function(newRating) {
   return this.save();
 };
 
-// Method to highlight/unhighlight book
 BookSchema.methods.toggleHighlight = function(userId, userType, note = '', order = 0) {
   this.isHighlighted = !this.isHighlighted;
   
@@ -377,55 +402,72 @@ BookSchema.methods.toggleHighlight = function(userId, userType, note = '', order
   return this.save();
 };
 
-// NEW: Method to toggle trending status
-BookSchema.methods.toggleTrending = function(note = '', order = 0) {
+BookSchema.methods.setCategoryOrder = function(userId, userType, order) {
+  this.categoryOrder = order;
+  this.categoryOrderBy = userId;
+  this.categoryOrderByType = userType;
+  this.categoryOrderedAt = new Date();
+  return this.save();
+};
+
+BookSchema.methods.toggleTrending = function(userId, userType, score = 0, endDate = null) {
   this.isTrending = !this.isTrending;
   
   if (this.isTrending) {
-    this.trendingAt = new Date();
-    this.trendingNote = note;
-    this.trendingOrder = order;
+    this.trendingStartDate = new Date();
+    this.trendingEndDate = endDate || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    this.trendingBy = userId;
+    this.trendingByType = userType;
+    this.trendingScore = score;
   } else {
-    this.trendingAt = null;
-    this.trendingNote = '';
-    this.trendingOrder = 0;
+    this.trendingStartDate = null;
+    this.trendingEndDate = null;
+    this.trendingBy = null;
+    this.trendingByType = null;
+    this.trendingScore = 0;
   }
   
   return this.save();
 };
 
-// Static method to get highlighted books for a client
-BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
-  const query = this.find({ 
-    clientId: clientId, 
-    isHighlighted: true 
-  })
-  .populate('user', 'name email userId')
-  .populate('highlightedBy', 'name email userId')
-  .sort({ highlightOrder: 1, highlightedAt: -1 });
+BookSchema.methods.incrementView = function() {
+  this.viewCount += 1;
+  this.lastViewedAt = new Date();
   
-  if (limit) {
-    query.limit(limit);
-  }
+  // Auto-calculate trending score based on recent activity
+  const daysSinceCreated = (Date.now() - this.createdAt) / (1000 * 60 * 60 * 24);
+  const recencyFactor = Math.max(0, 30 - daysSinceCreated) / 30; // Higher score for newer books
+  const engagementScore = (this.viewCount * 1) + (this.downloadCount * 3) + (this.shareCount * 5);
+  this.trendingScore = Math.round(engagementScore * recencyFactor);
   
-  return query;
+  return this.save();
 };
 
-// NEW: Static method to get trending books for a client
-BookSchema.statics.getTrendingBooks = function(clientId, limit = null) {
-  const query = this.find({ 
-    clientId: clientId, 
-    isTrending: true 
-  })
-  .populate('user', 'name email userId')
-  .sort({ trendingOrder: 1, trendingAt: -1 });
-  
-  if (limit) {
-    query.limit(limit);
-  }
-  
-  return query;
+BookSchema.methods.incrementDownload = function() {
+  this.downloadCount += 1;
+  return this.incrementView(); // Also count as a view
 };
+
+BookSchema.methods.incrementShare = function() {
+  this.shareCount += 1;
+  return this.incrementView(); // Also count as a view
+};
+
+// Virtual fields
+BookSchema.virtual('effectiveSubCategory').get(function() {
+  return this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
+});
+
+BookSchema.virtual('fullCategory').get(function() {
+  const effectiveSub = this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
+  return `${this.mainCategory} > ${effectiveSub}`;
+});
+
+BookSchema.virtual('isCurrentlyTrending').get(function() {
+  if (!this.isTrending) return false;
+  const now = new Date();
+  return this.trendingStartDate <= now && (!this.trendingEndDate || this.trendingEndDate >= now);
+});
 
 // Ensure virtual fields are serialized
 BookSchema.set('toJSON', { virtuals: true });
