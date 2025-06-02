@@ -319,7 +319,7 @@ Please be fair, constructive, and specific in your evaluation.`;
 // Enhanced evaluation response parser with better handling
 const parseEvaluationResponse = (evaluationText, question) => {
   try {
-    console.log('Parsing evaluation response:', evaluationText.substring(0, 200) + '...');
+    console.log('Parsing evaluation response:', evaluationText.substring(0, 20000) + '...');
     
     const lines = evaluationText.split('\n').map(line => line.trim()).filter(line => line.length > 0);
     const evaluation = {
@@ -452,7 +452,7 @@ const validateManualEvaluation = [
   body('evaluationPrompt')
     .isString()
     .trim()
-    .isLength({ min: 10, max: 2000 })
+    .isLength({ min: 10, max: 20000 })
     .withMessage('Evaluation prompt must be between 10 and 2000 characters'),
   body('includeExtractedText')
     .optional()
