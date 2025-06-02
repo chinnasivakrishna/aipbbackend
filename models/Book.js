@@ -1,4 +1,4 @@
-// models/Book.js - Updated with highlights functionality
+// models/Book.js - Updated with trending functionality and new exam categories
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -49,32 +49,43 @@ const BookSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
-  // Main category (broader classification)
+  // Updated main category (Exam focused)
   mainCategory: {
     type: String,
     required: [true, 'Please select a main category'],
-    enum: ['Competitive Exams', 'Professional Courses', 'Language Tests', 'Academic', 'Other'],
-    default: 'Other'
+    enum: ['Civil Services', 'SSC', 'Defense', 'Teacher', 'Law', 'CA', 'CMA', 'CS', 'NCERT', 'Others'],
+    default: 'Others'
   },
-  // Subcategory (specific classification under main category)
+  // Updated subcategory (specific classification under main category)
   subCategory: {
     type: String,
     required: [true, 'Please select a subcategory'],
     enum: [
-      // Competitive Exams subcategories
-      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 'CA', 'CMA', 'CS', 'BPC', 'UPPCS', 'SSC', 'NET/JRF', 'Teacher', 'NDA',
-      // Professional Courses subcategories
-      'ACCA', 'CFA', 'FRM',
-      // Language Tests subcategories
-      'IELTS', 'TOEFL', 'GRE', 'GMAT',
-      // Academic subcategories
-      'Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce',
-      // Other
-      'Other'
+      // Civil Services subcategories
+      'UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'HPSC', 'MPPCS',
+      // SSC subcategories
+      'SSC-CGL', 'SSC-CHSL', 'SSC-GD',
+      // Defense subcategories
+      'NDA', 'FAC', 'CDS',
+      // Teacher subcategories
+      'DSSSB', 'CTET', 'UPTET', 'Bihar-TET',
+      // Law subcategories
+      'CLAT', 'DU-LLB', 'JUDICIARY',
+      // CA subcategories
+      'Foundation', 'Inter', 'Final',
+      // CMA subcategories (same as CA)
+      'Foundation', 'Inter', 'Final',
+      // CS subcategories
+      'CSEET', 'Executive', 'Professional',
+      // NCERT subcategories
+      '1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS', 
+      '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS',
+      // Others
+      'Others'
     ],
-    default: 'Other'
+    default: 'Others'
   },
-  // Custom subcategory when subCategory is 'Other'
+  // Custom subcategory when subCategory is 'Others'
   customSubCategory: {
     type: String,
     trim: true,
@@ -85,7 +96,28 @@ const BookSchema = new mongoose.Schema({
     trim: true,
     maxlength: [30, 'Tag cannot be more than 30 characters']
   }],
-  // NEW: Highlights functionality
+  // NEW: Trending functionality
+  isTrending: {
+    type: Boolean,
+    default: false,
+    index: true // Add index for efficient queries
+  },
+  trendingAt: {
+    type: Date,
+    default: null
+  },
+  trendingOrder: {
+    type: Number,
+    default: 0,
+    index: true // For sorting trending books
+  },
+  trendingNote: {
+    type: String,
+    trim: true,
+    maxlength: [200, 'Trending note cannot be more than 200 characters'],
+    default: ''
+  },
+  // Highlights functionality
   isHighlighted: {
     type: Boolean,
     default: false,
@@ -156,17 +188,56 @@ BookSchema.index({ clientId: 1, tags: 1 });
 BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, author: 1 });
 BookSchema.index({ clientId: 1, language: 1 });
-// NEW: Indexes for highlights
+// Indexes for highlights
 BookSchema.index({ clientId: 1, isHighlighted: 1, highlightOrder: 1 });
 BookSchema.index({ clientId: 1, isHighlighted: 1, highlightedAt: -1 });
+// NEW: Indexes for trending
+BookSchema.index({ clientId: 1, isTrending: 1, trendingOrder: 1 });
+BookSchema.index({ clientId: 1, isTrending: 1, trendingAt: -1 });
 
-// Define category mappings - CA is in Professional Courses
+// Define new category mappings with order
 const CATEGORY_MAPPINGS = {
-  'Competitive Exams': ['UPSC', 'NEET', 'JEE', 'GATE', 'CAT'],
-  'Professional Courses': ['CA', 'CMA', 'CS', 'ACCA', 'CFA', 'FRM'],
-  'Language Tests': ['IELTS', 'TOEFL', 'GRE', 'GMAT'],
-  'Academic': ['Engineering', 'Medical', 'Management', 'Science', 'Arts', 'Commerce'],
-  'Other': ['Other']
+  'Civil Services': {
+    order: 1,
+    subcategories: ['UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'HPSC', 'MPPCS']
+  },
+  'SSC': {
+    order: 2,
+    subcategories: ['SSC-CGL', 'SSC-CHSL', 'SSC-GD']
+  },
+  'Defense': {
+    order: 3,
+    subcategories: ['NDA', 'FAC', 'CDS']
+  },
+  'Teacher': {
+    order: 4,
+    subcategories: ['DSSSB', 'CTET', 'UPTET', 'Bihar-TET']
+  },
+  'Law': {
+    order: 5,
+    subcategories: ['CLAT', 'DU-LLB', 'JUDICIARY']
+  },
+  'CA': {
+    order: 6,
+    subcategories: ['Foundation', 'Inter', 'Final']
+  },
+  'CMA': {
+    order: 7,
+    subcategories: ['Foundation', 'Inter', 'Final']
+  },
+  'CS': {
+    order: 8,
+    subcategories: ['CSEET', 'Executive', 'Professional']
+  },
+  'NCERT': {
+    order: 9,
+    subcategories: ['1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS', 
+                   '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS']
+  },
+  'Others': {
+    order: 999,
+    subcategories: ['Others']
+  }
 };
 
 // Update timestamp on save
@@ -186,15 +257,29 @@ BookSchema.pre('save', function(next) {
     }
   }
   
-  // Validate category-subcategory relationship
-  const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
-  if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Other') {
-    console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
-    console.log(`Valid subcategories for '${this.mainCategory}':`, validSubCategories);
+  // Handle trending logic
+  if (this.isModified('isTrending')) {
+    if (this.isTrending && !this.trendingAt) {
+      this.trendingAt = new Date();
+    } else if (!this.isTrending) {
+      this.trendingAt = null;
+      this.trendingOrder = 0;
+      this.trendingNote = '';
+    }
   }
   
-  // If subCategory is not 'Other', clear customSubCategory
-  if (this.subCategory !== 'Other') {
+  // Validate category-subcategory relationship
+  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
+  if (categoryData) {
+    const validSubCategories = categoryData.subcategories || [];
+    if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Others') {
+      console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
+      console.log(`Valid subcategories for '${this.mainCategory}':`, validSubCategories);
+    }
+  }
+  
+  // If subCategory is not 'Others', clear customSubCategory
+  if (this.subCategory !== 'Others') {
     this.customSubCategory = undefined;
   }
   
@@ -208,8 +293,11 @@ BookSchema.pre('save', function(next) {
 
 // Custom validation for category-subcategory relationship
 BookSchema.path('subCategory').validate(function(value) {
-  const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
-  const isValid = validSubCategories.includes(value) || value === 'Other';
+  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
+  if (!categoryData) return false;
+  
+  const validSubCategories = categoryData.subcategories || [];
+  const isValid = validSubCategories.includes(value) || value === 'Others';
   
   if (!isValid) {
     console.log(`Validation failed: '${value}' is not a valid subcategory for '${this.mainCategory}'`);
@@ -223,13 +311,19 @@ BookSchema.path('subCategory').validate(function(value) {
 
 // Virtual to get the effective subcategory
 BookSchema.virtual('effectiveSubCategory').get(function() {
-  return this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
+  return this.subCategory === 'Others' ? this.customSubCategory : this.subCategory;
 });
 
 // Virtual to get full category path
 BookSchema.virtual('fullCategory').get(function() {
-  const effectiveSub = this.subCategory === 'Other' ? this.customSubCategory : this.subCategory;
+  const effectiveSub = this.subCategory === 'Others' ? this.customSubCategory : this.subCategory;
   return `${this.mainCategory} > ${effectiveSub}`;
+});
+
+// Virtual to get category order for sorting
+BookSchema.virtual('categoryOrder').get(function() {
+  const categoryData = CATEGORY_MAPPINGS[this.mainCategory];
+  return categoryData ? categoryData.order : 999;
 });
 
 // Static method to get category mappings
@@ -237,9 +331,21 @@ BookSchema.statics.getCategoryMappings = function() {
   return CATEGORY_MAPPINGS;
 };
 
+// Static method to get categories sorted by order
+BookSchema.statics.getCategoriesSortedByOrder = function() {
+  return Object.entries(CATEGORY_MAPPINGS)
+    .sort(([,a], [,b]) => a.order - b.order)
+    .map(([category, data]) => ({
+      name: category,
+      order: data.order,
+      subcategories: data.subcategories
+    }));
+};
+
 // Static method to get valid subcategories for a main category
 BookSchema.statics.getValidSubCategories = function(mainCategory) {
-  return CATEGORY_MAPPINGS[mainCategory] || [];
+  const categoryData = CATEGORY_MAPPINGS[mainCategory];
+  return categoryData ? categoryData.subcategories : [];
 };
 
 // Method to update rating
@@ -250,7 +356,7 @@ BookSchema.methods.updateRating = function(newRating) {
   return this.save();
 };
 
-// NEW: Method to highlight/unhighlight book
+// Method to highlight/unhighlight book
 BookSchema.methods.toggleHighlight = function(userId, userType, note = '', order = 0) {
   this.isHighlighted = !this.isHighlighted;
   
@@ -271,7 +377,24 @@ BookSchema.methods.toggleHighlight = function(userId, userType, note = '', order
   return this.save();
 };
 
-// NEW: Static method to get highlighted books for a client
+// NEW: Method to toggle trending status
+BookSchema.methods.toggleTrending = function(note = '', order = 0) {
+  this.isTrending = !this.isTrending;
+  
+  if (this.isTrending) {
+    this.trendingAt = new Date();
+    this.trendingNote = note;
+    this.trendingOrder = order;
+  } else {
+    this.trendingAt = null;
+    this.trendingNote = '';
+    this.trendingOrder = 0;
+  }
+  
+  return this.save();
+};
+
+// Static method to get highlighted books for a client
 BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
   const query = this.find({ 
     clientId: clientId, 
@@ -280,6 +403,22 @@ BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
   .populate('user', 'name email userId')
   .populate('highlightedBy', 'name email userId')
   .sort({ highlightOrder: 1, highlightedAt: -1 });
+  
+  if (limit) {
+    query.limit(limit);
+  }
+  
+  return query;
+};
+
+// NEW: Static method to get trending books for a client
+BookSchema.statics.getTrendingBooks = function(clientId, limit = null) {
+  const query = this.find({ 
+    clientId: clientId, 
+    isTrending: true 
+  })
+  .populate('user', 'name email userId')
+  .sort({ trendingOrder: 1, trendingAt: -1 });
   
   if (limit) {
     query.limit(limit);

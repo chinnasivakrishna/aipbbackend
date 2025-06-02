@@ -584,17 +584,6 @@ router.post('/answers/:answerId/evaluate-manual',
         }
       }
 
-      // Check if AI evaluation services are available
-      if (!OPENAI_API_KEY && !GEMINI_API_KEY) {
-        return res.status(503).json({
-          success: false,
-          message: "Evaluation service unavailable",
-          error: {
-            code: "SERVICE_UNAVAILABLE",
-            details: "AI evaluation services are not configured"
-          }
-        });
-      }
 
       let evaluation = null;
 
@@ -709,17 +698,19 @@ router.post('/answers/:answerId/evaluate-manual',
           throw new Error('No evaluation service available');
         }
 
-        // Update the user answer with the new evaluation
-        // Note: Since we removed authentication middleware, we can't use req.user
-        // You'll need to handle evaluatedBy and reviewedBy differently
+        // Update the user answer with the new evaluation and status changes
         userAnswer.evaluation = {
           ...evaluation,
           evaluatedAt: new Date(),
           evaluationType: 'manual_custom',
           customPrompt: evaluationPrompt
         };
+        
+        // Update all relevant status fields
+        userAnswer.submissionStatus = 'evaluated'; // Change status to evaluated
         userAnswer.reviewStatus = 'review_completed';
         userAnswer.reviewedAt = new Date();
+        userAnswer.evaluatedAt = new Date();
         
         await userAnswer.save();
 
@@ -729,9 +720,11 @@ router.post('/answers/:answerId/evaluate-manual',
           questionId: question._id,
           userId: userAnswer.userId._id,
           evaluation: evaluation,
-          evaluatedAt: userAnswer.evaluation.evaluatedAt,
+          evaluatedAt: userAnswer.evaluatedAt,
           evaluationType: 'manual_custom',
           customPrompt: evaluationPrompt,
+          submissionStatus: userAnswer.submissionStatus, // Include the updated status
+          reviewStatus: userAnswer.reviewStatus,
           question: {
             id: question._id,
             question: question.question,
@@ -746,7 +739,7 @@ router.post('/answers/:answerId/evaluate-manual',
 
         res.status(200).json({
           success: true,
-          message: "Answer evaluated successfully with custom criteria",
+          message: "Answer evaluated successfully with custom criteria and status updated to 'evaluated'",
           data: responseData
         });
 
@@ -775,7 +768,6 @@ router.post('/answers/:answerId/evaluate-manual',
     }
   }
 );
-
 router.post('/questions/:questionId/answers',
   authenticateMobileUser,
   validateQuestionId,
