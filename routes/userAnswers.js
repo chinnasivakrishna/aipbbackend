@@ -9,7 +9,7 @@ const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const axios = require('axios');
-const crud =  require('./crud');
+const crud =  require('./answerapis');
 router.use('/crud', crud);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
