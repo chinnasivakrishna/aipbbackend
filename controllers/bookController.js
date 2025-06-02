@@ -1,4 +1,3 @@
-// controllers/bookController.js - Updated to properly handle userId
 const Book = require('../models/Book');
 const Chapter = require('../models/Chapter');
 const Topic = require('../models/Topic');
@@ -7,38 +6,27 @@ const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-
-// Configure multer storage
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/covers';
-    
-    // Create directory if it doesn't exist
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
-    
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // Create unique filename with timestamp and original extension
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
     const ext = path.extname(file.originalname);
     cb(null, `cover-${uniqueSuffix}${ext}`);
   }
 });
-
-// File filter
 const fileFilter = (req, file, cb) => {
-  // Accept only image files
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
     cb(new Error('Not an image! Please upload only images.'), false);
   }
 };
-
-// Initialize upload
 const upload = multer({
   storage: storage,
   limits: {
@@ -46,16 +34,9 @@ const upload = multer({
   },
   fileFilter: fileFilter
 });
-
-// Multer upload middleware
 exports.uploadCoverImage = upload.single('coverImage');
-
-// @desc    Get all books
-// @route   GET /api/books
-// @access  Private
 exports.getBooks = async (req, res) => {
   try {
-    // Get the current user to check their role and get userId
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({
@@ -63,24 +44,18 @@ exports.getBooks = async (req, res) => {
         message: 'User not found'
       });
     }
-
     let books;
-    
-    // If user is a client, get books by their userId
-    // If user is a regular user, get books by user ID
     if (currentUser.role === 'client' && currentUser.userId) {
-      // For clients, get books by clientId (which stores their userId)
       books = await Book.find({ clientId: currentUser.userId })
         .populate('user', 'name email userId')
+        .populate('highlightedBy', 'name email userId')
         .sort({ createdAt: -1 });
     } else {
-      // For regular users, get books they created
       books = await Book.find({ user: req.user.id })
         .populate('user', 'name email userId')
+        .populate('highlightedBy', 'name email userId')
         .sort({ createdAt: -1 });
     }
-    
-    // Add user information to each book
     const booksWithUserInfo = books.map(book => {
       const bookObj = book.toObject();
       return {
@@ -90,10 +65,15 @@ exports.getBooks = async (req, res) => {
           name: book.user.name,
           email: book.user.email,
           userId: book.user.userId || book.user._id.toString()
+        } : null,
+        highlightedByUser: book.highlightedBy ? {
+          id: book.highlightedBy._id,
+          name: book.highlightedBy.name,
+          email: book.highlightedBy.email,
+          userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
         } : null
       };
     });
-    
     return res.status(200).json({
       success: true,
       count: books.length,
@@ -114,22 +94,8 @@ exports.getBooks = async (req, res) => {
     });
   }
 };
-
-// @desc    Get single book
-// @route   GET /api/books/:id
-// @access  Private
-exports.getBook = async (req, res) => {
+exports.getHighlightedBooks = async (req, res) => {
   try {
-    const book = await Book.findById(req.params.id).populate('user', 'name email userId');
-    
-    if (!book) {
-      return res.status(404).json({
-        success: false,
-        message: 'Book not found'
-      });
-    }
-    
-    // Get current user to check access
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({
@@ -137,31 +103,106 @@ exports.getBook = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Check access permissions
-    let hasAccess = false;
-    
+    let clientId;
     if (currentUser.role === 'client' && currentUser.userId) {
-      // Client can access books with their clientId
-      hasAccess = book.clientId === currentUser.userId;
+      clientId = currentUser.userId;
     } else {
-      // Regular user can access their own books
-      hasAccess = book.user._id.toString() === req.user.id;
+      clientId = currentUser._id.toString();
     }
-    
-    // Also allow access if book is public
-    if (!hasAccess && book.isPublic) {
-      hasAccess = true;
-    }
-    
-    if (!hasAccess) {
-      return res.status(403).json({
+    const highlightedBooks = await Book.getHighlightedBooks(clientId, req.query.limit ? parseInt(req.query.limit) : null);
+    const booksWithUserInfo = highlightedBooks.map(book => {
+      const bookObj = book.toObject();
+      return {
+        ...bookObj,
+        createdBy: book.user ? {
+          id: book.user._id,
+          name: book.user.name,
+          email: book.user.email,
+          userId: book.user.userId || book.user._id.toString()
+        } : null,
+        highlightedByUser: book.highlightedBy ? {
+          id: book.highlightedBy._id,
+          name: book.highlightedBy.name,
+          email: book.highlightedBy.email,
+          userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
+        } : null
+      };
+    });
+    return res.status(200).json({
+      success: true,
+      count: highlightedBooks.length,
+      books: booksWithUserInfo
+    });
+  } catch (error) {
+    console.error('Get highlighted books error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error'
+    });
+  }
+};
+exports.addBookToHighlights = async (req, res) => {
+  try {
+    const { note, order } = req.body;
+    const book = await Book.findById(req.params.id).populate('user', 'name email userId');
+    if (!book) {
+      return res.status(404).json({
         success: false,
-        message: 'Not authorized to access this book'
+        message: 'Book not found'
       });
     }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    let canHighlight = false;
     
-    // Add user information to book
+    if (currentUser.role === 'client' && currentUser.userId) {
+      canHighlight = book.clientId === currentUser.userId;
+    } else {
+      canHighlight = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
+    }
+    if (!canHighlight) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to highlight this book'
+      });
+    }
+    if (book.isHighlighted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Book is already highlighted'
+      });
+    }
+    if (order && order > 0) {
+      let clientId = currentUser.role === 'client' && currentUser.userId ? 
+                    currentUser.userId : 
+                    currentUser._id.toString();
+      
+      const existingBookWithOrder = await Book.findOne({ 
+        clientId: clientId, 
+        isHighlighted: true, 
+        highlightOrder: order,
+        _id: { $ne: req.params.id }
+      });
+      if (existingBookWithOrder) {
+        return res.status(400).json({
+          success: false,
+          message: `Highlight order ${order} is already taken by another book`
+        });
+      }
+    }
+    const userType = currentUser.role === 'client' ? 'User' : 'User'; // Adjust based on your user types
+    await book.toggleHighlight(
+      currentUser._id, 
+      userType, 
+      note || '', 
+      order || 0
+    );
+    await book.populate('highlightedBy', 'name email userId');
     const bookWithUserInfo = {
       ...book.toObject(),
       createdBy: book.user ? {
@@ -169,9 +210,228 @@ exports.getBook = async (req, res) => {
         name: book.user.name,
         email: book.user.email,
         userId: book.user.userId || book.user._id.toString()
+      } : null,
+      highlightedByUser: book.highlightedBy ? {
+        id: book.highlightedBy._id,
+        name: book.highlightedBy.name,
+        email: book.highlightedBy.email,
+        userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
       } : null
     };
-    
+    return res.status(200).json({
+      success: true,
+      message: 'Book added to highlights successfully',
+      book: bookWithUserInfo
+    });
+  } catch (error) {
+    console.error('Add book to highlights error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error'
+    });
+  }
+};
+exports.removeBookFromHighlights = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id).populate('user', 'name email userId');
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        message: 'Book not found'
+      });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    let canRemoveHighlight = false;
+    if (currentUser.role === 'client' && currentUser.userId) {
+      canRemoveHighlight = book.clientId === currentUser.userId;
+    } else {
+      canRemoveHighlight = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
+    }
+    if (!canRemoveHighlight) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to remove highlight from this book'
+      });
+    }
+    if (!book.isHighlighted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Book is not highlighted'
+      });
+    }
+    const userType = currentUser.role === 'client' ? 'User' : 'User'; // Adjust based on your user types
+    await book.toggleHighlight(currentUser._id, userType);
+    const bookWithUserInfo = {
+      ...book.toObject(),
+      createdBy: book.user ? {
+        id: book.user._id,
+        name: book.user.name,
+        email: book.user.email,
+        userId: book.user.userId || book.user._id.toString()
+      } : null,
+      highlightedByUser: null
+    };
+    return res.status(200).json({
+      success: true,
+      message: 'Book removed from highlights successfully',
+      book: bookWithUserInfo
+    });
+  } catch (error) {
+    console.error('Remove book from highlights error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error'
+    });
+  }
+};
+exports.updateHighlightDetails = async (req, res) => {
+  try {
+    const { note, order } = req.body;
+    const book = await Book.findById(req.params.id)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId');
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        message: 'Book not found'
+      });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    let canUpdate = false;
+    if (currentUser.role === 'client' && currentUser.userId) {
+      canUpdate = book.clientId === currentUser.userId;
+    } else {
+      canUpdate = book.clientId === currentUser._id.toString() || book.user._id.toString() === req.user.id;
+    }
+    if (!canUpdate) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to update highlight for this book'
+      });
+    }
+    if (!book.isHighlighted) {
+      return res.status(400).json({
+        success: false,
+        message: 'Book is not highlighted'
+      });
+    }
+    if (order && order !== book.highlightOrder && order > 0) {
+      let clientId = currentUser.role === 'client' && currentUser.userId ? 
+                    currentUser.userId : 
+                    currentUser._id.toString();
+      
+      const existingBookWithOrder = await Book.findOne({ 
+        clientId: clientId, 
+        isHighlighted: true, 
+        highlightOrder: order,
+        _id: { $ne: req.params.id }
+      });
+      
+      if (existingBookWithOrder) {
+        return res.status(400).json({
+          success: false,
+          message: `Highlight order ${order} is already taken by another book`
+        });
+      }
+    }
+    const updateData = {};
+    if (note !== undefined) updateData.highlightNote = note;
+    if (order !== undefined) updateData.highlightOrder = order;
+    const updatedBook = await Book.findByIdAndUpdate(
+      req.params.id,
+      updateData,
+      { new: true, runValidators: true }
+    )
+    .populate('user', 'name email userId')
+    .populate('highlightedBy', 'name email userId');
+    const bookWithUserInfo = {
+      ...updatedBook.toObject(),
+      createdBy: updatedBook.user ? {
+        id: updatedBook.user._id,
+        name: updatedBook.user.name,
+        email: updatedBook.user.email,
+        userId: updatedBook.user.userId || updatedBook.user._id.toString()
+      } : null,
+      highlightedByUser: updatedBook.highlightedBy ? {
+        id: updatedBook.highlightedBy._id,
+        name: updatedBook.highlightedBy.name,
+        email: updatedBook.highlightedBy.email,
+        userId: updatedBook.highlightedBy.userId || updatedBook.highlightedBy._id.toString()
+      } : null
+    };
+    return res.status(200).json({
+      success: true,
+      message: 'Highlight details updated successfully',
+      book: bookWithUserInfo
+    });
+  } catch (error) {
+    console.error('Update highlight details error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Server Error'
+    });
+  }
+};
+exports.getBook = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId');
+    if (!book) {
+      return res.status(404).json({
+        success: false,
+        message: 'Book not found'
+      });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    let hasAccess = false;
+    if (currentUser.role === 'client' && currentUser.userId) {
+      hasAccess = book.clientId === currentUser.userId;
+    } else {
+      hasAccess = book.user._id.toString() === req.user.id;
+    }
+    if (!hasAccess && book.isPublic) {
+      hasAccess = true;
+    }
+    if (!hasAccess) {
+      return res.status(403).json({
+        success: false,
+        message: 'Not authorized to access this book'
+      });
+    }
+    const bookWithUserInfo = {
+      ...book.toObject(),
+      createdBy: book.user ? {
+        id: book.user._id,
+        name: book.user.name,
+        email: book.user.email,
+        userId: book.user.userId || book.user._id.toString()
+      } : null,
+      highlightedByUser: book.highlightedBy ? {
+        id: book.highlightedBy._id,
+        name: book.highlightedBy.name,
+        email: book.highlightedBy.email,
+        userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
+      } : null
+    };    
     return res.status(200).json({
       success: true,
       book: bookWithUserInfo
@@ -184,10 +444,6 @@ exports.getBook = async (req, res) => {
     });
   }
 };
-
-// @desc    Create new book
-// @route   POST /api/books
-// @access  Private
 exports.createBook = async (req, res) => {
   try {
     const { 
@@ -203,8 +459,6 @@ exports.createBook = async (req, res) => {
       clientId, // This can be passed from frontend
       isPublic 
     } = req.body;
-    
-    // Get the current user to extract userId
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({
@@ -212,33 +466,22 @@ exports.createBook = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Parse tags if it's a JSON string from FormData
     let parsedTags = [];
     if (tags) {
       try {
         parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
       } catch (e) {
-        // If JSON parsing fails, treat as comma-separated string
         parsedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
       }
     }
-    
-    // Determine the clientId to use
     let effectiveClientId;
-    
     if (currentUser.role === 'client' && currentUser.userId) {
-      // For clients, use their userId as clientId
       effectiveClientId = currentUser.userId;
     } else if (clientId && clientId.trim()) {
-      // Use provided clientId if available
       effectiveClientId = clientId.trim();
     } else {
-      // Fallback to user's _id as string
       effectiveClientId = currentUser._id.toString();
     }
-    
-    // Prepare book data with all required fields
     const bookData = {
       title: title.trim(),
       description: description.trim(),
@@ -253,24 +496,14 @@ exports.createBook = async (req, res) => {
       isPublic: isPublic === 'true' || isPublic === true || false,
       tags: parsedTags
     };
-    
-    // Add customSubCategory only if subCategory is 'Other' and customSubCategory is provided
     if (subCategory === 'Other' && customSubCategory && customSubCategory.trim()) {
       bookData.customSubCategory = customSubCategory.trim();
     }
-    
-    // If a file was uploaded, add the path to bookData
     if (req.file) {
       bookData.coverImage = req.file.path;
     }
-    
-    // Create book
     const book = await Book.create(bookData);
-    
-    // Populate user information
     await book.populate('user', 'name email userId');
-    
-    // Add user information to response
     const bookWithUserInfo = {
       ...book.toObject(),
       createdBy: book.user ? {
@@ -280,22 +513,17 @@ exports.createBook = async (req, res) => {
         userId: book.user.userId || book.user._id.toString()
       } : null
     };
-    
     return res.status(201).json({
       success: true,
       book: bookWithUserInfo,
       message: 'Book created successfully'
     });
   } catch (error) {
-    // If there was an error and a file was uploaded, remove it
     if (req.file) {
       fs.unlink(req.file.path, err => {
         if (err) console.error('Error deleting file:', err);
       });
     }
-    
-    console.error('Create book error:', error);
-    
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
       return res.status(400).json({
@@ -303,7 +531,6 @@ exports.createBook = async (req, res) => {
         message: messages
       });
     } else if (error.code === 11000) {
-      // Handle duplicate key error
       return res.status(400).json({
         success: false,
         message: 'A book with this title already exists for this user'
@@ -316,10 +543,6 @@ exports.createBook = async (req, res) => {
     }
   }
 };
-
-// @desc    Update book
-// @route   PUT /api/books/:id
-// @access  Private
 exports.updateBook = async (req, res) => {
   try {
     let book = await Book.findById(req.params.id).populate('user', 'name email userId');
@@ -330,8 +553,6 @@ exports.updateBook = async (req, res) => {
         message: 'Book not found'
       });
     }
-    
-    // Get current user to check permissions
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({
@@ -339,56 +560,38 @@ exports.updateBook = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Check permissions
     let canUpdate = false;
-    
     if (currentUser.role === 'client' && currentUser.userId) {
-      // Client can update books with their clientId
       canUpdate = book.clientId === currentUser.userId;
     } else {
-      // Regular user can update their own books
       canUpdate = book.user._id.toString() === req.user.id;
     }
-    
     if (!canUpdate) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to update this book'
       });
     }
-    
-    // Prepare update data
     const updateData = { ...req.body };
-    
-    // Parse tags if it's a JSON string from FormData
     if (updateData.tags) {
       try {
         updateData.tags = typeof updateData.tags === 'string' ? JSON.parse(updateData.tags) : updateData.tags;
       } catch (e) {
-        // If JSON parsing fails, treat as comma-separated string
         updateData.tags = updateData.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
       }
     }
-    
-    // If a new cover image was uploaded
     if (req.file) {
-      // Delete the old image if it exists
       if (book.coverImage && fs.existsSync(book.coverImage)) {
         fs.unlinkSync(book.coverImage);
       }
-      
-      // Add new image path
       updateData.coverImage = req.file.path;
     }
-    
-    // Update fields
     book = await Book.findByIdAndUpdate(req.params.id, updateData, {
       new: true,
       runValidators: true
-    }).populate('user', 'name email userId');
-    
-    // Add user information to response
+    })
+    .populate('user', 'name email userId')
+    .populate('highlightedBy', 'name email userId');
     const bookWithUserInfo = {
       ...book.toObject(),
       createdBy: book.user ? {
@@ -396,22 +599,24 @@ exports.updateBook = async (req, res) => {
         name: book.user.name,
         email: book.user.email,
         userId: book.user.userId || book.user._id.toString()
+      } : null,
+      highlightedByUser: book.highlightedBy ? {
+        id: book.highlightedBy._id,
+        name: book.highlightedBy.name,
+        email: book.highlightedBy.email,
+        userId: book.highlightedBy.userId || book.highlightedBy._id.toString()
       } : null
     };
-    
     return res.status(200).json({
       success: true,
       book: bookWithUserInfo
     });
   } catch (error) {
-    // If there was an error and a file was uploaded, remove it
     if (req.file) {
       fs.unlink(req.file.path, err => {
         if (err) console.error('Error deleting file:', err);
       });
     }
-    
-    console.error('Update book error:', error);
     if (error.name === 'ValidationError') {
       const messages = Object.values(error.errors).map(val => val.message);
       return res.status(400).json({
@@ -426,22 +631,15 @@ exports.updateBook = async (req, res) => {
     }
   }
 };
-
-// @desc    Delete book
-// @route   DELETE /api/books/:id
-// @access  Private
 exports.deleteBook = async (req, res) => {
   try {
     const book = await Book.findById(req.params.id);
-    
     if (!book) {
       return res.status(404).json({
         success: false,
         message: 'Book not found'
       });
     }
-    
-    // Get current user to check permissions
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({
@@ -449,52 +647,31 @@ exports.deleteBook = async (req, res) => {
         message: 'User not found'
       });
     }
-    
-    // Check permissions
     let canDelete = false;
-    
     if (currentUser.role === 'client' && currentUser.userId) {
-      // Client can delete books with their clientId
       canDelete = book.clientId === currentUser.userId;
     } else {
-      // Regular user can delete their own books
       canDelete = book.user.toString() === req.user.id;
     }
-    
     if (!canDelete) {
       return res.status(403).json({
         success: false,
         message: 'Not authorized to delete this book'
       });
     }
-    
-    // Delete the cover image if it exists
     if (book.coverImage && fs.existsSync(book.coverImage)) {
       fs.unlinkSync(book.coverImage);
     }
-    
-    // Delete all related chapters, topics, and subtopics
     const chapters = await Chapter.find({ book: req.params.id });
-    
-    // Delete all topics and subtopics in each chapter
     for (const chapter of chapters) {
       const topics = await Topic.find({ chapter: chapter._id });
-      
-      // Delete subtopics for each topic
       for (const topic of topics) {
         await SubTopic.deleteMany({ topic: topic._id });
       }
-      
-      // Delete topics
       await Topic.deleteMany({ chapter: chapter._id });
     }
-    
-    // Delete all chapters
     await Chapter.deleteMany({ book: req.params.id });
-    
-    // Delete the book
     await Book.deleteOne({ _id: req.params.id });
-    
     return res.status(200).json({
       success: true,
       message: 'Book deleted successfully'
@@ -507,7 +684,6 @@ exports.deleteBook = async (req, res) => {
     });
   }
 };
-
 exports.getCurrentUser = async (req, res) => {
   try {
     const user = await User.findById(req.user.id).select('-password');

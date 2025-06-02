@@ -522,7 +522,6 @@ Please be fair, constructive, and specific in your evaluation according to the p
 };
 
 router.post('/answers/:answerId/evaluate-manual',
-  authenticateMobileUser, // or use appropriate authentication middleware
   [
     param('answerId')
       .isMongoId()
@@ -711,16 +710,16 @@ router.post('/answers/:answerId/evaluate-manual',
         }
 
         // Update the user answer with the new evaluation
+        // Note: Since we removed authentication middleware, we can't use req.user
+        // You'll need to handle evaluatedBy and reviewedBy differently
         userAnswer.evaluation = {
           ...evaluation,
-          evaluatedBy: req.user.userId, // Changed from req.user.id to req.user.userId based on your auth middleware
           evaluatedAt: new Date(),
           evaluationType: 'manual_custom',
           customPrompt: evaluationPrompt
         };
         userAnswer.reviewStatus = 'review_completed';
         userAnswer.reviewedAt = new Date();
-        userAnswer.reviewedBy = req.user.userId; // Changed from req.user.id to req.user.userId
         
         await userAnswer.save();
 

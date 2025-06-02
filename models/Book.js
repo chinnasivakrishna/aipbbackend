@@ -1,4 +1,4 @@
-// models/Book.js - Updated with better clientId documentation
+// models/Book.js - Updated with highlights functionality
 const mongoose = require('mongoose');
 
 const BookSchema = new mongoose.Schema({
@@ -62,7 +62,7 @@ const BookSchema = new mongoose.Schema({
     required: [true, 'Please select a subcategory'],
     enum: [
       // Competitive Exams subcategories
-      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 'CA', 'CMA', 'CS', , 'BPC', 'UPPCS', 'SSC', 'NET/JRF', 'Teacher', 'NDA',
+      'UPSC', 'NEET', 'JEE', 'GATE', 'CAT', 'CA', 'CMA', 'CS', 'BPC', 'UPPCS', 'SSC', 'NET/JRF', 'Teacher', 'NDA',
       // Professional Courses subcategories
       'ACCA', 'CFA', 'FRM',
       // Language Tests subcategories
@@ -85,6 +85,37 @@ const BookSchema = new mongoose.Schema({
     trim: true,
     maxlength: [30, 'Tag cannot be more than 30 characters']
   }],
+  // NEW: Highlights functionality
+  isHighlighted: {
+    type: Boolean,
+    default: false,
+    index: true // Add index for efficient queries
+  },
+  highlightedAt: {
+    type: Date,
+    default: null
+  },
+  highlightedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    refPath: 'highlightedByType',
+    default: null
+  },
+  highlightedByType: {
+    type: String,
+    enum: ['User', 'MobileUser'],
+    default: null
+  },
+  highlightOrder: {
+    type: Number,
+    default: 0,
+    index: true // For sorting highlighted books
+  },
+  highlightNote: {
+    type: String,
+    trim: true,
+    maxlength: [200, 'Highlight note cannot be more than 200 characters'],
+    default: ''
+  },
   // Client ID - stores the User's userId field (for client users) or user._id (fallback)
   // This identifies which client/organization the book belongs to
   clientId: {
@@ -125,6 +156,9 @@ BookSchema.index({ clientId: 1, tags: 1 });
 BookSchema.index({ clientId: 1, rating: -1 });
 BookSchema.index({ clientId: 1, author: 1 });
 BookSchema.index({ clientId: 1, language: 1 });
+// NEW: Indexes for highlights
+BookSchema.index({ clientId: 1, isHighlighted: 1, highlightOrder: 1 });
+BookSchema.index({ clientId: 1, isHighlighted: 1, highlightedAt: -1 });
 
 // Define category mappings - CA is in Professional Courses
 const CATEGORY_MAPPINGS = {
@@ -139,10 +173,22 @@ const CATEGORY_MAPPINGS = {
 BookSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   
+  // Handle highlighting logic
+  if (this.isModified('isHighlighted')) {
+    if (this.isHighlighted && !this.highlightedAt) {
+      this.highlightedAt = new Date();
+    } else if (!this.isHighlighted) {
+      this.highlightedAt = null;
+      this.highlightedBy = null;
+      this.highlightedByType = null;
+      this.highlightOrder = 0;
+      this.highlightNote = '';
+    }
+  }
+  
   // Validate category-subcategory relationship
   const validSubCategories = CATEGORY_MAPPINGS[this.mainCategory] || [];
   if (!validSubCategories.includes(this.subCategory) && this.subCategory !== 'Other') {
-    // Log the issue but don't auto-correct, let validation catch it
     console.log(`Warning: Subcategory '${this.subCategory}' is not valid for main category '${this.mainCategory}'`);
     console.log(`Valid subcategories for '${this.mainCategory}':`, validSubCategories);
   }
@@ -202,6 +248,44 @@ BookSchema.methods.updateRating = function(newRating) {
   this.ratingCount += 1;
   this.rating = totalRating / this.ratingCount;
   return this.save();
+};
+
+// NEW: Method to highlight/unhighlight book
+BookSchema.methods.toggleHighlight = function(userId, userType, note = '', order = 0) {
+  this.isHighlighted = !this.isHighlighted;
+  
+  if (this.isHighlighted) {
+    this.highlightedAt = new Date();
+    this.highlightedBy = userId;
+    this.highlightedByType = userType;
+    this.highlightNote = note;
+    this.highlightOrder = order;
+  } else {
+    this.highlightedAt = null;
+    this.highlightedBy = null;
+    this.highlightedByType = null;
+    this.highlightNote = '';
+    this.highlightOrder = 0;
+  }
+  
+  return this.save();
+};
+
+// NEW: Static method to get highlighted books for a client
+BookSchema.statics.getHighlightedBooks = function(clientId, limit = null) {
+  const query = this.find({ 
+    clientId: clientId, 
+    isHighlighted: true 
+  })
+  .populate('user', 'name email userId')
+  .populate('highlightedBy', 'name email userId')
+  .sort({ highlightOrder: 1, highlightedAt: -1 });
+  
+  if (limit) {
+    query.limit(limit);
+  }
+  
+  return query;
 };
 
 // Ensure virtual fields are serialized
