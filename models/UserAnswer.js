@@ -49,7 +49,7 @@ const userAnswerSchema = new mongoose.Schema({
   },
   submissionStatus: {
     type: String,
-    enum: ['draft', 'submitted', 'reviewed', 'evaluated'],
+    enum: ['submitted', 'rejected', 'evaluated'],
     default: 'submitted'
   },
   submittedAt: {
@@ -127,7 +127,7 @@ const userAnswerSchema = new mongoose.Schema({
       trim: true
     }
   },
-  status: {
+  publishStatus: {
     type: String,
     enum: ['published', 'not_published'],
     default: 'not_published'
@@ -159,6 +159,7 @@ userAnswerSchema.index({ userId: 1, clientId: 1 }); // Non-unique index
 userAnswerSchema.index({ questionId: 1, clientId: 1 }); // Non-unique index
 userAnswerSchema.index({ submissionStatus: 1 }); // Non-unique index
 userAnswerSchema.index({ userId: 1, questionId: 1 }); // Non-unique index for querying user's attempts
+userAnswerSchema.index({ publishStatus: 1 }); // Index for publishStatus queries
 
 // Add a method to clean up old indexes when the model is initialized
 userAnswerSchema.statics.cleanupOldIndexes = async function() {
@@ -197,6 +198,18 @@ userAnswerSchema.statics.cleanupOldIndexes = async function() {
       }
     }
     
+    // Drop old 'status' index if it exists
+    const statusIndex = indexes.find(idx => idx.key && idx.key.status !== undefined);
+    if (statusIndex) {
+      console.log(`Dropping old status index: ${statusIndex.name}`);
+      try {
+        await collection.dropIndex(statusIndex.name);
+        console.log('Old status index dropped successfully');
+      } catch (dropError) {
+        console.error(`Error dropping status index:`, dropError.message);
+      }
+    }
+    
   } catch (error) {
     console.error('Error cleaning up indexes:', error);
   }
@@ -232,9 +245,42 @@ userAnswerSchema.statics.getUserLatestAttempt = function(userId, questionId) {
   }).sort({ attemptNumber: -1 });
 };
 
+// Static method to get published answers
+userAnswerSchema.statics.getPublishedAnswers = function(filter = {}) {
+  return this.find({
+    publishStatus: 'published',
+    ...filter
+  }).populate('userId', 'name email').populate('questionId');
+};
+
+// Static method to get not published answers
+userAnswerSchema.statics.getNotPublishedAnswers = function(filter = {}) {
+  return this.find({
+    publishStatus: 'not_published',
+    ...filter
+  }).populate('userId', 'name email').populate('questionId');
+};
+
 // Method to check if this is the final attempt
 userAnswerSchema.methods.isFinalAttempt = function() {
   return this.attemptNumber === 5;
+};
+
+// Method to check if answer is published
+userAnswerSchema.methods.isPublished = function() {
+  return this.publishStatus === 'published';
+};
+
+// Method to publish answer
+userAnswerSchema.methods.publish = function() {
+  this.publishStatus = 'published';
+  return this.save();
+};
+
+// Method to unpublish answer
+userAnswerSchema.methods.unpublish = function() {
+  this.publishStatus = 'not_published';
+  return this.save();
 };
 
 // Enhanced create new attempt method with better error handling

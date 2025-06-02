@@ -1044,6 +1044,7 @@ router.post('/questions/:questionId/answers',
         if (evaluation) {
           userAnswerData.evaluation = evaluation;
           userAnswerData.evaluatedAt = new Date();
+          userAnswerData.submissionStatus = 'evaluated';
         }
         if (extractedTexts.length > 0) {
           userAnswerData.extractedTexts = extractedTexts;
