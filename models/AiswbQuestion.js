@@ -15,7 +15,7 @@ const questionSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  answerVideoUrl: {
+  answerVideoUrls: [{
     type: String,
     trim: true,
     validate: {
@@ -27,7 +27,7 @@ const questionSchema = new mongoose.Schema({
       },
       message: 'Answer video URL must be a valid YouTube URL'
     }
-  },
+  }],
   metadata: {
     keywords: [{
       type: String,
@@ -122,6 +122,12 @@ questionSchema.pre('save', function(next) {
   if (this.metadata && this.metadata.qualityParameters && this.metadata.qualityParameters.customParams) {
     const uniqueParams = [...new Set(this.metadata.qualityParameters.customParams)];
     this.metadata.qualityParameters.customParams = uniqueParams;
+  }
+  
+  // Ensure video URLs are unique
+  if (this.answerVideoUrls && this.answerVideoUrls.length > 0) {
+    const uniqueUrls = [...new Set(this.answerVideoUrls.filter(url => url && url.trim()))];
+    this.answerVideoUrls = uniqueUrls;
   }
   
   next();

@@ -60,7 +60,7 @@ const addQuestion = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
-        answerVideoUrl: question.answerVideoUrl, // Add this line
+        answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -123,7 +123,7 @@ const updateQuestion = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
-        answerVideoUrl: question.answerVideoUrl, // Add this line
+        answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -209,7 +209,7 @@ const getQuestionDetails = async (req, res) => {
         question: question.question,
         detailedAnswer: question.detailedAnswer,
         modalAnswer: question.modalAnswer,
-        answerVideoUrl: question.answerVideoUrl, // Add this line
+        answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
@@ -429,7 +429,7 @@ const getQuestionsInSet = async (req, res) => {
       id: question._id.toString(),
       question: question.question,
       detailedAnswer: question.detailedAnswer,
-      answerVideoUrl: question.answerVideoUrl, // Add this line
+      answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
       metadata: {
         ...question.metadata.toObject(),
         qualityParameters: {
@@ -513,7 +513,7 @@ const addQuestionToSet = async (req, res) => {
         id: question._id.toString(),
         question: question.question,
         detailedAnswer: question.detailedAnswer,
-        answerVideoUrl: question.answerVideoUrl, // Add this line
+        answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
         metadata: {
           ...question.metadata.toObject(),
           qualityParameters: {
@@ -720,6 +720,7 @@ const getQuestionSubmissions = async (req, res) => {
           questionId: question._id.toString(),
           title: question.question,
           description: question.detailedAnswer,
+          answerVideoUrls: question.answerVideoUrls || [], // Updated to handle array
           metadata: {
             maximumMarks: question.metadata.maximumMarks,
             qualityParameters: question.metadata.qualityParameters
@@ -740,6 +741,7 @@ const getQuestionSubmissions = async (req, res) => {
     });
   }
 };
+
 module.exports = {
   addQuestion,
   updateQuestion,

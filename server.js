@@ -1,3 +1,4 @@
+// Complete server.js with Expert Review Integration
 const dotenv = require('dotenv');
 dotenv.config();
 const express = require('express');
@@ -24,13 +25,16 @@ const mobileAuthRoutes = require('./routes/mobileAuth');
 const mobileBooksRoutes = require('./routes/mobileBooks');
 const aiswbRoutes = require('./routes/aiswb');
 const userAnswersRoutes = require('./routes/userAnswers');
-const evaluationRoutes = require('./routes/evaluations'); // Updated evaluation routes
+const evaluationRoutes = require('./routes/evaluations');
 const { checkClientAccess } = require('./middleware/mobileAuth');
 const adminAnswers = require('./routes/adminAnswers');
 const myBooksRoutes = require('./routes/myBooks');
 const evaluatorsRoutes = require('./routes/evaluators');
-const app = express();
 const mainBookstoreRoutes = require('./routes/mainBookstore');
+const mobileSubmittedAnswersRoutes = require('./routes/mobileSubmittedAnswers');
+const expertReviewRoutes = require('./routes/expertReview'); // Add expert review routes
+
+const app = express();
 
 app.use(cors());
 app.use(express.json());
@@ -68,8 +72,11 @@ app.use('/api/aiswb', aiswbRoutes);
 app.use('/api/mybooks', myBooksRoutes);
 app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
-// Global Evaluation routes (accessible without client-specific middleware)
-// These handle the main Assessment Dashboard APIs as per PDF requirements
+
+// Global Expert Review routes (for admin/evaluator access)
+app.use('/api/review', expertReviewRoutes);
+
+// Global Evaluation routes
 app.use('/api/aiswb', evaluationRoutes);
 
 // Mobile routes with client-specific access
@@ -81,6 +88,16 @@ app.use('/api/clients/:clientId/mobile/auth',
   }, 
   mobileAuthRoutes
 );
+
+app.use('/api/clients/:clientId/mobile/submitted-answers', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mobileSubmittedAnswersRoutes
+);
+
 app.use('/api/clients/:clientId/homepage', 
   checkClientAccess(),
   (req, res, next) => {
@@ -136,6 +153,25 @@ app.use('/api/clients/:clientId/mobile/evaluations',
   evaluationRoutes
 );
 
+// Client-specific Expert Review routes for mobile users
+app.use('/api/clients/:clientId/mobile/review', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  expertReviewRoutes
+);
+
+// Alternative route for questions API (for popular questions)
+app.use('/api/clients/:clientId/mobile/questions', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  expertReviewRoutes
+);
 
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
