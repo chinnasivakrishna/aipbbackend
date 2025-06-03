@@ -63,8 +63,8 @@ router.get('/', async (req, res) => {
       category: book.mainCategory,
       sub_category: book.effectiveSubCategory,
       image: book.coverImage || '',
-      highlight: book.isHighlighted ? 'yes' : 'no',
-      trending: book.isCurrentlyTrending ? 'yes' : 'no',
+      highlight: book.isHighlighted, // Changed from 'yes'/'no' to true/false
+      trending: book.isCurrentlyTrending, // Changed from 'yes'/'no' to true/false
       author: book.author,
       publisher: book.publisher,
       description: book.description,
@@ -157,9 +157,9 @@ router.post('/', authenticateMobileUser, async (req, res) => {
     if (sub_category) book.subCategory = sub_category;
     if (image) book.coverImage = image;
 
-    // Handle highlight status
+    // Handle highlight status - Updated to handle true/false
     if (highlight !== undefined) {
-      const shouldHighlight = highlight === 'yes' || highlight === true;
+      const shouldHighlight = highlight === true || highlight === 'true';
       if (shouldHighlight !== book.isHighlighted) {
         await book.toggleHighlight(
           req.user.id, 
@@ -172,9 +172,9 @@ router.post('/', authenticateMobileUser, async (req, res) => {
       }
     }
 
-    // Handle trending status
+    // Handle trending status - Updated to handle true/false
     if (trending !== undefined) {
-      const shouldTrend = trending === 'yes' || trending === true;
+      const shouldTrend = trending === true || trending === 'true';
       if (shouldTrend !== book.isTrending) {
         const endDate = trending_end_date ? new Date(trending_end_date) : null;
         await book.toggleTrending(
@@ -199,8 +199,8 @@ router.post('/', authenticateMobileUser, async (req, res) => {
         category: book.mainCategory,
         sub_category: book.effectiveSubCategory,
         image: book.coverImage,
-        highlight: book.isHighlighted ? 'yes' : 'no',
-        trending: book.isCurrentlyTrending ? 'yes' : 'no'
+        highlight: book.isHighlighted, // Changed from 'yes'/'no' to true/false
+        trending: book.isCurrentlyTrending // Changed from 'yes'/'no' to true/false
       }
     });
 
@@ -303,8 +303,8 @@ router.get('/book/details', async (req, res) => {
         category: book.mainCategory,
         sub_category: book.effectiveSubCategory,
         tag: book.tags ? book.tags.join(', ') : '',
-        highlight: book.isHighlighted ? 'yes' : 'no',
-        trending: book.isCurrentlyTrending ? 'yes' : 'no',
+        highlight: book.isHighlighted, // Changed from 'yes'/'no' to true/false
+        trending: book.isCurrentlyTrending, // Changed from 'yes'/'no' to true/false
         cover_image: book.coverImage || '',
         index: bookIndex,
         exam_name: book.exam || '',
