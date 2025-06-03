@@ -15,13 +15,13 @@ router.get('/answers', [
     .optional()
     .isInt({ min: 1, max: 100 })
     .withMessage('Limit must be between 1 and 100'),
-  query('status')
+  query('publishStatus')
     .optional()
     .isIn(['published', 'not_published'])
-    .withMessage('Invalid status filter'),
+    .withMessage('Invalid publish status filter'),
   query('submissionStatus')
     .optional()
-    .isIn(['draft', 'submitted', 'reviewed', 'evaluated'])
+    .isIn(['submitted', 'rejected', 'evaluated'])
     .withMessage('Invalid submission status filter'),
   query('reviewStatus')
     .optional()
@@ -58,8 +58,8 @@ router.get('/answers', [
     // Build filter object
     const filter = {};
     
-    if (req.query.status) {
-      filter.status = req.query.status;
+    if (req.query.publishStatus) {
+      filter.publishStatus = req.query.publishStatus;
     }
     
     if (req.query.submissionStatus) {
@@ -153,7 +153,7 @@ router.get('/answers', [
         textAnswer: 1,
         submissionStatus: 1,
         reviewStatus: 1,
-        status: 1,
+        publishStatus: 1,
         popularityStatus: 1,
         submittedAt: 1,
         reviewedAt: 1,
@@ -331,7 +331,7 @@ router.get('/answers/evaluated', [
         textAnswer: 1,
         submissionStatus: 1,
         reviewStatus: 1,
-        status: 1,
+        publishStatus: 1,
         popularityStatus: 1,
         submittedAt: 1,
         reviewedAt: 1,
@@ -500,7 +500,7 @@ router.put('/answers/:answerId/evaluate', [
 
     // Handle publish status
     if (publish) {
-      updateData.status = 'published';
+      updateData.publishStatus = 'published';
       updateData.reviewStatus = 'review_completed';
     } else {
       updateData.reviewStatus = 'review_accepted';
@@ -594,7 +594,7 @@ router.put('/answers/:answerId/publish', [
     const updatedAnswer = await UserAnswer.findByIdAndUpdate(
       answerId,
       {
-        status: 'published',
+        publishStatus: 'published',
         reviewStatus: 'review_completed'
       },
       { new: true, runValidators: true }
@@ -634,18 +634,94 @@ router.put('/answers/:answerId/publish', [
   }
 });
 
+// PUT /crud/answers/:answerId/unpublish - Unpublish answer
+router.put('/answers/:answerId/unpublish', [
+  param('answerId')
+    .isMongoId()
+    .withMessage('Answer ID must be a valid MongoDB ObjectId')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid input data",
+        error: {
+          code: "INVALID_INPUT",
+          details: errors.array()
+        }
+      });
+    }
+
+    const { answerId } = req.params;
+
+    const answer = await UserAnswer.findById(answerId);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: "Answer not found",
+        error: {
+          code: "ANSWER_NOT_FOUND",
+          details: "The specified answer does not exist"
+        }
+      });
+    }
+
+    const updatedAnswer = await UserAnswer.findByIdAndUpdate(
+      answerId,
+      {
+        publishStatus: 'not_published',
+        reviewStatus: 'review_accepted'
+      },
+      { new: true, runValidators: true }
+    ).populate([
+      {
+        path: 'questionId',
+        select: 'question evaluationMode metadata'
+      },
+      {
+        path: 'userId',
+        select: 'name email phoneNumber'
+      },
+      {
+        path: 'setId',
+        select: 'name itemType'
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Answer unpublished successfully",
+      data: {
+        answer: updatedAnswer
+      }
+    });
+
+  } catch (error) {
+    console.error('Error unpublishing answer:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
 // PUT /crud/answers/:answerId/status - Update answer status
 router.put('/answers/:answerId/status', [
   param('answerId')
     .isMongoId()
     .withMessage('Answer ID must be a valid MongoDB ObjectId'),
-  body('status')
+  body('publishStatus')
     .optional()
     .isIn(['published', 'not_published'])
-    .withMessage('Status must be either published or not_published'),
+    .withMessage('Publish status must be either published or not_published'),
   body('submissionStatus')
     .optional()
-    .isIn(['draft', 'submitted', 'reviewed', 'evaluated'])
+    .isIn(['submitted', 'rejected', 'evaluated'])
     .withMessage('Submission status must be valid'),
   body('reviewStatus')
     .optional()
@@ -670,7 +746,7 @@ router.put('/answers/:answerId/status', [
     }
 
     const { answerId } = req.params;
-    const { status, submissionStatus, reviewStatus, popularityStatus } = req.body;
+    const { publishStatus, submissionStatus, reviewStatus, popularityStatus } = req.body;
 
     const answer = await UserAnswer.findById(answerId);
     if (!answer) {
@@ -687,8 +763,8 @@ router.put('/answers/:answerId/status', [
     // Prepare update data
     const updateData = {};
     
-    if (status !== undefined) {
-      updateData.status = status;
+    if (publishStatus !== undefined) {
+      updateData.publishStatus = publishStatus;
     }
     
     if (submissionStatus !== undefined) {
@@ -815,7 +891,5 @@ router.get('/answers/:answerId', [
     });
   }
 });
-
-
 
 module.exports = router;
