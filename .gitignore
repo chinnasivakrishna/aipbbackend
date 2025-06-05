@@ -27,16 +27,16 @@ logs
 dist/
 build/
 
+# Uploads
+uploads/*
+!uploads/.gitkeep
+
 # Coverage
 coverage/
 
 # Temporary files
 tmp/
 temp/
-
-# Uploads
-uploads/
-public/uploads/
 
 # Debug
 .debug/
