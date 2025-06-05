@@ -135,8 +135,7 @@ const userAnswerSchema = new mongoose.Schema({
   reviewStatus: {
     type: String,
     enum: ['review_pending', 'review_accepted', 'review_completed'],
-    default: '',
-    requires:false
+    default: ''
   },
   popularityStatus: {
     type: String,
