@@ -49,6 +49,10 @@ const BookSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  coverImageKey: {
+    type: String,
+    default: ''
+  },
   // Enhanced category system
   mainCategory: {
     type: String,

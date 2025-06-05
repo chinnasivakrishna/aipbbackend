@@ -1,5 +1,6 @@
 // controllers/clientController.js - Updated Client controller with enhanced user ID handling
 const User = require('../models/User');
+const UserProfile = require('../models/UserProfile');
 
 // Get client dashboard data
 exports.getDashboard = async (req, res) => {
@@ -198,6 +199,46 @@ exports.getAllClients = async (req, res) => {
   }
 };
 
+//get all users
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.find({ role: 'user' }).select('-password');
+    res.status(200).json({ success: true, users });
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+exports.getuserprofile = async (req, res) => {
+  try {
+    const userProfiles = await UserProfile.find({ isComplete: true })
+      .populate('userId', 'mobile isVerified lastLoginAt')
+      .select('-__v')
+      .sort({ createdAt: -1 });
+
+    if (!userProfiles || userProfiles.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'No user profiles found'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: userProfiles.length,
+      data: userProfiles
+    });
+  } catch (error) {
+    console.error('Error fetching user profiles:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Error fetching user profiles',
+      error: error.message
+    });
+  }
+}
+
 // Get client by ID
 exports.getClientById = async (req, res) => {
   try {
@@ -278,6 +319,7 @@ exports.updateClientStatus = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
 
 // Delete client
 exports.deleteClient = async (req, res) => {

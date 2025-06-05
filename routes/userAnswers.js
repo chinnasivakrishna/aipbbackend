@@ -1031,6 +1031,7 @@ router.post('/questions/:questionId/answers',
         answerImages: answerImages,
         textAnswer: textAnswer || '',
         submissionStatus: 'submitted',
+        reviewStatus: isManualEvaluation ? 'review_pending' : 'review_completed',
         metadata: {
           timeSpent: parseInt(timeSpent) || 0,
           deviceInfo: deviceInfo || '',
@@ -1046,6 +1047,7 @@ router.post('/questions/:questionId/answers',
           userAnswerData.evaluatedAt = new Date();
           userAnswerData.submissionStatus = 'evaluated';
           userAnswerData.publishStatus = 'published';
+          userAnswerData.reviewStatus = 'review_completed';
         }
         if (extractedTexts.length > 0) {
           userAnswerData.extractedTexts = extractedTexts;

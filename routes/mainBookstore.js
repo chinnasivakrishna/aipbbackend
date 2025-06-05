@@ -56,6 +56,11 @@ router.get('/', async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(parseInt(limit));
 
+    // Get all available books
+    const allBooks = await Book.find(filter)
+      .populate('user', 'name email userId')
+      .sort({ createdAt: -1 });
+
     // Format response for homepage
     const formatBookForHomepage = (book) => ({
       book_id: book._id.toString(),
@@ -63,8 +68,8 @@ router.get('/', async (req, res) => {
       category: book.mainCategory,
       sub_category: book.effectiveSubCategory,
       image: book.coverImage || '',
-      highlight: book.isHighlighted, // Changed from 'yes'/'no' to true/false
-      trending: book.isCurrentlyTrending, // Changed from 'yes'/'no' to true/false
+      highlight: book.isHighlighted,
+      trending: book.isCurrentlyTrending,
       author: book.author,
       publisher: book.publisher,
       description: book.description,
@@ -75,13 +80,40 @@ router.get('/', async (req, res) => {
       subject_name: book.subject || ''
     });
 
+    // Group books by category and subcategory
+    const booksByCategory = {};
+    allBooks.forEach(book => {
+      const category = book.mainCategory;
+      const subCategory = book.effectiveSubCategory;
+      
+      if (!booksByCategory[category]) {
+        booksByCategory[category] = {};
+      }
+      if (!booksByCategory[category][subCategory]) {
+        booksByCategory[category][subCategory] = [];
+      }
+      booksByCategory[category][subCategory].push(formatBookForHomepage(book));
+    });
+
+    // Get categories with their books
+    const categories = await getAvailableCategories(clientId);
+    const categoriesWithBooks = categories.map(cat => ({
+      category: cat.category,
+      sub_categories: cat.sub_categories.map(sub => ({
+        name: sub.name,
+        count: sub.count,
+        books: booksByCategory[cat.category]?.[sub.name] || []
+      })),
+      total_books: cat.total_books
+    }));
+
     const homepageContent = {
       success: true,
       data: {
         highlighted: highlightedBooks.map(formatBookForHomepage),
         trending: trendingBooks.map(formatBookForHomepage),
         recent: recentBooks.map(formatBookForHomepage),
-        categories: await getAvailableCategories(clientId),
+        categories: categoriesWithBooks,
         totalBooks: await Book.countDocuments({ clientId })
       },
       meta: {
@@ -367,7 +399,8 @@ async function getAvailableCategories(clientId) {
           totalCount: { $sum: '$count' }
         }
       },
-      { $sort: { _id: 1 } }
+      { $sort: { totalCount: -1 } }, // Sort by total count in descending order
+      { $limit: 5 } // Limit to top 5 categories
     ]);
 
     return categories.map(cat => ({

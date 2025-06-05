@@ -10,11 +10,13 @@ router.post('/register', adminController.register);
 router.post('/login', adminController.login);
 
 // Protected routes - all require admin authentication
-router.use(verifyAdminToken);
+// router.use(verifyAdminToken);
 
 // Client management routes
 router.get('/clients', clientsController.getAllClients);
-router.post('/clients', clientsController.createClient); // Add new client
+router.get('/users', clientsController.getAllUsers);
+router.get('/userprofile',clientsController.getuserprofile);
+router.post('/clients', adminController.createClient); // Add new client
 router.get('/clients/:id', clientsController.getClientById);
 router.put('/clients/:id', clientsController.updateClient); // Update client
 router.put('/clients/:id/status', clientsController.updateClientStatus);

@@ -86,6 +86,159 @@ exports.login = async (req, res) => {
   }
 };
 
+
+// Create new client
+exports.createClient = async (req, res) => {
+  try {
+    const {
+      businessName,
+      businessOwnerName,
+      email,
+      businessNumber,
+      businessGSTNumber,
+      businessPANNumber,
+      businessMobileNumber,
+      businessCategory,
+      businessAddress,
+      city,
+      pinCode,
+      businessLogo,
+      businessWebsite,
+      businessYoutubeChannel,
+      turnOverRange
+    } = req.body;
+
+    // Validate required fields
+    const requiredFields = {
+      businessName,
+      businessOwnerName,
+      email,
+      businessNumber,
+      businessGSTNumber,
+      businessPANNumber,
+      businessMobileNumber,
+      businessCategory,
+      businessAddress,
+      city,
+      pinCode
+    };
+
+    for (const [field, value] of Object.entries(requiredFields)) {
+      if (!value || !value.toString().trim()) {
+        return res.status(400).json({ 
+          success: false, 
+          message: `${field.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase())} is required` 
+        });
+      }
+    }
+
+    // Check if client already exists
+    const existingClient = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existingClient) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Client with this email already exists' 
+      });
+    }
+
+    // Generate a secure temporary password
+    const tempPassword = generateTempPassword();
+
+    // Create new client
+    const client = await User.create({
+      name: businessOwnerName.trim(),
+      email: email.toLowerCase().trim(),
+      password: tempPassword,
+      role: 'client',
+      status: 'pending',
+      businessName: businessName.trim(),
+      businessOwnerName: businessOwnerName.trim(),
+      businessNumber: businessNumber.trim(),
+      businessGSTNumber: businessGSTNumber.trim(),
+      businessPANNumber: businessPANNumber.trim(),
+      businessMobileNumber: businessMobileNumber.trim(),
+      businessCategory: businessCategory.trim(),
+      businessAddress: businessAddress.trim(),
+      city: city.trim(),
+      pinCode: pinCode.trim(),
+      businessLogo: businessLogo || null,
+      businessWebsite: businessWebsite ? businessWebsite.trim() : null,
+      businessYoutubeChannel: businessYoutubeChannel ? businessYoutubeChannel.trim() : null,
+      turnOverRange: turnOverRange || null
+    });
+
+    // Ensure user ID is generated (fallback if pre-save hook fails)
+    if (!client.userId) {
+      await client.generateUserId();
+    }
+
+    console.log('Client created successfully:', {
+      id: client._id,
+      userId: client.userId,
+      email: client.email,
+      businessName: client.businessName
+    });
+
+    // Return client data with generated user ID
+    res.status(201).json({
+      success: true,
+      message: 'Client created successfully',
+      client: {
+        id: client._id,
+        userId: client.userId,
+        name: client.name,
+        email: client.email,
+        businessName: client.businessName,
+        businessOwnerName: client.businessOwnerName,
+        businessCategory: client.businessCategory,
+        city: client.city,
+        status: client.status,
+        createdAt: client.createdAt,
+        tempPassword: tempPassword // Only show once for setup
+      }
+    });
+  } catch (error) {
+    console.error('Create client error:', error);
+    
+    // Handle specific MongoDB errors
+    if (error.code === 11000) {
+      const field = Object.keys(error.keyPattern)[0];
+      return res.status(400).json({ 
+        success: false, 
+        message: `${field === 'email' ? 'Email' : 'User ID'} already exists` 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to create client. Please try again.' 
+    });
+  }
+};
+
+// Helper function to generate secure temporary password
+function generateTempPassword() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789';
+  const symbols = '!@#$%&*';
+  let password = '';
+  
+  // Ensure at least one uppercase, one lowercase, one number, and one symbol
+  password += chars.charAt(Math.floor(Math.random() * 25)); // Uppercase
+  password += chars.charAt(Math.floor(Math.random() * 25) + 25); // Lowercase
+  password += chars.charAt(Math.floor(Math.random() * 8) + 50); // Number
+  password += symbols.charAt(Math.floor(Math.random() * symbols.length)); // Symbol
+  
+  // Fill the rest randomly
+  for (let i = 4; i < 12; i++) {
+    const allChars = chars + symbols;
+    password += allChars.charAt(Math.floor(Math.random() * allChars.length));
+  }
+  
+  // Shuffle the password
+  return password.split('').sort(() => Math.random() - 0.5).join('');
+}
+
+
 // Generate login token for client (admin impersonation)
 exports.generateClientLoginToken = async (req, res) => {
   try {

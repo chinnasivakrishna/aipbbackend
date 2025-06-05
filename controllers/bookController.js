@@ -6,22 +6,10 @@ const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
+const uploadToS3 = require('../utils/s3Upload');
 
-// Multer configuration
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'uploads/covers';
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `cover-${uniqueSuffix}${ext}`);
-  }
-});
+// Multer configuration for memory storage
+const storage = multer.memoryStorage();
 
 const fileFilter = (req, file, cb) => {
   if (file.mimetype.startsWith('image/')) {
@@ -115,15 +103,14 @@ exports.getBooks = async (req, res) => {
       .populate('trendingBy', 'name email userId')
       .populate('categoryOrderBy', 'name email userId');
 
-    // Apply sorting
+    // Apply sorting based on different conditions
     if (trending === 'true') {
       query = query.sort({ trendingScore: -1, viewCount: -1 });
     } else if (highlighted === 'true') {
       query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
-    } else if (category) {
-      query = query.sort({ categoryOrder: 1, createdAt: -1 });
     } else {
-      query = query.sort({ createdAt: -1 });
+      // First sort by categoryOrder, then by createdAt
+      query = query.sort({ categoryOrder: 1, createdAt: -1 });
     }
 
     // Apply pagination
@@ -137,11 +124,20 @@ exports.getBooks = async (req, res) => {
 
     const booksWithUserInfo = books.map(formatBookWithUserInfo);
 
+    // Group books by category and get max order for each category
+    const categoryOrders = {};
+    books.forEach(book => {
+      if (!categoryOrders[book.mainCategory] || book.categoryOrder > categoryOrders[book.mainCategory]) {
+        categoryOrders[book.mainCategory] = book.categoryOrder || 0;
+      }
+    });
+
     return res.status(200).json({
       success: true,
       count: books.length,
       total,
       books: booksWithUserInfo,
+      categoryOrders,
       currentUser: {
         id: currentUser._id,
         name: currentUser.name,
@@ -200,7 +196,7 @@ exports.createBook = async (req, res) => {
   try {
     const { 
       title, description, author, publisher, language, mainCategory, subCategory, 
-      customSubCategory, exam, paper, subject, tags, clientId, isPublic 
+      customSubCategory, exam, paper, subject, tags, clientId, isPublic, categoryOrder
     } = req.body;
 
     const currentUser = await User.findById(req.user.id);
@@ -231,7 +227,11 @@ exports.createBook = async (req, res) => {
       user: req.user.id,
       userType: 'User',
       isPublic: isPublic === 'true' || isPublic === true || false,
-      tags: parsedTags
+      tags: parsedTags,
+      categoryOrder: categoryOrder ? parseInt(categoryOrder) : 0,
+      categoryOrderBy: req.user.id,
+      categoryOrderByType: 'User',
+      categoryOrderedAt: new Date()
     };
 
     // Handle the new fields: exam, paper, subject
@@ -248,13 +248,23 @@ exports.createBook = async (req, res) => {
     }
 
     // Handle custom subcategory
-    if (subCategory === 'Other' && customSubCategory?.trim()) {
+    if (customSubCategory && customSubCategory.trim()) {
       bookData.customSubCategory = customSubCategory.trim();
     }
 
-    // Handle cover image upload
+    // Handle cover image upload to S3
     if (req.file) {
-      bookData.coverImage = req.file.path;
+      try {
+        const { url, key } = await uploadToS3(req.file, 'book-covers');
+        bookData.coverImage = url;
+        bookData.coverImageKey = key;
+      } catch (error) {
+        console.error('Cover image upload error:', error);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Failed to upload cover image' 
+        });
+      }
     }
 
     const book = await Book.create(bookData);
@@ -264,88 +274,108 @@ exports.createBook = async (req, res) => {
 
     return res.status(201).json({
       success: true,
-      book: bookWithUserInfo,
-      message: 'Book created successfully'
+      message: 'Book created successfully',
+      book: bookWithUserInfo
     });
   } catch (error) {
-    // Clean up uploaded file if there's an error
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({ success: false, message: messages });
-    } else if (error.code === 11000) {
-      return res.status(400).json({ success: false, message: 'A book with this title already exists for this user' });
-    } else {
-      console.error('Create book error:', error);
-      return res.status(500).json({ success: false, message: 'Server Error' });
-    }
+    console.error('Create book error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to create book' 
+    });
   }
 };
 
 exports.updateBook = async (req, res) => {
   try {
-    let book = await Book.findById(req.params.id).populate('user', 'name email userId');
-    
+    const { id } = req.params;
+    const { 
+      title, description, author, publisher, language, mainCategory, subCategory, 
+      customSubCategory, exam, paper, subject, tags, isPublic 
+    } = req.body;
+
+    const book = await Book.findById(id);
     if (!book) {
       return res.status(404).json({ success: false, message: 'Book not found' });
     }
 
+    // Check if user has permission to update
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
 
     const clientId = getClientId(currentUser);
-    const canUpdate = book.clientId === clientId || book.user._id.toString() === req.user.id;
-
-    if (!canUpdate) {
+    if (book.clientId !== clientId && book.user.toString() !== req.user.id) {
       return res.status(403).json({ success: false, message: 'Not authorized to update this book' });
     }
 
-    const updateData = { ...req.body };
-    
-    if (updateData.tags) {
+    const updateData = {};
+
+    // Update fields if provided
+    if (title) updateData.title = title.trim();
+    if (description) updateData.description = description.trim();
+    if (author) updateData.author = author.trim();
+    if (publisher) updateData.publisher = publisher.trim();
+    if (language) updateData.language = language;
+    if (mainCategory) updateData.mainCategory = mainCategory;
+    if (subCategory) updateData.subCategory = subCategory;
+    if (isPublic !== undefined) updateData.isPublic = isPublic === 'true' || isPublic === true;
+
+    // Handle custom subcategory
+    if (customSubCategory !== undefined) {
+      updateData.customSubCategory = customSubCategory.trim() || null;
+    }
+
+    // Handle exam, paper, subject
+    if (exam !== undefined) updateData.exam = exam.trim() || '';
+    if (paper !== undefined) updateData.paper = paper.trim() || '';
+    if (subject !== undefined) updateData.subject = subject.trim() || '';
+
+    // Handle tags
+    if (tags) {
       try {
-        updateData.tags = typeof updateData.tags === 'string' ? JSON.parse(updateData.tags) : updateData.tags;
+        const parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+        updateData.tags = parsedTags;
       } catch (e) {
-        updateData.tags = updateData.tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+        updateData.tags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
       }
     }
 
+    // Handle cover image upload to S3
     if (req.file) {
-      if (book.coverImage && fs.existsSync(book.coverImage)) {
-        fs.unlinkSync(book.coverImage);
+      try {
+        const { url, key } = await uploadToS3(req.file, 'book-covers');
+        updateData.coverImage = url;
+        updateData.coverImageKey = key;
+      } catch (error) {
+        console.error('Cover image upload error:', error);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Failed to upload cover image' 
+        });
       }
-      updateData.coverImage = req.file.path;
     }
 
-    book = await Book.findByIdAndUpdate(req.params.id, updateData, {
-      new: true,
-      runValidators: true
-    })
-    .populate('user', 'name email userId')
-    .populate('highlightedBy', 'name email userId')
-    .populate('trendingBy', 'name email userId')
-    .populate('categoryOrderBy', 'name email userId');
+    const updatedBook = await Book.findByIdAndUpdate(
+      id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).populate('user', 'name email userId');
 
-    const bookWithUserInfo = formatBookWithUserInfo(book);
+    const bookWithUserInfo = formatBookWithUserInfo(updatedBook);
 
-    return res.status(200).json({ success: true, book: bookWithUserInfo });
+    return res.status(200).json({
+      success: true,
+      message: 'Book updated successfully',
+      book: bookWithUserInfo
+    });
   } catch (error) {
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({ success: false, message: messages });
-    } else {
-      console.error('Update book error:', error);
-      return res.status(500).json({ success: false, message: 'Server Error' });
-    }
+    console.error('Update book error:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: error.message || 'Failed to update book' 
+    });
   }
 };
 
@@ -873,6 +903,44 @@ exports.getValidSubCategories = async (req, res) => {
     return res.status(200).json({ success: true, subCategories });
   } catch (error) {
     console.error('Get valid subcategories error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Add new function to update category order for all books in a category
+exports.updateCategoryOrderForAll = async (req, res) => {
+  try {
+    const { mainCategory } = req.params;
+    const { order } = req.body;
+
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    const parsedOrder = parseInt(order) || 0;
+
+    // Update all books in the category
+    const result = await Book.updateMany(
+      { clientId, mainCategory },
+      { 
+        $set: { 
+          categoryOrder: parsedOrder,
+          categoryOrderBy: currentUser._id,
+          categoryOrderUserType: 'User'
+        } 
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      message: `Updated order for ${result.modifiedCount} books in category ${mainCategory}`,
+      mainCategory,
+      order: parsedOrder
+    });
+  } catch (error) {
+    console.error('Update category order for all error:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
