@@ -6,12 +6,30 @@ const User = require('../models/User');
 const path = require('path');
 const fs = require('fs');
 const multer = require('multer');
-const uploadToS3 = require('../utils/s3Upload');
 
-// Multer configuration for memory storage
-const storage = multer.memoryStorage();
+// Configure multer storage
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = 'uploads/covers';
+    
+    // Create directory if it doesn't exist
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    // Create unique filename with timestamp and original extension
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    cb(null, `cover-${uniqueSuffix}${ext}`);
+  }
+});
 
+// File filter
 const fileFilter = (req, file, cb) => {
+  // Accept only image files
   if (file.mimetype.startsWith('image/')) {
     cb(null, true);
   } else {
@@ -19,12 +37,16 @@ const fileFilter = (req, file, cb) => {
   }
 };
 
+// Initialize upload
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB max size
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB max size
+  },
   fileFilter: fileFilter
 });
 
+// Multer upload middleware
 exports.uploadCoverImage = upload.single('coverImage');
 
 // Helper function to format book with user info
@@ -252,19 +274,9 @@ exports.createBook = async (req, res) => {
       bookData.customSubCategory = customSubCategory.trim();
     }
 
-    // Handle cover image upload to S3
+    // Handle cover image upload
     if (req.file) {
-      try {
-        const { url, key } = await uploadToS3(req.file, 'book-covers');
-        bookData.coverImage = url;
-        bookData.coverImageKey = key;
-      } catch (error) {
-        console.error('Cover image upload error:', error);
-        return res.status(500).json({ 
-          success: false, 
-          message: 'Failed to upload cover image' 
-        });
-      }
+      bookData.coverImage = req.file.path;
     }
 
     const book = await Book.create(bookData);
@@ -342,19 +354,15 @@ exports.updateBook = async (req, res) => {
       }
     }
 
-    // Handle cover image upload to S3
+    // Handle cover image upload
     if (req.file) {
-      try {
-        const { url, key } = await uploadToS3(req.file, 'book-covers');
-        updateData.coverImage = url;
-        updateData.coverImageKey = key;
-      } catch (error) {
-        console.error('Cover image upload error:', error);
-        return res.status(500).json({ 
-          success: false, 
-          message: 'Failed to upload cover image' 
-        });
+      // Delete the old image if it exists
+      if (book.coverImage && fs.existsSync(book.coverImage)) {
+        fs.unlinkSync(book.coverImage);
       }
+      
+      // Add new image path
+      updateData.coverImage = req.file.path;
     }
 
     const updatedBook = await Book.findByIdAndUpdate(
@@ -885,7 +893,6 @@ exports.getCurrentUser = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
-
 exports.getCategoryMappings = async (req, res) => {
   try {
     const mappings = Book.getCategoryMappings();
