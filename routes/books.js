@@ -3,9 +3,6 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
 const { 
-  getBooks, 
-  getBook, 
-  createBook, 
   updateBook, 
   deleteBook,
   uploadCoverImage,
@@ -47,6 +44,13 @@ const {
   updateSubTopic,
   deleteSubTopic
 } = require('../controllers/subtopicController');
+
+const { 
+  getBooks, 
+  getBook, 
+  createBook,
+  getCoverImageUploadUrl
+} = require('../controllers/awsbookcontroller');
 
 // ==================== UTILITY ROUTES ====================
 // Get current user info
@@ -93,12 +97,18 @@ router.delete('/:id/category-order', verifyToken, resetCategoryOrder);
 
 // ==================== BASIC BOOK ROUTES ====================
 // Main book routes
+// Get presigned URL for cover image upload
+router.post('/cover-upload-url', verifyToken, getCoverImageUploadUrl);
+
+// Main book routes
 router.route('/')
   .get(verifyToken, getBooks)
-  .post(verifyToken, uploadCoverImage, createBook);
+  .post(verifyToken, createBook);
 
 router.route('/:id')
-  .get(verifyToken, getBook)
+  .get(verifyToken, getBook);
+
+  router.route('/:id')
   .put(verifyToken, uploadCoverImage, updateBook)
   .delete(verifyToken, deleteBook);
 

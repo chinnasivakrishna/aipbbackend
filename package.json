@@ -12,8 +12,8 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.823.0",
-    "@aws-sdk/s3-request-presigner": "^3.823.0",
+    "@aws-sdk/client-s3": "^3.825.0",
+    "@aws-sdk/s3-request-presigner": "^3.825.0",
     "@mistralai/mistralai": "^1.7.0",
     "aws-sdk": "^2.1692.0",
     "bcryptjs": "^3.0.2",
