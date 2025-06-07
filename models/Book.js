@@ -45,6 +45,19 @@ const BookSchema = new mongoose.Schema({
     default: 0,
     min: [0, 'Rating count cannot be negative']
   },
+  conversations: {
+    type: [String],
+    default: []
+  },
+  users: {
+    type: [String],
+    default: []
+  },
+  summary: {
+    type: String,
+    default: '',
+    maxlength: [500, 'Summary cannot be more than 500 characters']
+  },
   coverImage: {
     type: String,
     default: ''

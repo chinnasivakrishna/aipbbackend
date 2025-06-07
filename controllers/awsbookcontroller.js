@@ -95,19 +95,40 @@ exports.createBook = async (req, res) => {
     const { 
       title, description, author, publisher, language, mainCategory, subCategory, 
       customSubCategory, exam, paper, subject, tags, clientId, isPublic, categoryOrder,
-      coverImageKey
+      coverImageKey, rating, ratingCount, conversations, users, summary
     } = req.body;
 
     console.log('Received book data:', { 
       coverImageKey,
       title,
       author,
-      publisher
+      publisher,
+      rating,
+      ratingCount,
+      conversations,
+      users,
+      summary
     }); // Debug log
 
     const currentUser = await User.findById(req.user.id);
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Validate rating
+    if (rating && (isNaN(rating) || rating < 0 || rating > 5)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Rating must be a number between 0 and 5' 
+      });
+    }
+
+    // Validate rating count
+    if (ratingCount && (isNaN(ratingCount) || ratingCount < 0)) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Rating count must be a non-negative number' 
+      });
     }
 
     let parsedTags = [];
@@ -116,6 +137,25 @@ exports.createBook = async (req, res) => {
         parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
       } catch (e) {
         parsedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      }
+    }
+
+    // Parse conversations and users arrays
+    let parsedConversations = [];
+    if (conversations) {
+      try {
+        parsedConversations = typeof conversations === 'string' ? JSON.parse(conversations) : conversations;
+      } catch (e) {
+        parsedConversations = conversations.split(',').map(conv => conv.trim()).filter(conv => conv.length > 0);
+      }
+    }
+
+    let parsedUsers = [];
+    if (users) {
+      try {
+        parsedUsers = typeof users === 'string' ? JSON.parse(users) : users;
+      } catch (e) {
+        parsedUsers = users.split(',').map(user => user.trim()).filter(user => user.length > 0);
       }
     }
 
@@ -137,7 +177,12 @@ exports.createBook = async (req, res) => {
       categoryOrder: categoryOrder ? parseInt(categoryOrder) : 0,
       categoryOrderBy: req.user.id,
       categoryOrderByType: 'User',
-      categoryOrderedAt: new Date()
+      categoryOrderedAt: new Date(),
+      rating: rating ? parseFloat(rating) : 0,
+      ratingCount: ratingCount ? parseInt(ratingCount) : 0,
+      conversations: parsedConversations,
+      users: parsedUsers,
+      summary: summary ? summary.trim() : ''
     };
 
     // Handle the new fields: exam, paper, subject

@@ -348,6 +348,9 @@ router.get('/book/details', async (req, res) => {
         language: book.language,
         rating: book.rating,
         rating_count: book.ratingCount,
+        total_conversations: book.conversations.length,
+        total_users: book.users.length,
+        summary: book.summary,
         view_count: book.viewCount,
         created_at: book.createdAt,
         updated_at: book.updatedAt
