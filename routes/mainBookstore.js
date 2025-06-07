@@ -68,6 +68,7 @@ router.get('/', async (req, res) => {
       category: book.mainCategory,
       sub_category: book.effectiveSubCategory,
       image: book.coverImage || '',
+      image_url: book.coverImageUrl || '',
       highlight: book.isHighlighted,
       trending: book.isCurrentlyTrending,
       author: book.author,
