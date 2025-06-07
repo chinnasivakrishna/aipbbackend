@@ -1,6 +1,6 @@
 const Book = require('../models/Book');
 const User = require('../models/User');
-const { generatePresignedUrl, generateGetPresignedUrl } = require('../utils/s3');
+const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require('../utils/s3');
 const path = require('path');
 
 // Helper function to format book with user info and S3 URLs
@@ -420,6 +420,198 @@ exports.getBook = async (req, res) => {
     return res.status(200).json({ success: true, book: bookWithUserInfo });
   } catch (error) {
     console.error('Get book error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Delete book and its S3 cover image
+exports.deleteBook = async (req, res) => {
+  try {
+    const book = await Book.findById(req.params.id);
+    
+    if (!book) {
+      return res.status(404).json({ success: false, message: 'Book not found' });
+    }
+
+    // Check if user has permission to delete
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    if (book.clientId !== clientId && book.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized to delete this book' });
+    }
+
+    // Delete cover image from S3 if it exists
+    if (book.coverImage) {
+      try {
+        await deleteObject(book.coverImage);
+        console.log('Successfully deleted cover image from S3:', book.coverImage);
+      } catch (error) {
+        console.error('Error deleting cover image from S3:', error);
+        // Continue with book deletion even if image deletion fails
+      }
+    }
+
+    // Delete the book
+    await book.deleteOne();
+
+    return res.status(200).json({
+      success: true,
+      message: 'Book deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete book error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Update book with S3 cover image handling
+exports.updateBook = async (req, res) => {
+  try {
+    const { 
+      title, description, author, publisher, language, mainCategory, subCategory, 
+      customSubCategory, exam, paper, subject, tags, isPublic, categoryOrder,
+      coverImageKey, rating, ratingCount, conversations, users, summary
+    } = req.body;
+
+    const book = await Book.findById(req.params.id);
+    
+    if (!book) {
+      return res.status(404).json({ success: false, message: 'Book not found' });
+    }
+
+    // Check if user has permission to update
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    if (book.clientId !== clientId && book.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this book' });
+    }
+
+    // Handle cover image update if new image is provided
+    if (coverImageKey && coverImageKey !== book.coverImage) {
+      // Delete old cover image if it exists
+      if (book.coverImage) {
+        try {
+          await deleteObject(book.coverImage);
+          console.log('Successfully deleted old cover image from S3:', book.coverImage);
+        } catch (error) {
+          console.error('Error deleting old cover image from S3:', error);
+          // Continue with update even if old image deletion fails
+        }
+      }
+
+      // Generate new presigned URL for the new image
+      try {
+        const coverImageUrl = await generateGetPresignedUrl(coverImageKey, 604800);
+        book.coverImage = coverImageKey;
+        book.coverImageUrl = coverImageUrl;
+      } catch (error) {
+        console.error('Error generating presigned URL for new cover image:', error);
+        return res.status(500).json({ 
+          success: false, 
+          message: 'Failed to generate image URL' 
+        });
+      }
+    }
+
+    // Parse arrays
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {
+        parsedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      }
+    }
+
+    let parsedConversations = [];
+    if (conversations) {
+      try {
+        parsedConversations = typeof conversations === 'string' ? JSON.parse(conversations) : conversations;
+      } catch (e) {
+        parsedConversations = conversations.split(',').map(conv => conv.trim()).filter(conv => conv.length > 0);
+      }
+    }
+
+    let parsedUsers = [];
+    if (users) {
+      try {
+        parsedUsers = typeof users === 'string' ? JSON.parse(users) : users;
+      } catch (e) {
+        parsedUsers = users.split(',').map(user => user.trim()).filter(user => user.length > 0);
+      }
+    }
+
+    // Update book data
+    const updateData = {
+      title: title ? title.trim() : book.title,
+      description: description ? description.trim() : book.description,
+      author: author ? author.trim() : book.author,
+      publisher: publisher ? publisher.trim() : book.publisher,
+      language: language || book.language,
+      mainCategory: mainCategory || book.mainCategory,
+      subCategory: subCategory || book.subCategory,
+      isPublic: isPublic === 'true' || isPublic === true || book.isPublic,
+      tags: parsedTags.length > 0 ? parsedTags : book.tags,
+      conversations: parsedConversations.length > 0 ? parsedConversations : book.conversations,
+      users: parsedUsers.length > 0 ? parsedUsers : book.users,
+      summary: summary ? summary.trim() : book.summary
+    };
+
+    // Handle optional fields
+    if (exam) updateData.exam = exam.trim();
+    if (paper) updateData.paper = paper.trim();
+    if (subject) updateData.subject = subject.trim();
+    if (customSubCategory) updateData.customSubCategory = customSubCategory.trim();
+    if (categoryOrder) updateData.categoryOrder = parseInt(categoryOrder);
+
+    // Handle rating and rating count
+    if (rating !== undefined) {
+      const ratingNum = parseFloat(rating);
+      if (isNaN(ratingNum) || ratingNum < 0 || ratingNum > 5) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Rating must be a number between 0 and 5' 
+        });
+      }
+      updateData.rating = ratingNum;
+    }
+
+    if (ratingCount !== undefined) {
+      const countNum = parseInt(ratingCount);
+      if (isNaN(countNum) || countNum < 0) {
+        return res.status(400).json({ 
+          success: false, 
+          message: 'Rating count must be a non-negative number' 
+        });
+      }
+      updateData.ratingCount = countNum;
+    }
+
+    // Update the book
+    const updatedBook = await Book.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).populate('user', 'name email userId');
+
+    // Format the book with user info
+    const formattedBook = await formatBookWithUserInfo(updatedBook);
+
+    return res.status(200).json({
+      success: true,
+      message: 'Book updated successfully',
+      book: formattedBook
+    });
+  } catch (error) {
+    console.error('Update book error:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };

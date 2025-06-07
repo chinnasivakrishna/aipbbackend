@@ -132,9 +132,21 @@ MyBookSchema.methods.updatePriority = function(priority) {
 };
 
 // Pre-save middleware
-MyBookSchema.pre('save', function(next) {
+MyBookSchema.pre('save', async function(next) {
   if (this.isNew) {
     this.lastAccessedAt = this.addedAt;
+    
+    // Update the Book's isAddedToMyBooks field
+    try {
+      const Book = mongoose.model('Book');
+      await Book.findByIdAndUpdate(
+        this.bookId,
+        { $set: { isAddedToMyBooks: true } }
+      );
+      console.log(`Updated Book ${this.bookId} isAddedToMyBooks to true`);
+    } catch (error) {
+      console.error('Error updating Book isAddedToMyBooks:', error);
+    }
   }
   next();
 });
@@ -147,6 +159,21 @@ MyBookSchema.pre(/^find/, function(next) {
       path: 'bookId',
       select: 'title author publisher description coverImage rating ratingCount mainCategory subCategory exam paper subject tags viewCount createdAt'
     });
+  }
+  next();
+});
+
+// Pre-remove middleware
+MyBookSchema.pre('remove', async function(next) {
+  try {
+    const Book = mongoose.model('Book');
+    await Book.findByIdAndUpdate(
+      this.bookId,
+      { $set: { isAddedToMyBooks: false } }
+    );
+    console.log(`Updated Book ${this.bookId} isAddedToMyBooks to false`);
+  } catch (error) {
+    console.error('Error updating Book isAddedToMyBooks on remove:', error);
   }
   next();
 });

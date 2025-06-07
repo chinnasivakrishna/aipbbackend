@@ -104,7 +104,8 @@ router.post('/add', async (req, res) => {
         title: myBook.bookId.title,
         author: myBook.bookId.author,
         coverImage: myBook.bookId.coverImage,
-        addedAt: myBook.addedAt
+        addedAt: myBook.addedAt,
+        isAddedToMyBooks: myBook.isIASBookAdded
       }
     });
 
@@ -218,6 +219,7 @@ router.get('/list', async (req, res) => {
       publisher: myBook.bookId.publisher,
       description: myBook.bookId.description,
       cover_image: myBook.bookId.coverImage || '',
+      cover_image_url: myBook.bookId.coverImageUrl || '',
       rating: myBook.bookId.rating,
       rating_count: myBook.bookId.ratingCount,
       main_category: myBook.bookId.mainCategory,
@@ -230,7 +232,8 @@ router.get('/list', async (req, res) => {
       added_at: myBook.addedAt,
       last_accessed_at: myBook.lastAccessedAt,
       personal_note: myBook.personalNote,
-      priority: myBook.priority
+      priority: myBook.priority,
+      is_added_to_my_books: myBook.bookId.isAddedToMyBooks
     }));
 
     console.log(`Retrieved ${myBooks.length} books from My Books for user ${userId}`);
