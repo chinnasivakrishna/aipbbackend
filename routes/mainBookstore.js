@@ -339,6 +339,7 @@ router.get('/book/details', async (req, res) => {
         highlight: book.isHighlighted, // Changed from 'yes'/'no' to true/false
         trending: book.isCurrentlyTrending, // Changed from 'yes'/'no' to true/false
         cover_image: book.coverImage || '',
+        cover_image_url: book.coverImageUrl || '',
         index: bookIndex,
         exam_name: book.exam || '',
         paper_name: book.paper || '',
