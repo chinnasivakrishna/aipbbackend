@@ -7,6 +7,7 @@ const MyBook = require('../models/MyBook');
 const Book = require('../models/Book');
 const MobileUser = require('../models/MobileUser');
 const { authenticateMobileUser, ensureUserBelongsToClient } = require('../middleware/mobileAuth');
+const { generateGetPresignedUrl } = require('../utils/s3');
 
 // Apply authentication middleware to all routes
 router.use(authenticateMobileUser);
@@ -90,7 +91,7 @@ router.post('/add', async (req, res) => {
     // Populate book details for response
     await myBook.populate({
       path: 'bookId',
-      select: 'title author publisher description coverImage rating ratingCount mainCategory subCategory exam paper subject tags viewCount createdAt'
+      select: 'title author publisher description coverImage coverImageUrl rating ratingCount mainCategory subCategory exam paper subject tags viewCount createdAt'
     });
 
     console.log(`Book ${book_id} added to My Books for user ${userId}`);
@@ -104,6 +105,7 @@ router.post('/add', async (req, res) => {
         title: myBook.bookId.title,
         author: myBook.bookId.author,
         coverImage: myBook.bookId.coverImage,
+        coverImageUrl: myBook.bookId.coverImageUrl,
         addedAt: myBook.addedAt,
         isAddedToMyBooks: myBook.isIASBookAdded
       }
@@ -186,7 +188,7 @@ router.get('/list', async (req, res) => {
     // Populate book details
     query = query.populate({
       path: 'bookId',
-      select: 'title author publisher description coverImage rating ratingCount mainCategory subCategory exam paper subject tags viewCount createdAt',
+      select: 'title author publisher description coverImage coverImageUrl rating ratingCount mainCategory subCategory exam paper subject tags viewCount createdAt',
       populate: {
         path: 'user',
         select: 'name email userId'
@@ -210,30 +212,49 @@ router.get('/list', async (req, res) => {
       });
     }
 
-    // Format response
-    const formattedBooks = myBooks.map(myBook => ({
-      mybook_id: myBook._id,
-      book_id: myBook.bookId._id,
-      title: myBook.bookId.title,
-      author: myBook.bookId.author,
-      publisher: myBook.bookId.publisher,
-      description: myBook.bookId.description,
-      cover_image: myBook.bookId.coverImage || '',
-      cover_image_url: myBook.bookId.coverImageUrl || '',
-      rating: myBook.bookId.rating,
-      rating_count: myBook.bookId.ratingCount,
-      main_category: myBook.bookId.mainCategory,
-      sub_category: myBook.bookId.subCategory,
-      exam: myBook.bookId.exam,
-      paper: myBook.bookId.paper,
-      subject: myBook.bookId.subject,
-      tags: myBook.bookId.tags,
-      view_count: myBook.bookId.viewCount,
-      added_at: myBook.addedAt,
-      last_accessed_at: myBook.lastAccessedAt,
-      personal_note: myBook.personalNote,
-      priority: myBook.priority,
-      is_added_to_my_books: myBook.bookId.isAddedToMyBooks
+    // Format response and generate cover image URLs
+    const formattedBooks = await Promise.all(myBooks.map(async myBook => {
+      let coverImageUrl = myBook.bookId.coverImageUrl;
+      
+      // Generate new presigned URL if we have a cover image
+      if (myBook.bookId.coverImage) {
+        try {
+          coverImageUrl = await generateGetPresignedUrl(myBook.bookId.coverImage, 31536000); // 1 year expiry
+          
+          // Update the book with the new URL if it's different
+          if (myBook.bookId.coverImageUrl !== coverImageUrl) {
+            await Book.findByIdAndUpdate(myBook.bookId._id, { coverImageUrl });
+          }
+        } catch (error) {
+          console.error('Error generating presigned URL for cover image:', error);
+          coverImageUrl = null;
+        }
+      }
+
+      return {
+        mybook_id: myBook._id,
+        book_id: myBook.bookId._id,
+        title: myBook.bookId.title,
+        author: myBook.bookId.author,
+        publisher: myBook.bookId.publisher,
+        description: myBook.bookId.description,
+        cover_image: myBook.bookId.coverImage || '',
+        cover_image_url: coverImageUrl || '',
+        rating: myBook.bookId.rating,
+        rating_count: myBook.bookId.ratingCount,
+        main_category: myBook.bookId.mainCategory,
+        sub_category: myBook.bookId.subCategory,
+        exam: myBook.bookId.exam,
+        paper: myBook.bookId.paper,
+        subject: myBook.bookId.subject,
+        tags: myBook.bookId.tags,
+        view_count: myBook.bookId.viewCount,
+        added_at: myBook.addedAt,
+        last_accessed_at: myBook.lastAccessedAt,
+        personal_note: myBook.personalNote,
+        priority: myBook.priority,
+        is_added_to_my_books: myBook.bookId.isAddedToMyBooks
+      };
     }));
 
     console.log(`Retrieved ${myBooks.length} books from My Books for user ${userId}`);

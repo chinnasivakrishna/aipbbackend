@@ -18,7 +18,8 @@ const {
   updateTrendingDetails,
   // Category order functionality
   updateCategoryOrder,
-  resetCategoryOrder
+  resetCategoryOrder,
+  updateCategoryOrderForAll
 } = require('../controllers/bookController');
 const { 
   getChapters, 
@@ -48,7 +49,8 @@ const {
   createBook,
   getCoverImageUploadUrl,
   updateBook,
-  deleteBook
+  deleteBook,
+  getCoverImageDownloadUrl
 } = require('../controllers/awsbookcontroller');
 
 // ==================== UTILITY ROUTES ====================
@@ -94,10 +96,16 @@ router.put('/:id/category-order', verifyToken, updateCategoryOrder);
 // Reset category order for a book
 router.delete('/:id/category-order', verifyToken, resetCategoryOrder);
 
+// Update category order for all books in a category
+router.put('/categories/:mainCategory/order', verifyToken, updateCategoryOrderForAll);
+
 // ==================== BASIC BOOK ROUTES ====================
 // Main book routes
 // Get presigned URL for cover image upload
 router.post('/cover-upload-url', verifyToken, getCoverImageUploadUrl);
+
+// Get presigned URL for cover image
+router.post('/cover-get-url', verifyToken, getCoverImageDownloadUrl);
 
 // Main book routes
 router.route('/')

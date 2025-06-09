@@ -89,6 +89,28 @@ exports.getCoverImageUploadUrl = async (req, res) => {
   }
 };
 
+// Get presigned URL for cover image
+exports.getCoverImageDownloadUrl = async (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Image key is required' 
+      });
+    }
+
+    const url = await generateGetPresignedUrl(key, 31536000); // 1 year expiry
+    return res.status(200).json({
+      success: true,
+      url
+    });
+  } catch (error) {
+    console.error('Get cover image URL error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
 // Create book with S3 cover image
 exports.createBook = async (req, res) => {
   try {
