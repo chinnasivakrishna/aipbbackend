@@ -31,6 +31,7 @@ const myBooksRoutes = require('./routes/myBooks');
 const evaluatorsRoutes = require('./routes/evaluators');
 const app = express();
 const mainBookstoreRoutes = require('./routes/mainBookstore');
+const mobileSubmittedAnswersRoutes = require('./routes/mobileSubmittedAnswers');
 
 app.use(cors());
 app.use(express.json());
@@ -136,6 +137,14 @@ app.use('/api/clients/:clientId/mobile/evaluations',
   evaluationRoutes
 );
 
+app.use('/api/clients/:clientId/mobile/submitted-answers', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  mobileSubmittedAnswersRoutes
+);
 
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
