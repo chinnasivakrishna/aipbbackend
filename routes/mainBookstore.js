@@ -15,16 +15,27 @@ router.get('/', async (req, res) => {
   try {
     // Use req.clientId (set by middleware) or fallback to req.params.clientId
     const clientId = req.clientId || req.params.clientId;
-    const { limit = 10, category, sub_category } = req.query;
+    const { 
+      limit = 5, 
+      page = 1,
+      category, 
+      sub_category 
+    } = req.query;
 
     console.log('Fetching homepage content for client:', clientId);
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
 
     // Build filter for homepage content
     const filter = { clientId };
     if (category) filter.mainCategory = category;
     if (sub_category) filter.subCategory = sub_category;
 
-    // Get highlighted books
+    // Get total count for pagination
+    const totalBooks = await Book.countDocuments(filter);
+
+    // Get highlighted books with pagination
     const highlightedBooks = await Book.find({
       ...filter,
       isHighlighted: true
@@ -32,9 +43,10 @@ router.get('/', async (req, res) => {
     .populate('user', 'name email userId')
     .populate('highlightedBy', 'name email userId')
     .sort({ highlightOrder: 1, highlightedAt: -1 })
+    .skip(skip)
     .limit(parseInt(limit));
 
-    // Get trending books
+    // Get trending books with pagination
     const now = new Date();
     const trendingBooks = await Book.find({
       ...filter,
@@ -48,18 +60,15 @@ router.get('/', async (req, res) => {
     .populate('user', 'name email userId')
     .populate('trendingBy', 'name email userId')
     .sort({ trendingScore: -1, viewCount: -1 })
+    .skip(skip)
     .limit(parseInt(limit));
 
-    // Get recent books (general content)
+    // Get recent books with pagination
     const recentBooks = await Book.find(filter)
       .populate('user', 'name email userId')
       .sort({ createdAt: -1 })
+      .skip(skip)
       .limit(parseInt(limit));
-
-    // Get all available books
-    const allBooks = await Book.find(filter)
-      .populate('user', 'name email userId')
-      .sort({ createdAt: -1 });
 
     // Format response for homepage
     const formatBookForHomepage = (book) => ({
@@ -75,38 +84,75 @@ router.get('/', async (req, res) => {
       publisher: book.publisher,
       description: book.description,
       rating: book.rating,
+      rating_count: book.ratingCount,
+      conversations: book.conversations,
+      users: book.users,
+      summary: book.summary,
       viewCount: book.viewCount,
       exam_name: book.exam || '',
       paper_name: book.paper || '',
       subject_name: book.subject || ''
     });
 
-    // Group books by category and subcategory
-    const booksByCategory = {};
-    allBooks.forEach(book => {
-      const category = book.mainCategory;
-      const subCategory = book.effectiveSubCategory;
-      
-      if (!booksByCategory[category]) {
-        booksByCategory[category] = {};
-      }
-      if (!booksByCategory[category][subCategory]) {
-        booksByCategory[category][subCategory] = [];
-      }
-      booksByCategory[category][subCategory].push(formatBookForHomepage(book));
-    });
-
-    // Get categories with their books
+    // Get categories with paginated books
     const categories = await getAvailableCategories(clientId);
-    const categoriesWithBooks = categories.map(cat => ({
-      category: cat.category,
-      sub_categories: cat.sub_categories.map(sub => ({
-        name: sub.name,
-        count: sub.count,
-        books: booksByCategory[cat.category]?.[sub.name] || []
-      })),
-      total_books: cat.total_books
+    const categoriesWithBooks = await Promise.all(categories.map(async cat => {
+      // Get books for this category with pagination
+      const categoryBooks = await Book.find({
+        clientId,
+        mainCategory: cat.category
+      })
+      .populate('user', 'name email userId')
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(parseInt(limit));
+
+      // Get subcategories with their paginated books
+      const subCategoriesWithBooks = await Promise.all(cat.sub_categories.map(async sub => {
+        const subCategoryBooks = await Book.find({
+          clientId,
+          mainCategory: cat.category,
+          subCategory: sub.name
+        })
+        .populate('user', 'name email userId')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit));
+
+        return {
+          name: sub.name,
+          count: sub.count,
+          books: subCategoryBooks.map(formatBookForHomepage),
+          pagination: {
+            current_page: parseInt(page),
+            total_pages: Math.ceil(sub.count / parseInt(limit)),
+            total_items: sub.count,
+            items_per_page: parseInt(limit),
+            has_next_page: parseInt(page) < Math.ceil(sub.count / parseInt(limit)),
+            has_prev_page: parseInt(page) > 1
+          }
+        };
+      }));
+
+      return {
+        category: cat.category,
+        sub_categories: subCategoriesWithBooks,
+        total_books: cat.total_books,
+        pagination: {
+          current_page: parseInt(page),
+          total_pages: Math.ceil(cat.total_books / parseInt(limit)),
+          total_items: cat.total_books,
+          items_per_page: parseInt(limit),
+          has_next_page: parseInt(page) < Math.ceil(cat.total_books / parseInt(limit)),
+          has_prev_page: parseInt(page) > 1
+        }
+      };
     }));
+
+    // Calculate pagination metadata
+    const totalPages = Math.ceil(totalBooks / parseInt(limit));
+    const hasNextPage = parseInt(page) < totalPages;
+    const hasPrevPage = parseInt(page) > 1;
 
     const homepageContent = {
       success: true,
@@ -115,7 +161,15 @@ router.get('/', async (req, res) => {
         trending: trendingBooks.map(formatBookForHomepage),
         recent: recentBooks.map(formatBookForHomepage),
         categories: categoriesWithBooks,
-        totalBooks: await Book.countDocuments({ clientId })
+        totalBooks: totalBooks,
+        pagination: {
+          current_page: parseInt(page),
+          total_pages: totalPages,
+          total_items: totalBooks,
+          items_per_page: parseInt(limit),
+          has_next_page: hasNextPage,
+          has_prev_page: hasPrevPage
+        }
       },
       meta: {
         clientId,
