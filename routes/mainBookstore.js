@@ -120,8 +120,8 @@ router.get('/', async (req, res) => {
         .limit(parseInt(limit));
 
         return {
-          name: sub.name,
-          count: sub.count,
+        name: sub.name,
+        count: sub.count,
           books: subCategoryBooks.map(formatBookForHomepage),
           pagination: {
             current_page: parseInt(page),

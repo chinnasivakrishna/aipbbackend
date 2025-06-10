@@ -103,6 +103,7 @@ router.get('/', async (req, res) => {
       evaluatedAt: answer.evaluatedAt,
       hasImages: answer.answerImages && answer.answerImages.length > 0,
       hasTextAnswer: Boolean(answer.textAnswer),
+      answerImages: answer.answerImages || [],
       timeSpent: answer.metadata?.timeSpent || 0,
       sourceType: answer.metadata?.sourceType || 'qr_scan',
       
