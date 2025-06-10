@@ -242,6 +242,9 @@ router.get('/list', async (req, res) => {
         cover_image_url: coverImageUrl || '',
         rating: myBook.bookId.rating,
         rating_count: myBook.bookId.ratingCount,
+        conversations:myBook.bookId.conversations,
+        users:myBook.bookId.users,
+        summary:myBook.bookId.summary,
         main_category: myBook.bookId.mainCategory,
         sub_category: myBook.bookId.subCategory,
         exam: myBook.bookId.exam,
@@ -294,6 +297,7 @@ router.post('/remove', async (req, res) => {
   try {
     const { book_id } = req.body;
     const userId = req.user.id;
+    const clientId = req.user.clientId;
 
     // Validate required fields
     if (!book_id) {
@@ -339,6 +343,11 @@ router.post('/remove', async (req, res) => {
       });
     }
 
+    // Update the book's isAddedToMyBooks field to false
+    await Book.findByIdAndUpdate(book_id, {
+      $set: { isAddedToMyBooks: false }
+    });
+
     console.log(`Book ${book_id} removed from My Books for user ${userId}`);
 
     res.status(200).json({
@@ -348,7 +357,8 @@ router.post('/remove', async (req, res) => {
         removedBookId: book_id,
         title: removedMyBook.bookId?.title || 'Unknown',
         author: removedMyBook.bookId?.author || 'Unknown',
-        removedAt: new Date()
+        removedAt: new Date(),
+        isAddedToMyBooks: false
       }
     });
 

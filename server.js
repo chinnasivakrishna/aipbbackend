@@ -32,6 +32,7 @@ const evaluatorsRoutes = require('./routes/evaluators');
 const app = express();
 const mainBookstoreRoutes = require('./routes/mainBookstore');
 const mobileSubmittedAnswersRoutes = require('./routes/mobileSubmittedAnswers');
+const expertReviewRoutes = require('./routes/expertReview');
 
 app.use(cors());
 app.use(express.json());
@@ -144,6 +145,15 @@ app.use('/api/clients/:clientId/mobile/submitted-answers',
     next();
   }, 
   mobileSubmittedAnswersRoutes
+);
+
+app.use('/api/clients/:clientId/mobile/review', 
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId;
+    next();
+  }, 
+  expertReviewRoutes
 );
 
 // Mount subtopics routes
