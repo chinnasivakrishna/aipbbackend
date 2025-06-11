@@ -283,11 +283,11 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
     }
 
     // Add feedback to the answer
-    if (!answer.feedback.userFeedback) {
-      answer.feedback.userFeedback = [];
+    if (!answer.feedback.userFeedbackReview) {
+      answer.feedback.userFeedbackReview = [];
     }
 
-    answer.feedback.userFeedback.push({
+    answer.feedback.userFeedbackReview.push({
       message: message.trim(),
       submittedAt: new Date()
     });
@@ -301,7 +301,7 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
         requestId: request._id,
         answerId: answer._id,
         feedbackCount: answer.feedback.userFeedback.length,
-        feedback: answer.feedback.userFeedback[answer.feedback.userFeedback.length - 1]
+        feedback: answer.feedback.userFeedbackReview[answer.feedback.userFeedbackReview.length - 1]
       }
     });
 

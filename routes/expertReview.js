@@ -273,64 +273,6 @@ router.post('/:requestId/submit', async (req, res) => {
   }
 });
 
-// 4. 💬 Submit Feedback on Review Result
-// router.post('/feedback', authenticateMobileUser, async (req, res) => {
-//   try {
-//     const { question_id, answer_id, feedback_message } = req.body;
-//     const userId = req.user.id;
-
-//     // Validate required fields
-//     if (!question_id || !answer_id || !feedback_message) {
-//       return res.status(400).json({
-//         status: 'error',
-//         message: 'question_id, answer_id, and feedback_message are required'
-//       });
-//     }
-
-//     // Find the user answer
-//     const userAnswer = await UserAnswer.findOne({
-//       _id: answer_id,
-//       questionId: question_id,
-//       userId: userId,
-//       clientId: req.user.clientId,
-//       reviewStatus: 'review_completed'
-//     });
-
-//     if (!userAnswer) {
-//       return res.status(404).json({
-//         status: 'error',
-//         message: 'Answer not found, not reviewed yet, or you do not have permission to access it'
-//       });
-//     }
-
-//     // Add user feedback to the answer
-//     if (!userAnswer.feedback.userFeedback) {
-//       userAnswer.feedback.userFeedback = [];
-//     }
-
-//     userAnswer.feedback.userFeedback.push({
-//       message: feedback_message,
-//       submittedAt: new Date()
-//     });
-
-//     await userAnswer.save();
-
-//     console.log(`User feedback submitted for answer ${answer_id} by user ${userId}`);
-
-//     res.json({
-//       status: 'success',
-//       message: 'Feedback submitted successfully'
-//     });
-
-//   } catch (error) {
-//     console.error('Error submitting feedback:', error);
-//     res.status(500).json({
-//       status: 'error',
-//       message: 'Internal server error',
-//       details: error.message
-//     });
-//   }
-// });
 
 // 5. 🌟 Get List of Questions in "Popular"
 router.get('/popular', async (req, res) => {

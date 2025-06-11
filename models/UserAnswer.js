@@ -100,7 +100,7 @@ const userAnswerSchema = new mongoose.Schema({
         default: Date.now
       }
     },
-    userFeedback: [{
+    userFeedbackReview: [{
       message: {
         type: String,
         required: true
@@ -158,7 +158,17 @@ const userAnswerSchema = new mongoose.Schema({
     feedback: {
       type: String,
       trim: true
-    }
+    },
+    userFeedback: [{
+      message: {
+        type: String,
+        required: true
+      },
+      submittedAt: {
+        type: Date,
+        default: Date.now
+      }
+    }]
   },
   publishStatus: {
     type: String,
@@ -194,55 +204,21 @@ userAnswerSchema.index({ submissionStatus: 1 }); // Non-unique index
 userAnswerSchema.index({ userId: 1, questionId: 1 }); // Non-unique index for querying user's attempts
 userAnswerSchema.index({ publishStatus: 1 }); // Index for publishStatus queries
 
-// Add a method to clean up old indexes when the model is initialized
+// Static method to clean up old indexes
 userAnswerSchema.statics.cleanupOldIndexes = async function() {
   try {
     const collection = this.collection;
-    const indexes = await collection.listIndexes().toArray();
+    const indexes = await collection.indexes();
     
-    console.log('Current indexes:', indexes.map(idx => ({ name: idx.name, key: idx.key, unique: idx.unique })));
-    
-    // Find and drop the problematic unique index
-    const problematicIndex = indexes.find(idx => 
-      idx.name.includes('version') || 
-      (idx.unique && idx.key && idx.key.userId && idx.key.questionId && idx.key.version !== undefined)
-    );
-    
-    if (problematicIndex) {
-      console.log(`Dropping problematic index: ${problematicIndex.name}`);
-      await collection.dropIndex(problematicIndex.name);
-      console.log('Problematic index dropped successfully');
-    }
-    
-    // Also check for any other unique indexes that might cause issues
-    const uniqueIndexes = indexes.filter(idx => 
-      idx.unique && 
-      idx.name !== '_id_' && 
-      (idx.key.userId !== undefined || idx.key.questionId !== undefined)
-    );
-    
-    for (const uniqueIdx of uniqueIndexes) {
-      console.log(`Dropping unique index: ${uniqueIdx.name}`);
-      try {
-        await collection.dropIndex(uniqueIdx.name);
-        console.log(`Unique index ${uniqueIdx.name} dropped successfully`);
-      } catch (dropError) {
-        console.error(`Error dropping index ${uniqueIdx.name}:`, dropError.message);
+    // Remove any indexes that are not the default _id index
+    for (const index of indexes) {
+      if (index.name !== '_id_') {
+        await collection.dropIndex(index.name);
       }
     }
     
-    // Drop old 'status' index if it exists
-    const statusIndex = indexes.find(idx => idx.key && idx.key.status !== undefined);
-    if (statusIndex) {
-      console.log(`Dropping old status index: ${statusIndex.name}`);
-      try {
-        await collection.dropIndex(statusIndex.name);
-        console.log('Old status index dropped successfully');
-      } catch (dropError) {
-        console.error(`Error dropping status index:`, dropError.message);
-      }
-    }
-    
+    // Create the required indexes
+    await this.createIndexes();
   } catch (error) {
     console.error('Error cleaning up indexes:', error);
   }

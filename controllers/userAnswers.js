@@ -10,9 +10,11 @@ const {
     reevaluateAnswerService,
     bulkUpdateEvaluationService,
     adminUpdateEvaluationService
-  } = require('./service/userAnswers');
+  } = require('../services/userAnswers');
   
-  const submitAnswer = async (req, res, next) => {
+const UserAnswer = require('../models/UserAnswer');
+
+const submitAnswer = async (req, res, next) => {
     try {
       const result = await submitAnswerService(req);
       res.status(200).json(result);
@@ -110,6 +112,70 @@ const {
       handleErrorResponse(res, error);
     }
   };
+
+  const submitEvaluationFeedback = async (req, res) => {
+    try {
+      const { answerId } = req.params;
+      const { message } = req.body;
+      const userId = req.user.id;
+
+      if (!message || !message.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: 'Feedback message is required'
+        });
+      }
+
+      const answer = await UserAnswer.findById(answerId);
+      if (!answer) {
+        return res.status(404).json({
+          success: false,
+          message: 'Answer not found'
+        });
+      }
+
+      // Verify ownership
+      if (answer.userId.toString() !== userId.toString()) {
+        return res.status(403).json({
+          success: false,
+          message: 'Access denied - you can only provide feedback on your own answers'
+        });
+      }
+
+      // Check if answer has been evaluated
+      if (!answer.evaluation || !answer.evaluation.feedback) {
+        return res.status(400).json({
+          success: false,
+          message: 'Cannot provide feedback on unevaluated answers'
+        });
+      }
+
+      // Add feedback to the evaluation
+      if (!answer.evaluation.userFeedback) {
+        answer.evaluation.userFeedback = [];
+      }
+
+      answer.evaluation.userFeedback.push({
+        message: message.trim(),
+        submittedAt: new Date()
+      });
+
+      await answer.save();
+
+      res.json({
+        success: true,
+        message: 'Evaluation feedback submitted successfully',
+        data: {
+          answerId: answer._id,
+          feedbackCount: answer.evaluation.userFeedback.length,
+          feedback: answer.evaluation.userFeedback[answer.evaluation.userFeedback.length - 1]
+        }
+      });
+
+    } catch (error) {
+      handleErrorResponse(res, error);
+    }
+  };
   
   const handleErrorResponse = (res, error) => {
     console.error('Controller error:', error);
@@ -185,5 +251,6 @@ const {
     getCompleteQuestionData,
     reevaluateAnswer,
     bulkUpdateEvaluation,
-    adminUpdateEvaluation
+    adminUpdateEvaluation,
+    submitEvaluationFeedback
   };

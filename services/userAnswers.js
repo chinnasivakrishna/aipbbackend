@@ -1,7 +1,10 @@
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
-const fetch = require('node-fetch');
+let fetch;
+(async () => {
+  fetch = (await import('node-fetch')).default;
+})();
 const axios = require('axios');
 const cloudinary = require('cloudinary').v2;
 

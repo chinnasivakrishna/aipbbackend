@@ -10,6 +10,8 @@ const { validationResult, param, body, query } = require('express-validator');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const axios = require('axios');
 const crud =  require('./answerapis');
+const { submitEvaluationFeedback } = require('../controllers/userAnswers');
+
 router.use('/crud', crud);
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
@@ -768,6 +770,7 @@ router.post('/answers/:answerId/evaluate-manual',
     }
   }
 );
+
 router.post('/questions/:questionId/answers',
   authenticateMobileUser,
   validateQuestionId,
@@ -1194,6 +1197,23 @@ router.post('/questions/:questionId/answers',
       });
     }
   }
+);
+
+// Submit feedback on evaluation
+router.post('/answers/:answerId/feedback',
+  authenticateMobileUser,
+  [
+    param('answerId')
+      .isMongoId()
+      .withMessage('Answer ID must be a valid MongoDB ObjectId'),
+    body('message')
+      .isString()
+      .trim()
+      .notEmpty()
+      .isLength({ max: 1000 })
+      .withMessage('Feedback message is required and must be less than 1000 characters')
+  ],
+  submitEvaluationFeedback
 );
 
 module.exports = router;
