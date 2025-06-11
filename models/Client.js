@@ -31,6 +31,10 @@ const ClientSchema = new mongoose.Schema({
     type: Number,
     default: 0
   },
+  isEvaluator:{
+    type: String,
+    default: true
+  },
   createdAt: {
     type: Date,
     default: Date.now

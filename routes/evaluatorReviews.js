@@ -135,58 +135,6 @@ router.post('/:requestId/accept', verifyToken, async (req, res) => {
   }
 });
 
-// Start review (mark as in progress)
-router.post('/:requestId/start', verifyToken, async (req, res) => {
-  try {
-    const { requestId } = req.params;
-    const evaluatorId = req.user.id;
-
-    const request = await ReviewRequest.findById(requestId);
-    if (!request) {
-      return res.status(404).json({
-        success: false,
-        message: 'Review request not found'
-      });
-    }
-
-    // Verify evaluator is assigned
-    if (!request.assignedEvaluator || request.assignedEvaluator.toString() !== evaluatorId) {
-      return res.status(403).json({
-        success: false,
-        message: 'You are not assigned to this request'
-      });
-    }
-
-    // Check status
-    if (request.requestStatus !== 'assigned') {
-      return res.status(400).json({
-        success: false,
-        message: 'Request is not in assigned status'
-      });
-    }
-
-    // Mark as in progress
-    await request.markInProgress();
-
-    res.json({
-      success: true,
-      message: 'Review started successfully',
-      data: {
-        requestId: request._id,
-        status: request.requestStatus
-      }
-    });
-
-  } catch (error) {
-    console.error('Error starting review:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
-  }
-});
-
 // Submit review
 router.post('/:requestId/submit', verifyToken, async (req, res) => {
   try {
@@ -271,6 +219,58 @@ router.post('/:requestId/submit', verifyToken, async (req, res) => {
 
   } catch (error) {
     console.error('Error submitting review:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
+// Start review (mark as in progress)
+router.post('/:requestId/start', verifyToken, async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const evaluatorId = req.user.id;
+
+    const request = await ReviewRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Review request not found'
+      });
+    }
+
+    // Verify evaluator is assigned
+    if (!request.assignedEvaluator || request.assignedEvaluator.toString() !== evaluatorId) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not assigned to this request'
+      });
+    }
+
+    // Check status
+    if (request.requestStatus !== 'assigned') {
+      return res.status(400).json({
+        success: false,
+        message: 'Request is not in assigned status'
+      });
+    }
+
+    // Mark as in progress
+    await request.markInProgress();
+
+    res.json({
+      success: true,
+      message: 'Review started successfully',
+      data: {
+        requestId: request._id,
+        status: request.requestStatus
+      }
+    });
+
+  } catch (error) {
+    console.error('Error starting review:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',

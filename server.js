@@ -33,9 +33,14 @@ const app = express();
 const mainBookstoreRoutes = require('./routes/mainBookstore');
 const mobileSubmittedAnswersRoutes = require('./routes/mobileSubmittedAnswers');
 const expertReviewRoutes = require('./routes/expertReview');
+const evaluatorReviewsRoutes = require('./routes/evaluatorReviews');
+const reviewRequestsRoutes = require('./routes/reviewRequests');
+const mobileReviewsRoutes = require('./routes/mobileReviews');
+
 
 app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 mongoose.connect(process.env.MONGODB_URI)
@@ -147,18 +152,29 @@ app.use('/api/clients/:clientId/mobile/submitted-answers',
   mobileSubmittedAnswersRoutes
 );
 
+// app.use('/api/clients/:clientId/mobile/review', 
+//   checkClientAccess(),
+//   (req, res, next) => {
+//     req.clientId = req.params.clientId;
+//     next();
+//   }, 
+//   mobileReviewsRoutes
+// );
+
 app.use('/api/clients/:clientId/mobile/review', 
   checkClientAccess(),
   (req, res, next) => {
     req.clientId = req.params.clientId;
     next();
   }, 
-  expertReviewRoutes
+  reviewRequestsRoutes
 );
 
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
+
+app.use('/api/review', expertReviewRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

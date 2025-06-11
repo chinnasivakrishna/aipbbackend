@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const axios = require('axios');
 
 const userAnswerSchema = new mongoose.Schema({
   userId: {
@@ -76,6 +77,38 @@ const userAnswerSchema = new mongoose.Schema({
     suggestions: [{
       type: String,
       trim: true
+    }],
+    expertReview: {
+      result: {
+        type: String,
+        required: false
+      },
+      score: {
+        type: Number,
+        min: 0,
+        max: 100
+      },
+      remarks: {
+        type: String,
+        trim: true
+      },
+      annotatedImages: [{
+        type: String
+      }],
+      reviewedAt: {
+        type: Date,
+        default: Date.now
+      }
+    },
+    userFeedback: [{
+      message: {
+        type: String,
+        required: true
+      },
+      submittedAt: {
+        type: Date,
+        default: Date.now
+      }
     }]
   },
   metadata: {
@@ -135,7 +168,7 @@ const userAnswerSchema = new mongoose.Schema({
   reviewStatus: {
     type: String,
     enum: ['review_pending', 'review_accepted', 'review_completed'],
-    default: ''
+    default: null
   },
   popularityStatus: {
     type: String,
@@ -418,6 +451,21 @@ userAnswerSchema.statics.createNewAttemptSafe = async function(answerData) {
   const error = new Error('Failed to create answer after multiple attempts');
   error.code = 'CREATION_FAILED';
   throw error;
+};
+
+// Static method to check if user has a review request
+userAnswerSchema.statics.hasReviewRequest = async function(userId, clientId) {
+  try {
+    const response = await axios.get(`${process.env.API_BASE_URL}/api/clients/${clientId}/mobile/review/request`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.API_TOKEN}`
+      }
+    });
+    return response.data?.hasReviewRequest || false;
+  } catch (error) {
+    console.error('Error checking review request:', error);
+    return false;
+  }
 };
 
 // Export the model

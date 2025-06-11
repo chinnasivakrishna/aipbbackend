@@ -1031,7 +1031,7 @@ router.post('/questions/:questionId/answers',
         answerImages: answerImages,
         textAnswer: textAnswer || '',
         submissionStatus: 'submitted',
-        reviewStatus: isManualEvaluation ? 'review_pending' : 'review_completed',
+        reviewStatus: null, // Initialize as null
         metadata: {
           timeSpent: parseInt(timeSpent) || 0,
           deviceInfo: deviceInfo || '',
@@ -1047,7 +1047,8 @@ router.post('/questions/:questionId/answers',
           userAnswerData.evaluatedAt = new Date();
           userAnswerData.submissionStatus = 'evaluated';
           userAnswerData.publishStatus = 'published';
-          userAnswerData.reviewStatus = 'review_completed';
+          // Keep review status as null by default
+          userAnswerData.reviewStatus = null;
         }
         if (extractedTexts.length > 0) {
           userAnswerData.extractedTexts = extractedTexts;
@@ -1080,6 +1081,7 @@ router.post('/questions/:questionId/answers',
         userId: userId,
         imagesCount: answerImages.length,
         submissionStatus: userAnswer.submissionStatus,
+        reviewStatus: userAnswer.reviewStatus,
         submittedAt: userAnswer.submittedAt,
         isFinalAttempt: userAnswer.isFinalAttempt(),
         remainingAttempts: Math.max(0, 5 - userAnswer.attemptNumber),

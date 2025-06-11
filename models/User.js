@@ -19,6 +19,10 @@ const UserSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  isEvaluator:{
+    type: String,
+    default: true
+  },
   role: {
     type: String,
     enum: ['admin', 'client', 'user', null],

@@ -3,7 +3,6 @@ const express = require('express');
 const router = express.Router();
 const ReviewRequest = require('../models/ReviewRequest');
 const UserAnswer = require('../models/UserAnswer');
-const Evaluator = require('../models/Evaluator');
 const { authenticateMobileUser, ensureUserBelongsToClient } = require('../middleware/mobileAuth');
 
 // Student raises manual review request
@@ -51,7 +50,8 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
       answerId,
       clientId,
       notes,
-      priority
+      priority,
+      requestStatus: 'pending'
     });
 
     await reviewRequest.save();
@@ -60,18 +60,19 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
     answer.reviewStatus = 'review_pending';
     await answer.save();
 
-    res.status(201).json({
+    res.status(200).json({
       success: true,
-      message: 'Manual review request submitted successfully',
+      message: 'Review request submitted successfully',
       data: {
         requestId: reviewRequest._id,
         status: reviewRequest.requestStatus,
-        requestedAt: reviewRequest.requestedAt
+        answerId: answer._id,
+        reviewStatus: answer.reviewStatus
       }
     });
 
   } catch (error) {
-    console.error('Error creating review request:', error);
+    console.error('Error submitting review request:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -204,7 +205,7 @@ router.delete('/:requestId', authenticateMobileUser, ensureUserBelongsToClient, 
 
     // Update answer review status
     await UserAnswer.findByIdAndUpdate(request.answerId, {
-      reviewStatus: 'review_pending'
+      reviewStatus: null
     });
 
     res.json({

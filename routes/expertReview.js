@@ -2,207 +2,273 @@
 const express = require('express');
 const router = express.Router();
 const UserAnswer = require('../models/UserAnswer');
+const ReviewRequest = require('../models/ReviewRequest');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const MobileUser = require('../models/MobileUser');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
 
-// 1. ✅ Submit Expert Review Request
-router.post('/request', authenticateMobileUser, async (req, res) => {
+// 0. 📝 Create Review Request
+router.post('/request', async (req, res) => {
   try {
-    const { question_id, answer_id, review_message } = req.body;
-    const userId = req.user.id;
+    const { answer_id, question_id, priority = 'medium', notes } = req.body;
 
     // Validate required fields
-    if (!question_id || !answer_id || !review_message) {
+    if (!answer_id || !question_id) {
       return res.status(400).json({
-        status: 'error',
-        message: 'question_id, answer_id, and review_message are required'
+        success: false,
+        message: 'answer_id and question_id are required'
       });
     }
 
-    // Find the user answer
-    const userAnswer = await UserAnswer.findOne({
-      _id: answer_id,
+    // Find the answer
+    const answer = await UserAnswer.findById(answer_id);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer not found'
+      });
+    }
+
+    // Check if review request already exists
+    const existingRequest = await ReviewRequest.findOne({ answerId: answer_id });
+    if (existingRequest) {
+      return res.status(400).json({
+        success: false,
+        message: 'Review request already exists for this answer',
+        data: {
+          requestId: existingRequest._id,
+          status: existingRequest.requestStatus
+        }
+      });
+    }
+
+    // Create new review request
+    const reviewRequest = new ReviewRequest({
+      userId: answer.userId,
       questionId: question_id,
-      userId: userId,
-      clientId: req.user.clientId
+      answerId: answer_id,
+      clientId: answer.clientId,
+      notes,
+      priority,
+      requestStatus: 'pending'
     });
 
-    if (!userAnswer) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'Answer not found or you do not have permission to access it'
-      });
-    }
+    await reviewRequest.save();
 
-    // Check if already under review
-    if (userAnswer.reviewStatus === 'review_pending') {
-      return res.status(400).json({
-        status: 'error',
-        message: 'This answer is already under expert review'
-      });
-    }
+    // Update answer status
+    answer.reviewStatus = 'review_pending';
+    await answer.save();
 
-    // Update the answer to request review
-    userAnswer.reviewStatus = 'review_pending';
-    userAnswer.metadata = {
-      ...userAnswer.metadata,
-      reviewRequestedAt: new Date(),
-      reviewMessage: review_message
-    };
-
-    await userAnswer.save();
-
-    console.log(`Expert review requested for answer ${answer_id} by user ${userId}`);
-
-    res.json({
-      status: 'success',
-      message: review_message || 'Review my answer I am not satisfied with the result'
+    res.status(200).json({
+      success: true,
+      message: 'Review request created successfully',
+      data: {
+        requestId: reviewRequest._id,
+        status: reviewRequest.requestStatus,
+        answerId: answer._id,
+        reviewStatus: answer.reviewStatus
+      }
     });
 
   } catch (error) {
-    console.error('Error submitting expert review request:', error);
+    console.error('Error creating review request:', error);
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Internal server error',
-      details: error.message
+      error: error.message
     });
   }
 });
 
-// 2. 📋 Get List of Questions/Answers in Review
-router.get('/list', async (req, res) => {
+// 1. 📋 Get Pending Review Requests
+router.get('/pending', async (req, res) => {
   try {
-    const { clientId, page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 10, priority } = req.query;
 
-    // Build query filter
     const filter = {
-      reviewStatus: 'review_pending',
-      submissionStatus: { $in: ['submitted', 'evaluated'] }
+      requestStatus: { $in: ['pending', 'accepted'] }
     };
 
-    if (clientId) {
-      filter.clientId = clientId;
+    if (priority) {
+      filter.priority = priority;
     }
 
-    // Get answers under review with pagination
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-    
-    const answersUnderReview = await UserAnswer.find(filter)
-      .select('_id questionId userId submittedAt metadata.reviewMessage metadata.reviewRequestedAt')
-      .populate('questionId', 'question metadata.difficultyLevel')
+    const skip = (page - 1) * limit;
+
+    const requests = await ReviewRequest.find(filter)
       .populate('userId', 'mobile')
-      .sort({ 'metadata.reviewRequestedAt': -1 })
+      .populate('questionId', 'question metadata difficultyLevel')
+      .populate('answerId', 'answerImages submittedAt attemptNumber evaluation')
+      .sort({ requestedAt: -1 })
       .skip(skip)
       .limit(parseInt(limit));
 
-    // Get total count for pagination
-    const totalCount = await UserAnswer.countDocuments(filter);
-
-    // Format response data
-    const formattedData = answersUnderReview.map(answer => ({
-      question_id: answer.questionId._id.toString(),
-      answer_id: answer._id.toString(),
-      user_mobile: answer.userId?.mobile,
-      question_text: answer.questionId?.question,
-      difficulty_level: answer.questionId?.metadata?.difficultyLevel,
-      submitted_at: answer.submittedAt,
-      review_requested_at: answer.metadata?.reviewRequestedAt,
-      review_message: answer.metadata?.reviewMessage
-    }));
+    const total = await ReviewRequest.countDocuments(filter);
 
     res.json({
-      status: 'success',
-      data: formattedData,
-      pagination: {
-        current_page: parseInt(page),
-        total_pages: Math.ceil(totalCount / parseInt(limit)),
-        total_count: totalCount,
-        per_page: parseInt(limit)
+      success: true,
+      data: {
+        requests,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages: Math.ceil(total / limit),
+          totalRequests: total,
+          hasMore: skip + requests.length < total
+        }
       }
     });
 
   } catch (error) {
-    console.error('Error fetching review list:', error);
+    console.error('Error fetching pending requests:', error);
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Internal server error',
-      details: error.message
+      error: error.message
     });
   }
 });
 
-// 3. 🧪 Submit Review Result
-router.post('/result', async (req, res) => {
+// 2. ✅ Accept Review Request
+router.post('/:requestId/accept', async (req, res) => {
   try {
-    const { question_id, answer_id, review_result, annotated_images, expert_score, expert_remarks } = req.body;
+    const { requestId } = req.params;
 
-    // Validate required fields
-    if (!question_id || !answer_id || !review_result) {
-      return res.status(400).json({
-        status: 'error',
-        message: 'question_id, answer_id, and review_result are required'
-      });
-    }
-
-    // Find the user answer
-    const userAnswer = await UserAnswer.findOne({
-      _id: answer_id,
-      questionId: question_id,
-      reviewStatus: 'review_pending'
-    });
-
-    if (!userAnswer) {
+    const request = await ReviewRequest.findById(requestId);
+    if (!request) {
       return res.status(404).json({
-        status: 'error',
-        message: 'Answer not found or not under review'
+        success: false,
+        message: 'Review request not found'
       });
     }
 
-    // Update answer with expert review results
-    userAnswer.reviewStatus = 'review_completed';
-    userAnswer.reviewedAt = new Date();
-    
-    // Store expert review data
-    userAnswer.feedback = {
-      ...userAnswer.feedback,
-      expertReview: {
-        result: review_result,
-        score: expert_score || null,
-        remarks: expert_remarks || '',
-        annotatedImages: annotated_images || [],
-        reviewedAt: new Date()
-      }
-    };
-
-    // If expert provided a score, update the main score
-    if (expert_score !== undefined && expert_score !== null) {
-      userAnswer.feedback.score = expert_score;
+    // Check if request is available
+    if (!['pending', 'assigned'].includes(request.requestStatus)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Request is not available for acceptance'
+      });
     }
 
-    await userAnswer.save();
+    // Mark as assigned
+    request.requestStatus = 'assigned';
+    request.assignedAt = new Date();
+    await request.save();
 
-    console.log(`Expert review completed for answer ${answer_id}`);
-
-    // Prepare response data
-    const responseData = {
-      annotated_images: annotated_images || [],
-      expert_score: expert_score || null,
-      expert_remarks: expert_remarks || ''
-    };
+    // Update answer status
+    const answer = await UserAnswer.findById(request.answerId);
+    if (answer) {
+      answer.reviewStatus = 'review_accepted';
+      await answer.save();
+    }
 
     res.json({
-      status: 'success',
-      message: 'Review result submitted',
-      data: responseData
+      success: true,
+      message: 'Review request accepted successfully',
+      data: {
+        requestId: request._id,
+        status: request.requestStatus,
+        assignedAt: request.assignedAt
+      }
     });
 
   } catch (error) {
-    console.error('Error submitting review result:', error);
+    console.error('Error accepting review request:', error);
     res.status(500).json({
-      status: 'error',
+      success: false,
       message: 'Internal server error',
-      details: error.message
+      error: error.message
+    });
+  }
+});
+
+// 3. ✅ Submit Review
+router.post('/:requestId/submit', async (req, res) => {
+  try {
+    const { requestId } = req.params;
+    const { review_result, annotated_images = [], expert_score, expert_remarks } = req.body;
+
+    // Validate required fields
+    if (!review_result) {
+      return res.status(400).json({
+        success: false,
+        message: 'Review result is required'
+      });
+    }
+
+    // Find and validate request
+    const request = await ReviewRequest.findById(requestId);
+    if (!request) {
+      return res.status(404).json({
+        success: false,
+        message: 'Review request not found'
+      });
+    }
+
+    // Find and validate answer
+    const answer = await UserAnswer.findById(request.answerId);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer not found'
+      });
+    }
+
+    // Check if answer is in correct status
+    if (answer.reviewStatus !== 'review_accepted') {
+      return res.status(400).json({
+        success: false,
+        message: `Answer is not in correct status. Current status: ${answer.reviewStatus}`,
+        expectedStatus: 'review_accepted'
+      });
+    }
+
+    // Update answer with review data
+    answer.reviewStatus = 'review_completed';
+    answer.feedback = {
+      ...answer.feedback,
+      expertReview: {
+        result: review_result,
+        score: expert_score,
+        remarks: expert_remarks,
+        annotatedImages: annotated_images,
+        reviewedAt: new Date()
+      }
+    };
+    await answer.save();
+
+    // Update request status
+    request.requestStatus = 'completed';
+    request.completedAt = new Date();
+    request.reviewData = {
+      score: expert_score,
+      remarks: expert_remarks,
+      result: review_result,
+      annotatedImages: annotated_images
+    };
+    await request.save();
+
+    res.json({
+      success: true,
+      message: 'Review submitted successfully',
+      data: {
+        requestId: request._id,
+        status: request.requestStatus,
+        completedAt: request.completedAt,
+        review: {
+          result: review_result,
+          score: expert_score,
+          remarks: expert_remarks,
+          annotatedImages: annotated_images
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error submitting review:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
     });
   }
 });
@@ -328,7 +394,5 @@ router.get('/popular', async (req, res) => {
     });
   }
 });
-
-
 
 module.exports = router;

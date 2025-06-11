@@ -19,6 +19,10 @@ const AdminSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  isEvaluator:{
+    type: String,
+    default: true
+  },
   createdAt: {
     type: Date,
     default: Date.now

@@ -251,7 +251,11 @@ exports.generateClientLoginToken = async (req, res) => {
     }
     
     // Generate a short-lived token for this client (e.g., 1 hour)
-    const token = jwt.sign({ id: client._id }, process.env.JWT_SECRET, {
+    const token = jwt.sign({ 
+      id: client._id,
+      type: 'client',
+      clientId: client._id
+    }, process.env.JWT_SECRET, {
       expiresIn: '1h'
     });
     
