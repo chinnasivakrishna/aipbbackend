@@ -230,6 +230,12 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
     const { message } = req.body;
     const userId = req.user.id;
 
+    console.log('Feedback request:', {
+      requestId,
+      userId,
+      message
+    });
+
     if (!message || !message.trim()) {
       return res.status(400).json({
         success: false,
@@ -245,11 +251,17 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
       });
     }
 
-    // Verify ownership
-    if (request.userId.toString() !== userId.toString()) {
+    console.log('Found request:', {
+      requestId: request._id,
+      requestUserId: request.userId,
+      currentUserId: userId
+    });
+
+    // Verify ownership - check if the user is either the student or the expert
+    if (request.userId.toString() !== userId.toString() && request.expertId?.toString() !== userId.toString()) {
       return res.status(403).json({
         success: false,
-        message: 'Access denied'
+        message: 'Access denied - you must be either the student or the expert who reviewed this answer'
       });
     }
 
@@ -261,14 +273,35 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
       });
     }
 
-    // Add feedback
-    await request.addFeedback(message.trim());
+    // Find the answer
+    const answer = await UserAnswer.findById(request.answerId);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer not found'
+      });
+    }
+
+    // Add feedback to the answer
+    if (!answer.feedback.userFeedback) {
+      answer.feedback.userFeedback = [];
+    }
+
+    answer.feedback.userFeedback.push({
+      message: message.trim(),
+      submittedAt: new Date()
+    });
+
+    await answer.save();
 
     res.json({
       success: true,
       message: 'Feedback submitted successfully',
       data: {
-        feedbackCount: request.studentFeedback.length
+        requestId: request._id,
+        answerId: answer._id,
+        feedbackCount: answer.feedback.userFeedback.length,
+        feedback: answer.feedback.userFeedback[answer.feedback.userFeedback.length - 1]
       }
     });
 
