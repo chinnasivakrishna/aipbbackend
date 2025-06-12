@@ -394,6 +394,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
         exams: profile.exams,
         native_language: profile.nativeLanguage,
         mobile: profile.userId.mobile,
+        isEvaluator:profile.isEvaluator,
         created_at: profile.createdAt,
         updated_at: profile.updatedAt
       }
