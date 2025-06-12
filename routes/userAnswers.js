@@ -825,7 +825,7 @@ router.post('/questions/:questionId/answers',
             }
           }
         }
-        return res.status(400).json({
+        return res.status(555).json({
           success: false,
           message: "Maximum submission limit reached",
           error: {
