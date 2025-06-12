@@ -1,4 +1,3 @@
-
 // models/Admin.js - Admin model
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
@@ -19,8 +18,8 @@ const AdminSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-  isEvaluator:{
-    type: String,
+  isEvaluator: {
+    type: Boolean,
     default: true
   },
   createdAt: {
