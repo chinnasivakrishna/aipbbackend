@@ -11,6 +11,7 @@ const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const axios = require('axios');
 const crud =  require('./answerapis');
 const { submitEvaluationFeedback } = require('../controllers/userAnswers');
+const { refreshAnnotatedImageUrls } = require('../utils/s3');
 
 router.use('/crud', crud);
 
@@ -1215,5 +1216,33 @@ router.post('/answers/:answerId/feedback',
   ],
   submitEvaluationFeedback
 );
+
+// Get answer by ID
+router.get('/:answerId', authenticateMobileUser, async (req, res) => {
+  try {
+    const answer = await UserAnswer.findById(req.params.answerId);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: 'Answer not found'
+      });
+    }
+
+    // Refresh annotated image URLs if needed
+    const answerWithRefreshedUrls = await refreshAnnotatedImageUrls(answer);
+    
+    res.json({
+      success: true,
+      data: answerWithRefreshedUrls
+    });
+  } catch (error) {
+    console.error('Error getting answer:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
 
 module.exports = router;

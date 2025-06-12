@@ -66,7 +66,18 @@ const reviewRequestSchema = new mongoose.Schema({
       trim: true
     },
     annotatedImages: [{
-      type: String
+      s3Key: {
+        type: String,
+        required: true
+      },
+      downloadUrl: {
+        type: String,
+        required: true
+      },
+      uploadedAt: {
+        type: Date,
+        default: Date.now
+      }
     }],
   }
 }, {

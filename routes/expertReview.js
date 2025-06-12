@@ -6,6 +6,8 @@ const ReviewRequest = require('../models/ReviewRequest');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const MobileUser = require('../models/MobileUser');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
+const { generatePresignedUrl, generateAnnotatedImageUrl } = require('../utils/s3');
+const path = require('path');
 
 // 0. 📝 Create Review Request
 router.post('/request', async (req, res) => {
@@ -222,6 +224,16 @@ router.post('/:requestId/submit', async (req, res) => {
       });
     }
 
+    // Process annotated images
+    const processedImages = await Promise.all(annotated_images.map(async (image) => {
+      const downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
+      return {
+        s3Key: image.s3Key,
+        downloadUrl: downloadUrl,
+        uploadedAt: new Date()
+      };
+    }));
+
     // Update answer with review data
     answer.reviewStatus = 'review_completed';
     answer.feedback = {
@@ -230,7 +242,7 @@ router.post('/:requestId/submit', async (req, res) => {
         result: review_result,
         score: expert_score,
         remarks: expert_remarks,
-        annotatedImages: annotated_images,
+        annotatedImages: processedImages,
         reviewedAt: new Date()
       }
     };
@@ -243,7 +255,7 @@ router.post('/:requestId/submit', async (req, res) => {
       score: expert_score,
       remarks: expert_remarks,
       result: review_result,
-      annotatedImages: annotated_images
+      annotatedImages: processedImages
     };
     await request.save();
 
@@ -258,7 +270,7 @@ router.post('/:requestId/submit', async (req, res) => {
           result: review_result,
           score: expert_score,
           remarks: expert_remarks,
-          annotatedImages: annotated_images
+          annotatedImages: processedImages
         }
       }
     });
@@ -273,6 +285,42 @@ router.post('/:requestId/submit', async (req, res) => {
   }
 });
 
+// Generate presigned URL for annotated image upload
+router.post('/annotated-image-upload-url', async (req, res) => {
+  try {
+    const { fileName, contentType, clientId, answerId } = req.body;
+
+    // Validate required fields
+    if (!fileName || !contentType || !clientId || !answerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'fileName, contentType, clientId, and answerId are required'
+      });
+    }
+
+    // Generate S3 key for the annotated image
+    const fileExtension = path.extname(fileName);
+    const s3Key = `/KitabAI/annotated-images/${clientId}/${answerId}/${Date.now()}${fileExtension}`;
+
+    // Generate presigned URL for upload
+    const uploadUrl = await generatePresignedUrl(s3Key, contentType);
+
+    res.json({
+      success: true,
+      data: {
+        uploadUrl,
+        key: s3Key
+      }
+    });
+  } catch (error) {
+    console.error('Error generating upload URL:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate upload URL',
+      error: error.message
+    });
+  }
+});
 
 // 5. 🌟 Get List of Questions in "Popular"
 router.get('/popular', async (req, res) => {
