@@ -202,8 +202,8 @@ router.get('/list', async (req, res) => {
     const totalCount = await MyBook.countDocuments({ userId, clientId });
 
     if (myBooks.length === 0) {
-      return res.status(404).json({
-        success: false,
+      return res.status(200).json({
+        success: true,
         message: 'No books found in your My Books collection.',
         error: {
           code: 'NO_BOOKS_FOUND',
