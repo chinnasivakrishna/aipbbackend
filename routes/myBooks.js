@@ -201,20 +201,15 @@ router.get('/list', async (req, res) => {
     // Get total count for pagination
     const totalCount = await MyBook.countDocuments({ userId, clientId });
 
-    if (myBooks.length === 0) {
-      return res.status(200).json({
-        success: true,
-        message: 'No books found in your My Books collection.',
-        error: {
-          code: 'NO_BOOKS_FOUND',
-          details: 'Your My Books list is empty'
-        }
-      });
-    }
-
     // Format response and generate cover image URLs
     const formattedBooks = await Promise.all(myBooks.map(async myBook => {
-      let coverImageUrl = myBook.bookId.coverImageUrl;
+      // Check if book exists
+      if (!myBook.bookId) {
+        console.warn(`Book not found for MyBook entry ${myBook._id}`);
+        return null;
+      }
+
+      let coverImageUrl = myBook.bookId.coverImageUrl || null;
       
       // Generate new presigned URL if we have a cover image
       if (myBook.bookId.coverImage) {
@@ -234,39 +229,53 @@ router.get('/list', async (req, res) => {
       return {
         mybook_id: myBook._id,
         book_id: myBook.bookId._id,
-        title: myBook.bookId.title,
-        author: myBook.bookId.author,
-        publisher: myBook.bookId.publisher,
-        description: myBook.bookId.description,
+        title: myBook.bookId.title || '',
+        author: myBook.bookId.author || '',
+        publisher: myBook.bookId.publisher || '',
+        description: myBook.bookId.description || '',
         cover_image: myBook.bookId.coverImage || '',
         cover_image_url: coverImageUrl || '',
-        rating: myBook.bookId.rating,
-        rating_count: myBook.bookId.ratingCount || '',
-        conversations:myBook.bookId.conversations || '',
-        users:myBook.bookId.users || '',
-        summary:myBook.bookId.summary || '',
-        main_category: myBook.bookId.mainCategory,
-        sub_category: myBook.bookId.subCategory,
-        exam: myBook.bookId.exam,
-        paper: myBook.bookId.paper,
-        subject: myBook.bookId.subject,
-        tags: myBook.bookId.tags,
-        view_count: myBook.bookId.viewCount,
+        rating: myBook.bookId.rating || 0,
+        rating_count: myBook.bookId.ratingCount || 0,
+        conversations: myBook.bookId.conversations || [],
+        users: myBook.bookId.users || [],
+        summary: myBook.bookId.summary || '',
+        main_category: myBook.bookId.mainCategory || '',
+        sub_category: myBook.bookId.subCategory || '',
+        exam: myBook.bookId.exam || '',
+        paper: myBook.bookId.paper || '',
+        subject: myBook.bookId.subject || '',
+        tags: myBook.bookId.tags || [],
+        view_count: myBook.bookId.viewCount || 0,
         added_at: myBook.addedAt,
         last_accessed_at: myBook.lastAccessedAt,
-        personal_note: myBook.personalNote,
-        priority: myBook.priority,
-        is_added_to_my_books: myBook.bookId.isAddedToMyBooks
+        personal_note: myBook.personalNote || '',
+        priority: myBook.priority || 'normal',
+        is_added_to_my_books: myBook.bookId.isAddedToMyBooks || false
       };
     }));
 
-    console.log(`Retrieved ${myBooks.length} books from My Books for user ${userId}`);
+    // Filter out any null entries (books that weren't found)
+    const validBooks = formattedBooks.filter(book => book !== null);
+
+    if (validBooks.length === 0) {
+      return res.status(200).json({
+        success: true,
+        message: 'No books found in your My Books collection.',
+        error: {
+          code: 'NO_BOOKS_FOUND',
+          details: 'Your My Books list is empty'
+        }
+      });
+    }
+
+    console.log(`Retrieved ${validBooks.length} books from My Books for user ${userId}`);
 
     res.status(200).json({
       success: true,
       message: 'My Books retrieved successfully.',
       data: {
-        books: formattedBooks,
+        books: validBooks,
         pagination: {
           current_page: pageNum,
           total_pages: Math.ceil(totalCount / limitNum),

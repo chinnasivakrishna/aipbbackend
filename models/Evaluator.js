@@ -52,6 +52,28 @@ const evaluatorSchema = new mongoose.Schema({
       message: 'Grade must be one of: 1st grade, 2nd grade, 3rd grade'
     }
   },
+  status: {
+    type: String,
+    enum: ['PENDING', 'VERIFIED', 'SUSPENDED'],
+    default: 'PENDING'
+  },
+  enabled: {
+    type: Boolean,
+    default: true
+  },
+  verifiedAt: {
+    type: Date
+  },
+  suspendedAt: {
+    type: Date
+  },
+  suspensionReason: {
+    type: String
+  },
+  isEvaluator: {
+    type: Boolean,
+    default: true
+  },
   clientAccess: [{
     id: {
       type: String,

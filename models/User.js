@@ -21,7 +21,7 @@ const UserSchema = new mongoose.Schema({
   },
   isEvaluator: {
     type: Boolean,
-    default: true
+    default: false
   },
   role: {
     type: String,

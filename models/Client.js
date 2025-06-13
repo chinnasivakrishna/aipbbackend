@@ -33,7 +33,7 @@ const ClientSchema = new mongoose.Schema({
   },
   isEvaluator: {
     type: Boolean,
-    default: true
+    default: false
   },
   createdAt: {
     type: Date,
