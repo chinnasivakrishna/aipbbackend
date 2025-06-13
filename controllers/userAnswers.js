@@ -150,15 +150,20 @@ const submitAnswer = async (req, res, next) => {
         });
       }
 
-      // Add feedback to the evaluation
-      if (!answer.evaluation.userFeedback) {
-        answer.evaluation.userFeedback = [];
+      // Check if feedback already exists
+      if (!answer.evaluation.feedbackStatus) {
+        return res.status(400).json({
+          success: false,
+          message: 'Feedback has already been submitted for this evaluation'
+        });
       }
 
-      answer.evaluation.userFeedback.push({
+      // Update feedback and set status
+      answer.evaluation.userFeedback = {
         message: message.trim(),
         submittedAt: new Date()
-      });
+      };
+      answer.evaluation.feedbackStatus = false;
 
       await answer.save();
 
@@ -167,8 +172,8 @@ const submitAnswer = async (req, res, next) => {
         message: 'Evaluation feedback submitted successfully',
         data: {
           answerId: answer._id,
-          feedbackCount: answer.evaluation.userFeedback.length,
-          feedback: answer.evaluation.userFeedback[answer.evaluation.userFeedback.length - 1]
+          feedbackStatus: answer.evaluation.feedbackStatus,
+          feedback: answer.evaluation.userFeedback
         }
       });
 

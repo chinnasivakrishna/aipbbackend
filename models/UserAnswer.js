@@ -78,6 +78,19 @@ const userAnswerSchema = new mongoose.Schema({
       type: String,
       trim: true
     }],
+    feedbackStatus: {
+      type: Boolean,
+      default: true
+    },
+    userFeedbackReview: {
+      message: {
+        type: String
+      },
+      submittedAt: {
+        type: Date,
+        default: null
+      }
+    },
     expertReview: {
       result: {
         type: String,
@@ -110,17 +123,7 @@ const userAnswerSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
       }
-    },
-    userFeedbackReview: [{
-      message: {
-        type: String,
-        required: true
-      },
-      submittedAt: {
-        type: Date,
-        default: Date.now
-      }
-    }]
+    }
   },
   metadata: {
     timeSpent: {
@@ -170,16 +173,19 @@ const userAnswerSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
-    userFeedback: [{
+    feedbackStatus: {
+      type: Boolean,
+      default: true
+    },
+    userFeedback: {
       message: {
-        type: String,
-        required: true
+        type: String
       },
       submittedAt: {
         type: Date,
-        default: Date.now
+        default: null
       }
-    }]
+    }
   },
   publishStatus: {
     type: String,

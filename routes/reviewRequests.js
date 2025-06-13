@@ -282,15 +282,20 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
       });
     }
 
-    // Add feedback to the answer
-    if (!answer.feedback.userFeedbackReview) {
-      answer.feedback.userFeedbackReview = [];
+    // Check if feedback already exists
+    if (!answer.feedback.feedbackStatus) {
+      return res.status(400).json({
+        success: false,
+        message: 'Feedback has already been submitted for this review'
+      });
     }
 
-    answer.feedback.userFeedbackReview.push({
+    // Add feedback to the answer
+    answer.feedback.userFeedbackReview = {
       message: message.trim(),
       submittedAt: new Date()
-    });
+    };
+    answer.feedback.feedbackStatus = false;
 
     await answer.save();
 
@@ -300,8 +305,8 @@ router.post('/:requestId/feedback', authenticateMobileUser, ensureUserBelongsToC
       data: {
         requestId: request._id,
         answerId: answer._id,
-        feedbackCount: answer.feedback.userFeedback.length,
-        feedback: answer.feedback.userFeedbackReview[answer.feedback.userFeedbackReview.length - 1]
+        feedbackStatus: answer.feedback.feedbackStatus,
+        feedback: answer.feedback.userFeedbackReview
       }
     });
 
