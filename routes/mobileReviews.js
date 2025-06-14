@@ -367,4 +367,42 @@ router.get('/:requestId/details', async (req, res) => {
   }
 });
 
+// Get review request by submission ID
+router.get('/by-submission/:submissionId', async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+    const clientId = req.user.clientId;
+
+    // Find the review request using the submission ID
+    const reviewRequest = await ReviewRequest.findOne({ 
+      answerId: submissionId,
+      clientId: clientId 
+    });
+
+    if (!reviewRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Review request not found for this submission'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        requestId: reviewRequest._id,
+        status: reviewRequest.requestStatus,
+        reviewData: reviewRequest.reviewData
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching review request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
+    });
+  }
+});
+
 module.exports = router; 

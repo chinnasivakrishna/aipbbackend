@@ -54,7 +54,7 @@ const evaluatorSchema = new mongoose.Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'VERIFIED', 'SUSPENDED'],
+    enum: ['PENDING', 'VERIFIED', 'NOT_VERIFIED'],
     default: 'PENDING'
   },
   enabled: {
@@ -63,12 +63,6 @@ const evaluatorSchema = new mongoose.Schema({
   },
   verifiedAt: {
     type: Date
-  },
-  suspendedAt: {
-    type: Date
-  },
-  suspensionReason: {
-    type: String
   },
   isEvaluator: {
     type: Boolean,

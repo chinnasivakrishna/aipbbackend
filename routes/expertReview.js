@@ -189,8 +189,11 @@ router.post('/:requestId/submit', async (req, res) => {
     const { requestId } = req.params;
     const { review_result, annotated_images = [], expert_score, expert_remarks } = req.body;
 
+    console.log(`[Review Submit] Starting review submission for requestId: ${requestId}`);
+
     // Validate required fields
     if (!review_result) {
+      console.log('[Review Submit] Validation failed: review_result is missing');
       return res.status(400).json({
         success: false,
         message: 'Review result is required'
@@ -200,15 +203,19 @@ router.post('/:requestId/submit', async (req, res) => {
     // Find and validate request
     const request = await ReviewRequest.findById(requestId);
     if (!request) {
+      console.log(`[Review Submit] Request not found for requestId: ${requestId}`);
       return res.status(404).json({
         success: false,
         message: 'Review request not found'
       });
     }
 
+    console.log(`[Review Submit] Found review request with status: ${request.requestStatus}`);
+
     // Find and validate answer
     const answer = await UserAnswer.findById(request.answerId);
     if (!answer) {
+      console.log(`[Review Submit] Answer not found for answerId: ${request.answerId}`);
       return res.status(404).json({
         success: false,
         message: 'Answer not found'
@@ -217,6 +224,7 @@ router.post('/:requestId/submit', async (req, res) => {
 
     // Check if answer is in correct status
     if (answer.reviewStatus !== 'review_accepted') {
+      console.log(`[Review Submit] Invalid answer status: ${answer.reviewStatus}, expected: review_accepted`);
       return res.status(400).json({
         success: false,
         message: `Answer is not in correct status. Current status: ${answer.reviewStatus}`,
@@ -224,6 +232,7 @@ router.post('/:requestId/submit', async (req, res) => {
       });
     }
 
+    console.log('[Review Submit] Processing annotated images...');
     // Process annotated images
     const processedImages = await Promise.all(annotated_images.map(async (image) => {
       const downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
@@ -233,8 +242,10 @@ router.post('/:requestId/submit', async (req, res) => {
         uploadedAt: new Date()
       };
     }));
+    console.log(`[Review Submit] Processed ${processedImages.length} annotated images`);
 
     // Update answer with review data
+    console.log('[Review Submit] Updating answer with review data...');
     answer.reviewStatus = 'review_completed';
     answer.feedback = {
       ...answer.feedback,
@@ -244,11 +255,17 @@ router.post('/:requestId/submit', async (req, res) => {
         remarks: expert_remarks,
         annotatedImages: processedImages,
         reviewedAt: new Date()
+      },
+      userFeedbackReview: {
+        message: answer.feedback?.userFeedbackReview?.message || '',
+        submittedAt: answer.feedback?.userFeedbackReview?.submittedAt || null
       }
     };
     await answer.save();
+    console.log('[Review Submit] Answer updated successfully');
 
     // Update request status
+    console.log('[Review Submit] Updating request status...');
     request.requestStatus = 'completed';
     request.completedAt = new Date();
     request.reviewData = {
@@ -258,7 +275,9 @@ router.post('/:requestId/submit', async (req, res) => {
       annotatedImages: processedImages
     };
     await request.save();
+    console.log('[Review Submit] Request status updated successfully');
 
+    console.log(`[Review Submit] Review submission completed successfully for requestId: ${requestId}`);
     res.json({
       success: true,
       message: 'Review submitted successfully',
@@ -276,7 +295,7 @@ router.post('/:requestId/submit', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error submitting review:', error);
+    console.error('[Review Submit] Error submitting review:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error',
@@ -381,6 +400,40 @@ router.get('/popular', async (req, res) => {
       status: 'error',
       message: 'Internal server error',
       details: error.message
+    });
+  }
+});
+
+// Get review request by submission ID
+router.get('/by-submission/:submissionId', async (req, res) => {
+  try {
+    const { submissionId } = req.params;
+
+    // Find the review request using the submission ID
+    const reviewRequest = await ReviewRequest.findOne({ answerId: submissionId });
+
+    if (!reviewRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Review request not found for this submission'
+      });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        requestId: reviewRequest._id,
+        status: reviewRequest.requestStatus,
+        reviewData: reviewRequest.reviewData
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching review request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error',
+      error: error.message
     });
   }
 });

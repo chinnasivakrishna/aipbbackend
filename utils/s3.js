@@ -143,6 +143,7 @@ const generateAnnotatedImageUrl = async (key) => {
     });
 
     console.log('Successfully generated annotated image URL');
+    console.log(signedUrl)
     return signedUrl;
   } catch (error) {
     console.error('Error generating annotated image URL:', {

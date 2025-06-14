@@ -192,6 +192,14 @@ const userAnswerSchema = new mongoose.Schema({
     enum: ['published', 'not_published'],
     default: 'not_published'
   },
+  requestID:{
+    type:String,
+    default:null
+  },
+  requestnote:{
+    type:String,
+    default:null 
+  },
   reviewStatus: {
     type: String,
     enum: ['review_pending', 'review_accepted', 'review_completed'],

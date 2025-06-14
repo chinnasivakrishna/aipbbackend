@@ -6,6 +6,7 @@ const UserProfile = require('../models/UserProfile');
 const MobileUser = require('../models/MobileUser');
 const { verifyAdminToken } = require('../middleware/auth');
 const User = require('../models/User');
+const ReviewRequest = require('../models/ReviewRequest');
 
 // Apply admin authentication to all routes
 router.use(verifyAdminToken);
@@ -412,7 +413,7 @@ router.post('/addexistinguserasevaluator', async (req, res) => {
   }
 });
 
-// 6. VERIFY EVALUATOR
+// 6. VERIFY/UNVERIFY EVALUATOR
 router.post('/:id/verify', async (req, res) => {
   try {
     const { id } = req.params;
@@ -426,24 +427,30 @@ router.post('/:id/verify', async (req, res) => {
       });
     }
 
+    // Toggle between verified and not verified states
     if (evaluator.status === 'VERIFIED') {
-      return res.status(400).json({
-        success: false,
-        message: 'Evaluator is already verified'
+      evaluator.status = 'NOT_VERIFIED';
+      evaluator.verifiedAt = null;
+      await evaluator.save();
+      
+      return res.json({
+        success: true,
+        message: 'Evaluator marked as not verified',
+        evaluator
+      });
+    } else {
+      evaluator.status = 'VERIFIED';
+      evaluator.verifiedAt = new Date();
+      await evaluator.save();
+      
+      return res.json({
+        success: true,
+        message: 'Evaluator verified successfully',
+        evaluator
       });
     }
-
-    evaluator.status = 'VERIFIED';
-    evaluator.verifiedAt = new Date();
-    await evaluator.save();
-    
-    res.json({
-      success: true,
-      message: 'Evaluator verified successfully',
-      evaluator
-    });
   } catch (error) {
-    console.error('Verify evaluator error:', error);
+    console.error('Verify/Unverify evaluator error:', error);
     
     if (error.name === 'CastError') {
       return res.status(404).json({
@@ -459,61 +466,35 @@ router.post('/:id/verify', async (req, res) => {
   }
 });
 
-// 7. SUSPEND EVALUATOR
-router.post('/:id/suspend', async (req, res) => {
+// Toggle evaluator enabled status
+router.post('/:id/togglestatus', async (req, res) => {
   try {
-    const { id } = req.params;
-    const { reason } = req.body;
-    
-    if (!reason) {
-      return res.status(400).json({
-        success: false,
-        message: 'Suspension reason is required'
-      });
-    }
-    
-    const evaluator = await Evaluator.findById(id);
-    
+    const evaluator = await Evaluator.findById(req.params.id);
+
     if (!evaluator) {
       return res.status(404).json({
         success: false,
-        message: 'Evaluator not found'
+        error: 'Evaluator not found'
       });
     }
 
-    if (evaluator.status === 'SUSPENDED') {
-      return res.status(400).json({
-        success: false,
-        message: 'Evaluator is already suspended'
-      });
-    }
-
-    evaluator.status = 'SUSPENDED';
-    evaluator.suspendedAt = new Date();
-    evaluator.suspensionReason = reason;
+    // Toggle the enabled status
+    evaluator.enabled = !evaluator.enabled;
     await evaluator.save();
-    
-    res.json({
+
+    res.status(200).json({
       success: true,
-      message: 'Evaluator suspended successfully',
-      evaluator
+      data: evaluator,
+      message: evaluator.enabled ? 'Evaluator enabled successfully' : 'Evaluator disabled successfully'
     });
-  } catch (error) {
-    console.error('Suspend evaluator error:', error);
-    
-    if (error.name === 'CastError') {
-      return res.status(404).json({
-        success: false,
-        message: 'Evaluator not found'
-      });
-    }
-    
+  } 
+  catch (error) {
     res.status(500).json({
       success: false,
-      message: 'Internal server error'
+      error: 'Server Error'
     });
   }
-});
+}); 
 
 
 
