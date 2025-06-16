@@ -7,12 +7,11 @@ const MobileUser = require('../models/MobileUser');
 const { verifyAdminToken } = require('../middleware/auth');
 const User = require('../models/User');
 const ReviewRequest = require('../models/ReviewRequest');
-const { registerEvaluator, loginEvaluator, getEvaluatorProfile } = require('../controllers/evaluatorController');
+const { registerEvaluator, loginEvaluator} = require('../controllers/evaluatorController');
 
 // Public routes (no authentication required)
 router.post('/register', registerEvaluator);
 router.post('/login', loginEvaluator);
-router.get('/profile', getEvaluatorProfile);
 
 
 // Apply admin authentication to all other routes
