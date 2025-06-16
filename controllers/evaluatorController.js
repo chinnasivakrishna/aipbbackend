@@ -126,13 +126,6 @@ exports.loginEvaluator = async (req, res) => {
   }
 };
 
-exports.getEvaluatorProfile = async (req,res)=>{
-  try {
-    
-  } catch (error) {
-    
-  }
-}
 
 // Get all evaluators
 exports.getAllEvaluators = async (req, res) => {
