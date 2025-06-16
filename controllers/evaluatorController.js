@@ -1,6 +1,138 @@
+const jwt = require('jsonwebtoken');
 const Evaluator = require('../models/Evaluator');
 const User = require('../models/User');
 const { validationResult } = require('express-validator');
+const bcrypt = require('bcryptjs');
+
+// Generate JWT Token for evaluator
+const generateToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: '7d'
+  });
+};
+
+exports.registerEvaluator = async (req, res) => {
+  try {
+    const {
+      name,
+      email,
+      phoneNumber,
+      currentcity,
+      subjectMatterExpert,
+      instituteworkedwith,
+      examFocus,
+      experience,
+      grade
+    } = req.body;
+
+    // Check if evaluator already exists
+    const existingEvaluator = await Evaluator.findOne({
+      $or: [{ email }, { phoneNumber }]
+    });
+
+    if (existingEvaluator) {
+      return res.status(400).json({
+        success: false,
+        message: 'Evaluator with this email or phone number already exists'
+      });
+    }
+
+    // Create new evaluator
+    const evaluator = await Evaluator.create({
+      name,
+      email,
+      phoneNumber,
+      currentcity,
+      subjectMatterExpert,
+      instituteworkedwith,
+      examFocus,
+      experience,
+      grade,
+      status: 'PENDING'
+    });
+
+    // Generate token
+    const token = generateToken(evaluator._id);
+
+    res.status(201).json({
+      success: true,
+      token,
+      evaluator: {
+        id: evaluator._id,
+        name: evaluator.name,
+        email: evaluator.email,
+        phoneNumber: evaluator.phoneNumber,
+        status: evaluator.status
+      }
+    });
+  } catch (error) {
+    console.error('Evaluator registration error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
+exports.loginEvaluator = async (req, res) => {
+  try {
+    const { email, phoneNumber } = req.body;
+
+    // Find evaluator by email or phone number
+    const evaluator = await Evaluator.findOne({
+      $or: [{ email }, { phoneNumber }]
+    });
+
+    if (!evaluator) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
+      });
+    }
+
+    // Check if evaluator is enabled
+    if (!evaluator.enabled) {
+      return res.status(401).json({
+        success: false,
+        message: 'Your account has been disabled. Please contact support.'
+      });
+    }
+
+    // Generate token
+    const token = generateToken(evaluator._id);
+
+    res.json({
+      success: true,
+      token,
+      evaluator: {
+        id: evaluator._id,
+        name: evaluator.name,
+        email: evaluator.email,
+        phoneNumber: evaluator.phoneNumber,
+        status: evaluator.status,
+        subjectMatterExpert: evaluator.subjectMatterExpert,
+        examFocus: evaluator.examFocus,
+        grade: evaluator.grade
+      }
+    });
+  } catch (error) {
+    console.error('Evaluator login error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message
+    });
+  }
+};
+
+exports.getEvaluatorProfile = async (req,res)=>{
+  try {
+    
+  } catch (error) {
+    
+  }
+}
 
 // Get all evaluators
 exports.getAllEvaluators = async (req, res) => {

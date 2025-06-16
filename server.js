@@ -75,6 +75,8 @@ app.use('/api/aiswb', aiswbRoutes);
 app.use('/api/mybooks', myBooksRoutes);
 app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
+app.use('/api/review', expertReviewRoutes);
+
 // Global Evaluation routes (accessible without client-specific middleware)
 // These handle the main Assessment Dashboard APIs as per PDF requirements
 app.use('/api/aiswb', evaluationRoutes);
@@ -174,7 +176,6 @@ app.use('/api/clients/:clientId/mobile/review',
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 
-app.use('/api/review', expertReviewRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

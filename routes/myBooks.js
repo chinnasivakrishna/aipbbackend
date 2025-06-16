@@ -62,23 +62,6 @@ router.post('/add', async (req, res) => {
       });
     }
 
-    // Check if book is already in user's My Books
-    const existingMyBook = await MyBook.findOne({
-      userId: userId,
-      bookId: book_id
-    });
-
-    if (existingMyBook) {
-      return res.status(409).json({
-        success: false,
-        message: 'Book is already in your My Books list.',
-        error: {
-          code: 'BOOK_ALREADY_EXISTS',
-          details: 'This book has already been added to your My Books collection'
-        }
-      });
-    }
-
     // Add book to My Books
     const myBook = new MyBook({
       userId: userId,
@@ -87,6 +70,7 @@ router.post('/add', async (req, res) => {
     });
 
     await myBook.save();
+    console.log(myBook);
 
     // Populate book details for response
     await myBook.populate({
@@ -106,8 +90,7 @@ router.post('/add', async (req, res) => {
         author: myBook.bookId.author,
         coverImage: myBook.bookId.coverImage,
         coverImageUrl: myBook.bookId.coverImageUrl,
-        addedAt: myBook.addedAt,
-        isAddedToMyBooks: myBook.isIASBookAdded
+        addedAt: myBook.addedAt
       }
     });
 
@@ -250,8 +233,7 @@ router.get('/list', async (req, res) => {
         added_at: myBook.addedAt,
         last_accessed_at: myBook.lastAccessedAt,
         personal_note: myBook.personalNote || '',
-        priority: myBook.priority || 'normal',
-        is_added_to_my_books: myBook.bookId.isAddedToMyBooks || false
+        priority: myBook.priority || 'normal'
       };
     }));
 
@@ -352,11 +334,6 @@ router.post('/remove', async (req, res) => {
       });
     }
 
-    // Update the book's isAddedToMyBooks field to false
-    await Book.findByIdAndUpdate(book_id, {
-      $set: { isAddedToMyBooks: false }
-    });
-
     console.log(`Book ${book_id} removed from My Books for user ${userId}`);
 
     res.status(200).json({
@@ -367,7 +344,6 @@ router.post('/remove', async (req, res) => {
         title: removedMyBook.bookId?.title || 'Unknown',
         author: removedMyBook.bookId?.author || 'Unknown',
         removedAt: new Date(),
-        isAddedToMyBooks: false
       }
     });
 

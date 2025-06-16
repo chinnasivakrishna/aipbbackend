@@ -24,12 +24,20 @@ const evaluatorSchema = new mongoose.Schema({
     match: [/^\d{10}$/, 'Phone number must be exactly 10 digits'],
     trim: true
   },
+  currentcity:{
+    type:String,
+    default:""
+  },
   subjectMatterExpert: {
     type: String,
     required: [true, 'Subject matter expert field is required'],
     minlength: [2, 'Subject matter expert must be at least 2 characters long'],
     maxlength: [100, 'Subject matter expert must not exceed 100 characters'],
     trim: true
+  },
+  instituteworkedwith:{
+    type:String,
+    default:null
   },
   examFocus: {
     type: String,

@@ -264,11 +264,6 @@ const BookSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
-  isAddedToMyBooks: {
-    type: Boolean,
-    default: false,
-    index: true
-  },
   createdAt: {
     type: Date,
     default: Date.now
