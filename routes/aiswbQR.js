@@ -4,6 +4,7 @@ const QRCode = require('qrcode');
 const Question = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const Book = require('../models/Book');
+const Workbook = require('../models/Workbook'); // Add Workbook import
 const User = require('../models/User');
 const { validationResult, param, query } = require('express-validator');
 
@@ -52,7 +53,7 @@ async function getClientName(clientId) {
   }
 }
 
-// Helper function to get client info from question/set
+// Updated helper function to get client info from question/set (supports both books and workbooks)
 async function getClientInfoFromQuestion(questionId) {
   try {
     const question = await Question.findById(questionId).populate('setId');
@@ -60,24 +61,14 @@ async function getClientInfoFromQuestion(questionId) {
       return null;
     }
 
-    // Get book associated with the set
-    const book = await Book.findOne({ _id: question.setId.itemId });
-    if (!book) {
-      return null;
-    }
-
-    const clientName = await getClientName(book.clientId);
-    return {
-      clientId: book.clientId,
-      clientName: clientName
-    };
+    return await getClientInfoFromSet(question.setId._id);
   } catch (error) {
     console.error('Error fetching client info from question:', error);
     return null;
   }
 }
 
-// Helper function to get client info from set
+// Updated helper function to get client info from set (supports both books and workbooks)
 async function getClientInfoFromSet(setId) {
   try {
     const set = await AISWBSet.findById(setId);
@@ -85,15 +76,40 @@ async function getClientInfoFromSet(setId) {
       return null;
     }
 
-    // Get book associated with the set
-    const book = await Book.findOne({ _id: set.itemId });
-    if (!book) {
+    let clientId = null;
+    let clientName = null;
+
+    // Check if it's a workbook or book based on itemType or isWorkbook flag
+    if (set.itemType === 'workbook' || set.isWorkbook) {
+      // Get workbook associated with the set
+      const workbook = await Workbook.findById(set.itemId).populate('user');
+      if (workbook && workbook.user) {
+        // For workbooks, the client is the user who created the workbook
+        if (workbook.user.role === 'client') {
+          clientId = workbook.user.userId;
+          clientName = workbook.user.businessName || workbook.user.name;
+        } else {
+          // If user is not a client, we might need to handle this case differently
+          // For now, using the user's name
+          clientName = workbook.user.name;
+          clientId = workbook.user._id.toString(); // fallback to user ID
+        }
+      }
+    } else {
+      // Get book associated with the set
+      const book = await Book.findById(set.itemId);
+      if (book && book.clientId) {
+        clientId = book.clientId;
+        clientName = await getClientName(book.clientId);
+      }
+    }
+
+    if (!clientName) {
       return null;
     }
 
-    const clientName = await getClientName(book.clientId);
     return {
-      clientId: book.clientId,
+      clientId: clientId,
       clientName: clientName
     };
   } catch (error) {
@@ -291,6 +307,7 @@ router.get('/sets/:setId/qrcode',
           size: parseInt(size),
           metadata: {
             itemType: set.itemType,
+            isWorkbook: set.isWorkbook,
             totalQuestions: set.questions.length,
             difficultyBreakdown: set.questions.reduce((acc, q) => {
               acc[q.metadata.difficultyLevel] = (acc[q.metadata.difficultyLevel] || 0) + 1;
