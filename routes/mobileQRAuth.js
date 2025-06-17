@@ -48,7 +48,6 @@ const generateQRToken = (questionId, clientId) => {
     { expiresIn: '24h' } // QR tokens valid for 24 hours
   );
 };
-
 // ==================== QR AUTHENTICATION ROUTES ====================
 
 // Check if mobile number is registered and get client info
