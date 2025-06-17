@@ -83,13 +83,11 @@ const userAnswerSchema = new mongoose.Schema({
       default: true
     },
     userFeedbackReview: {
-      message: {
-        type: String
-      },
-      submittedAt: {
-        type: Date,
-        default: null
-      }
+      type: Object,
+      default: () => ({
+        message: '',
+        submittedAt: null
+      })
     },
     expertReview: {
       result: {
@@ -178,13 +176,11 @@ const userAnswerSchema = new mongoose.Schema({
       default: true
     },
     userFeedback: {
-      message: {
-        type: String
-      },
-      submittedAt: {
-        type: Date,
-        default: null
-      }
+      type: Object,
+      default: () => ({
+        message: '',
+        submittedAt: null
+      })
     }
   },
   publishStatus: {

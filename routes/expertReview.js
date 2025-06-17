@@ -247,20 +247,21 @@ router.post('/:requestId/submit', async (req, res) => {
     // Update answer with review data
     console.log('[Review Submit] Updating answer with review data...');
     answer.reviewStatus = 'review_completed';
+    
+    // Preserve existing feedback structure
+    const existingFeedback = answer.feedback || {};
+    
     answer.feedback = {
-      ...answer.feedback,
+      ...existingFeedback,
       expertReview: {
         result: review_result,
         score: expert_score,
         remarks: expert_remarks,
         annotatedImages: processedImages,
         reviewedAt: new Date()
-      },
-      userFeedbackReview: {
-        message: answer.feedback?.userFeedbackReview?.message || '',
-        submittedAt: answer.feedback?.userFeedbackReview?.submittedAt || null
       }
     };
+    
     await answer.save();
     console.log('[Review Submit] Answer updated successfully');
 
