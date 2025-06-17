@@ -4,6 +4,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const MobileUser = require('../models/MobileUser');
 const User = require('../models/User');
+const UserProfile = require('../models/UserProfile');
 const { sendMobileOtp, verifyOTP } = require('../services/otpService');
 const { generateToken } = require('../middleware/mobileAuth');
 const { validationResult, body, param } = require('express-validator');
@@ -23,6 +24,7 @@ const validateOTP = [
     .isLength({ min: 6, max: 6 })
     .withMessage('OTP must be 6 digits'),
   body('name')
+    .optional()
     .isLength({ min: 2, max: 50 })
     .withMessage('Name must be between 2 and 50 characters')
 ];
@@ -49,6 +51,92 @@ const generateQRToken = (questionId, clientId) => {
 
 // ==================== QR AUTHENTICATION ROUTES ====================
 
+// Check if mobile number is registered and get client info
+router.post('/clients/:clientId/qr/check-user',
+  validateClientId,
+  validateMobile,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid input data",
+          error: {
+            code: "INVALID_INPUT",
+            details: errors.array()
+          }
+        });
+      }
+
+      const { clientId } = req.params;
+      const { mobile } = req.body;
+
+      // Verify client exists and get client info
+      const client = await User.findOne({
+        userId: clientId,
+        role: 'client',
+        status: 'active'
+      });
+
+      if (!client) {
+        return res.status(400).json({
+          success: false,
+          message: 'Invalid client ID or client is not active',
+          error: {
+            code: 'INVALID_CLIENT',
+            details: `Client with ID ${clientId} not found or is not active`
+          }
+        });
+      }
+
+      // Check if mobile user exists
+      const mobileUser = await MobileUser.findOne({ mobile, clientId });
+      let userProfile = null;
+
+      if (mobileUser) {
+        // Get user profile if exists
+        userProfile = await UserProfile.findOne({ userId: mobileUser._id });
+      }
+
+      // Prepare client info
+      const clientInfo = {
+        clientId: client.userId,
+        clientName: client.businessName || client.name,
+        clientLogo: client.businessLogo,
+        businessWebsite: client.businessWebsite,
+        city: client.city
+      };
+
+      res.status(200).json({
+        success: true,
+        message: 'User check completed',
+        data: {
+          isRegistered: !!mobileUser,
+          userExists: !!mobileUser,
+          clientInfo: clientInfo,
+          userProfile: mobileUser ? {
+            name: userProfile?.name,
+            profilePicture: userProfile?.profilePicture,
+            mobile: mobile
+          } : null
+        }
+      });
+
+    } catch (error) {
+      console.error('Check user error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Failed to check user',
+        error: {
+          code: 'USER_CHECK_ERROR',
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
 // Send OTP for mobile authentication
 router.post('/clients/:clientId/qr/send-otp',
   validateClientId,
@@ -70,7 +158,7 @@ router.post('/clients/:clientId/qr/send-otp',
       const { clientId } = req.params;
       const { mobile } = req.body;
 
-      // Verify client exists
+      // Verify client exists and get client info
       const client = await User.findOne({
         userId: clientId,
         role: 'client',
@@ -88,17 +176,49 @@ router.post('/clients/:clientId/qr/send-otp',
         });
       }
 
+      // Check if mobile user exists and get profile
+      const mobileUser = await MobileUser.findOne({ mobile, clientId });
+      let userProfile = null;
+
+      if (mobileUser) {
+        userProfile = await UserProfile.findOne({ userId: mobileUser._id });
+      }
+
       // Send OTP
       await sendMobileOtp(mobile);
+
+      // Prepare response data
+      const responseData = {
+        mobile: mobile,
+        clientId: clientId,
+        otpSent: true,
+        clientInfo: {
+          clientId: client.userId,
+          clientName: client.businessName || client.name,
+          clientLogo: client.businessLogo,
+          businessWebsite: client.businessWebsite,
+          city: client.city
+        }
+      };
+
+      // Add user info if registered
+      if (mobileUser && userProfile) {
+        responseData.userInfo = {
+          isRegistered: true,
+          name: userProfile.name,
+          profilePicture: userProfile.profilePicture,
+          mobile: mobile
+        };
+      } else {
+        responseData.userInfo = {
+          isRegistered: false
+        };
+      }
 
       res.status(200).json({
         success: true,
         message: 'OTP sent successfully',
-        data: {
-          mobile: mobile,
-          clientId: clientId,
-          otpSent: true
-        }
+        data: responseData
       });
 
     } catch (error) {
@@ -169,9 +289,12 @@ router.post('/clients/:clientId/qr/verify-otp',
 
       // Find or create mobile user
       let mobileUser = await MobileUser.findOne({ mobile, clientId });
+      let userProfile = null;
+      let isNewUser = false;
       
       if (!mobileUser) {
         // Create new mobile user
+        isNewUser = true;
         mobileUser = new MobileUser({
           mobile,
           clientId,
@@ -186,36 +309,66 @@ router.post('/clients/:clientId/qr/verify-otp',
       
       await mobileUser.save();
 
-      // Create or update user profile if name is provided
-      if (name) {
-        const UserProfile = require('../models/UserProfile');
-        await UserProfile.findOneAndUpdate(
-          { userId: mobileUser._id },
-          { 
-            userId: mobileUser._id,
-            name: name,
-            mobile: mobile,
-            updatedAt: new Date()
-          },
-          { upsert: true, new: true }
-        );
+      // Handle user profile
+      if (isNewUser && name) {
+        // Create new profile for new user
+        userProfile = new UserProfile({
+          userId: mobileUser._id,
+          name: name,
+          mobile: mobile,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        });
+        await userProfile.save();
+      } else {
+        // Get existing profile for registered user
+        userProfile = await UserProfile.findOne({ userId: mobileUser._id });
+        
+        // Update profile if name is provided and user doesn't have a name
+        if (name && (!userProfile || !userProfile.name)) {
+          if (!userProfile) {
+            userProfile = new UserProfile({
+              userId: mobileUser._id,
+              name: name,
+              mobile: mobile,
+              createdAt: new Date(),
+              updatedAt: new Date()
+            });
+          } else {
+            userProfile.name = name;
+            userProfile.updatedAt = new Date();
+          }
+          await userProfile.save();
+        }
       }
+
+      // Prepare response
+      const responseData = {
+        user: {
+          id: mobileUser._id,
+          mobile: mobileUser.mobile,
+          clientId: mobileUser.clientId,
+          isVerified: mobileUser.isVerified,
+          isNewUser: isNewUser,
+          name: userProfile?.name,
+          profilePicture: userProfile?.profilePicture
+        },
+        clientInfo: {
+          clientId: client.userId,
+          clientName: client.businessName || client.name,
+          clientLogo: client.businessLogo,
+          businessWebsite: client.businessWebsite,
+          city: client.city
+        },
+        authToken: authToken,
+        tokenType: 'Bearer',
+        expiresIn: '30d'
+      };
 
       res.status(200).json({
         success: true,
         message: 'Authentication successful',
-        data: {
-          user: {
-            id: mobileUser._id,
-            mobile: mobileUser.mobile,
-            clientId: mobileUser.clientId,
-            isVerified: mobileUser.isVerified,
-            name: name
-          },
-          authToken: authToken,
-          tokenType: 'Bearer',
-          expiresIn: '30d'
-        }
+        data: responseData
       });
 
     } catch (error) {
@@ -225,193 +378,6 @@ router.post('/clients/:clientId/qr/verify-otp',
         message: 'Authentication failed',
         error: {
           code: 'AUTH_ERROR',
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// ==================== QR QUESTION ACCESS ROUTES ====================
-
-// Generate QR code with authentication token for question access
-router.get('/clients/:clientId/questions/:questionId/qr-auth',
-  validateClientId,
-  param('questionId').isMongoId().withMessage('Question ID must be valid'),
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { clientId, questionId } = req.params;
-      const { frontendBaseUrl } = req.query;
-
-      // Verify client exists
-      const client = await User.findOne({
-        userId: clientId,
-        role: 'client',
-        status: 'active'
-      });
-
-      if (!client) {
-        return res.status(400).json({
-          success: false,
-          message: 'Invalid client ID',
-          error: {
-            code: 'INVALID_CLIENT',
-            details: 'Client not found or inactive'
-          }
-        });
-      }
-
-      // Generate QR token for question access
-      const qrToken = generateQRToken(questionId, clientId);
-
-      // Create QR URL with authentication
-      const baseUrl = frontendBaseUrl || `${req.protocol}://${req.get('host')}`;
-      const qrUrl = `${baseUrl}/qr-question/${questionId}?client=${clientId}&token=${qrToken}`;
-
-      res.status(200).json({
-        success: true,
-        data: {
-          questionId,
-          clientId,
-          qrUrl,
-          qrToken,
-          expiresIn: '24h',
-          authRequired: true
-        }
-      });
-
-    } catch (error) {
-      console.error('Generate QR auth URL error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to generate QR auth URL',
-        error: {
-          code: 'QR_AUTH_ERROR',
-          details: error.message
-        }
-      });
-    }
-  }
-);
-
-// Validate QR token and get question access
-router.get('/clients/:clientId/qr-access/:questionId',
-  validateClientId,
-  param('questionId').isMongoId().withMessage('Question ID must be valid'),
-  async (req, res) => {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid input data",
-          error: {
-            code: "INVALID_INPUT",
-            details: errors.array()
-          }
-        });
-      }
-
-      const { clientId, questionId } = req.params;
-      const { token } = req.query;
-
-      if (!token) {
-        return res.status(401).json({
-          success: false,
-          message: 'QR token is required',
-          error: {
-            code: 'MISSING_QR_TOKEN',
-            details: 'QR token must be provided in query parameters'
-          }
-        });
-      }
-
-      // Verify QR token
-      let decoded;
-      try {
-        decoded = jwt.verify(token, process.env.JWT_SECRET);
-      } catch (jwtError) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid or expired QR token',
-          error: {
-            code: 'INVALID_QR_TOKEN',
-            details: jwtError.message
-          }
-        });
-      }
-
-      // Validate token data
-      if (decoded.type !== 'qr' || 
-          decoded.questionId !== questionId || 
-          decoded.clientId !== clientId) {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid QR token data',
-          error: {
-            code: 'TOKEN_DATA_MISMATCH',
-            details: 'Token does not match the requested resource'
-          }
-        });
-      }
-
-      // Check if user is authenticated
-      const authToken = req.header('Authorization')?.replace('Bearer ', '');
-      let isAuthenticated = false;
-      let user = null;
-
-      if (authToken) {
-        try {
-          const authDecoded = jwt.verify(authToken, process.env.JWT_SECRET);
-          if (authDecoded.type === 'mobile' && authDecoded.clientId === clientId) {
-            user = await MobileUser.findOne({
-              _id: authDecoded.id,
-              authToken: authToken,
-              clientId: clientId
-            });
-            isAuthenticated = !!user;
-          }
-        } catch (authError) {
-          // Authentication failed, but we'll handle it below
-        }
-      }
-
-      res.status(200).json({
-        success: true,
-        data: {
-          questionId,
-          clientId,
-          qrTokenValid: true,
-          isAuthenticated,
-          user: isAuthenticated ? {
-            id: user._id,
-            mobile: user.mobile,
-            clientId: user.clientId
-          } : null,
-          requiresAuth: !isAuthenticated,
-          authUrl: !isAuthenticated ? `/clients/${clientId}/qr/auth` : null
-        }
-      });
-
-    } catch (error) {
-      console.error('QR access validation error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Failed to validate QR access',
-        error: {
-          code: 'QR_ACCESS_ERROR',
           details: error.message
         }
       });
