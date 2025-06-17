@@ -62,6 +62,23 @@ router.post('/add', async (req, res) => {
       });
     }
 
+    // Check if book is already in My Books
+    const existingMyBook = await MyBook.findOne({
+      userId: userId,
+      bookId: book_id
+    });
+
+    if (existingMyBook) {
+      return res.status(200).json({
+        success: true,
+        message: 'Book is already in your My Books collection.',
+        error: {
+          code: 'BOOK_ALREADY_ADDED',
+          details: `Book with ID ${book_id} is already in your My Books collection`
+        }
+      });
+    }
+
     // Add book to My Books
     const myBook = new MyBook({
       userId: userId,
