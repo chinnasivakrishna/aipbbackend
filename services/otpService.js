@@ -17,7 +17,7 @@ async function sendMobileOtp(mobile, otp = null) {
   console.log(`📱 Mobile: ${mobile}, 🔐 OTP: ${otp}`);
 
   const params = {
-    method: 'SendMessage',
+    method: 'sendMessage',
     send_to: mobile,
     msg: `${otp} is your Mobishaala OTP for App Login.`,
     msg_type: 'TEXT',
