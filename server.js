@@ -36,6 +36,7 @@ const expertReviewRoutes = require('./routes/expertReview');
 const evaluatorReviewsRoutes = require('./routes/evaluatorReviews');
 const reviewRequestsRoutes = require('./routes/reviewRequests');
 const mobileReviewsRoutes = require('./routes/mobileReviews');
+const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
 
 
 app.use(cors());
@@ -154,15 +155,6 @@ app.use('/api/clients/:clientId/mobile/submitted-answers',
   mobileSubmittedAnswersRoutes
 );
 
-// app.use('/api/clients/:clientId/mobile/review', 
-//   checkClientAccess(),
-//   (req, res, next) => {
-//     req.clientId = req.params.clientId;
-//     next();
-//   }, 
-//   mobileReviewsRoutes
-// );
-
 app.use('/api/clients/:clientId/mobile/review', 
   checkClientAccess(),
   (req, res, next) => {
@@ -176,6 +168,8 @@ app.use('/api/clients/:clientId/mobile/review',
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 
+app.use('/api/review', expertReviewRoutes);
+app.use('/api/mobile-qr-auth', mobileQRAuthRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
