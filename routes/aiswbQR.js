@@ -4,7 +4,10 @@ const QRCode = require('qrcode');
 const Question = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const Book = require('../models/Book');
-const Workbook = require('../models/Workbook'); // Add Workbook import
+const Workbook = require('../models/Workbook');
+const Chapter = require('../models/Chapter');
+const Topic = require('../models/Topic');
+const SubTopic = require('../models/SubTopic');
 const User = require('../models/User');
 const { validationResult, param, query } = require('express-validator');
 
@@ -53,7 +56,7 @@ async function getClientName(clientId) {
   }
 }
 
-// Updated helper function to get client info from question/set (supports both books and workbooks)
+// Enhanced helper function to get client info from question/set (supports all content types)
 async function getClientInfoFromQuestion(questionId) {
   try {
     const question = await Question.findById(questionId).populate('setId');
@@ -68,7 +71,7 @@ async function getClientInfoFromQuestion(questionId) {
   }
 }
 
-// Updated helper function to get client info from set (supports both books and workbooks)
+// Enhanced helper function to get client info from set (supports all content types including chapters, topics, subtopics)
 async function getClientInfoFromSet(setId) {
   try {
     const set = await AISWBSet.findById(setId);
@@ -79,24 +82,104 @@ async function getClientInfoFromSet(setId) {
     let clientId = null;
     let clientName = null;
 
-    // Check if it's a workbook or book based on itemType or isWorkbook flag
+    // Check the item type and get client info accordingly
     if (set.itemType === 'workbook' || set.isWorkbook) {
       // Get workbook associated with the set
       const workbook = await Workbook.findById(set.itemId).populate('user');
       if (workbook && workbook.user) {
-        // For workbooks, the client is the user who created the workbook
         if (workbook.user.role === 'client') {
           clientId = workbook.user.userId;
           clientName = workbook.user.businessName || workbook.user.name;
         } else {
-          // If user is not a client, we might need to handle this case differently
-          // For now, using the user's name
           clientName = workbook.user.name;
-          clientId = workbook.user._id.toString(); // fallback to user ID
+          clientId = workbook.user._id.toString();
+        }
+      }
+    } else if (set.itemType === 'book') {
+      // Get book associated with the set
+      const book = await Book.findById(set.itemId);
+      if (book && book.clientId) {
+        clientId = book.clientId;
+        clientName = await getClientName(book.clientId);
+      }
+    } else if (set.itemType === 'chapter') {
+      // Get chapter and trace back to parent (book or workbook)
+      const chapter = await Chapter.findById(set.itemId);
+      if (chapter) {
+        if (chapter.parentType === 'book' && chapter.book) {
+          const book = await Book.findById(chapter.book);
+          if (book && book.clientId) {
+            clientId = book.clientId;
+            clientName = await getClientName(book.clientId);
+          }
+        } else if (chapter.parentType === 'workbook' && chapter.workbook) {
+          const workbook = await Workbook.findById(chapter.workbook).populate('user');
+          if (workbook && workbook.user) {
+            if (workbook.user.role === 'client') {
+              clientId = workbook.user.userId;
+              clientName = workbook.user.businessName || workbook.user.name;
+            } else {
+              clientName = workbook.user.name;
+              clientId = workbook.user._id.toString();
+            }
+          }
+        }
+      }
+    } else if (set.itemType === 'topic') {
+      // Get topic and trace back through chapter to parent (book or workbook)
+      const topic = await Topic.findById(set.itemId).populate('chapter');
+      if (topic && topic.chapter) {
+        const chapter = topic.chapter;
+        if (chapter.parentType === 'book' && chapter.book) {
+          const book = await Book.findById(chapter.book);
+          if (book && book.clientId) {
+            clientId = book.clientId;
+            clientName = await getClientName(book.clientId);
+          }
+        } else if (chapter.parentType === 'workbook' && chapter.workbook) {
+          const workbook = await Workbook.findById(chapter.workbook).populate('user');
+          if (workbook && workbook.user) {
+            if (workbook.user.role === 'client') {
+              clientId = workbook.user.userId;
+              clientName = workbook.user.businessName || workbook.user.name;
+            } else {
+              clientName = workbook.user.name;
+              clientId = workbook.user._id.toString();
+            }
+          }
+        }
+      }
+    } else if (set.itemType === 'subtopic') {
+      // Get subtopic and trace back through topic -> chapter to parent (book or workbook)
+      const subtopic = await SubTopic.findById(set.itemId).populate({
+        path: 'topic',
+        populate: {
+          path: 'chapter'
+        }
+      });
+      if (subtopic && subtopic.topic && subtopic.topic.chapter) {
+        const chapter = subtopic.topic.chapter;
+        if (chapter.parentType === 'book' && chapter.book) {
+          const book = await Book.findById(chapter.book);
+          if (book && book.clientId) {
+            clientId = book.clientId;
+            clientName = await getClientName(book.clientId);
+          }
+        } else if (chapter.parentType === 'workbook' && chapter.workbook) {
+          const workbook = await Workbook.findById(chapter.workbook).populate('user');
+          if (workbook && workbook.user) {
+            if (workbook.user.role === 'client') {
+              clientId = workbook.user.userId;
+              clientName = workbook.user.businessName || workbook.user.name;
+            } else {
+              clientName = workbook.user.name;
+              clientId = workbook.user._id.toString();
+            }
+          }
         }
       }
     } else {
-      // Get book associated with the set
+      // Fallback: try to get from book if no specific itemType is set
       const book = await Book.findById(set.itemId);
       if (book && book.clientId) {
         clientId = book.clientId;
@@ -114,6 +197,132 @@ async function getClientInfoFromSet(setId) {
     };
   } catch (error) {
     console.error('Error fetching client info from set:', error);
+    return null;
+  }
+}
+
+// New helper function to get client info directly from content type and ID
+async function getClientInfoFromContent(contentType, contentId) {
+  try {
+    let clientId = null;
+    let clientName = null;
+
+    switch (contentType.toLowerCase()) {
+      case 'book':
+        const book = await Book.findById(contentId);
+        if (book && book.clientId) {
+          clientId = book.clientId;
+          clientName = await getClientName(book.clientId);
+        }
+        break;
+
+      case 'workbook':
+        const workbook = await Workbook.findById(contentId).populate('user');
+        if (workbook && workbook.user) {
+          if (workbook.user.role === 'client') {
+            clientId = workbook.user.userId;
+            clientName = workbook.user.businessName || workbook.user.name;
+          } else {
+            clientName = workbook.user.name;
+            clientId = workbook.user._id.toString();
+          }
+        }
+        break;
+
+      case 'chapter':
+        const chapter = await Chapter.findById(contentId);
+        if (chapter) {
+          if (chapter.parentType === 'book' && chapter.book) {
+            const parentBook = await Book.findById(chapter.book);
+            if (parentBook && parentBook.clientId) {
+              clientId = parentBook.clientId;
+              clientName = await getClientName(parentBook.clientId);
+            }
+          } else if (chapter.parentType === 'workbook' && chapter.workbook) {
+            const parentWorkbook = await Workbook.findById(chapter.workbook).populate('user');
+            if (parentWorkbook && parentWorkbook.user) {
+              if (parentWorkbook.user.role === 'client') {
+                clientId = parentWorkbook.user.userId;
+                clientName = parentWorkbook.user.businessName || parentWorkbook.user.name;
+              } else {
+                clientName = parentWorkbook.user.name;
+                clientId = parentWorkbook.user._id.toString();
+              }
+            }
+          }
+        }
+        break;
+
+      case 'topic':
+        const topic = await Topic.findById(contentId).populate('chapter');
+        if (topic && topic.chapter) {
+          const topicChapter = topic.chapter;
+          if (topicChapter.parentType === 'book' && topicChapter.book) {
+            const parentBook = await Book.findById(topicChapter.book);
+            if (parentBook && parentBook.clientId) {
+              clientId = parentBook.clientId;
+              clientName = await getClientName(parentBook.clientId);
+            }
+          } else if (topicChapter.parentType === 'workbook' && topicChapter.workbook) {
+            const parentWorkbook = await Workbook.findById(topicChapter.workbook).populate('user');
+            if (parentWorkbook && parentWorkbook.user) {
+              if (parentWorkbook.user.role === 'client') {
+                clientId = parentWorkbook.user.userId;
+                clientName = parentWorkbook.user.businessName || parentWorkbook.user.name;
+              } else {
+                clientName = parentWorkbook.user.name;
+                clientId = parentWorkbook.user._id.toString();
+              }
+            }
+          }
+        }
+        break;
+
+      case 'subtopic':
+        const subtopic = await SubTopic.findById(contentId).populate({
+          path: 'topic',
+          populate: {
+            path: 'chapter'
+          }
+        });
+        if (subtopic && subtopic.topic && subtopic.topic.chapter) {
+          const subtopicChapter = subtopic.topic.chapter;
+          if (subtopicChapter.parentType === 'book' && subtopicChapter.book) {
+            const parentBook = await Book.findById(subtopicChapter.book);
+            if (parentBook && parentBook.clientId) {
+              clientId = parentBook.clientId;
+              clientName = await getClientName(parentBook.clientId);
+            }
+          } else if (subtopicChapter.parentType === 'workbook' && subtopicChapter.workbook) {
+            const parentWorkbook = await Workbook.findById(subtopicChapter.workbook).populate('user');
+            if (parentWorkbook && parentWorkbook.user) {
+              if (parentWorkbook.user.role === 'client') {
+                clientId = parentWorkbook.user.userId;
+                clientName = parentWorkbook.user.businessName || parentWorkbook.user.name;
+              } else {
+                clientName = parentWorkbook.user.name;
+                clientId = parentWorkbook.user._id.toString();
+              }
+            }
+          }
+        }
+        break;
+
+      default:
+        console.warn(`Unsupported content type: ${contentType}`);
+        return null;
+    }
+
+    if (!clientName) {
+      return null;
+    }
+
+    return {
+      clientId: clientId,
+      clientName: clientName
+    };
+  } catch (error) {
+    console.error(`Error fetching client info from ${contentType}:`, error);
     return null;
   }
 }
@@ -319,6 +528,157 @@ router.get('/sets/:setId/qrcode',
 
     } catch (error) {
       console.error('Generate set QR code error:', error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        error: {
+          code: "SERVER_ERROR",
+          details: error.message
+        }
+      });
+    }
+  }
+);
+
+// NEW: Generate QR code for any content type (book, workbook, chapter, topic, subtopic)
+router.get('/content/:contentType/:contentId/qrcode',
+  [
+    param('contentType')
+      .isIn(['book', 'workbook', 'chapter', 'topic', 'subtopic'])
+      .withMessage('Content type must be one of: book, workbook, chapter, topic, subtopic'),
+    param('contentId')
+      .isMongoId()
+      .withMessage('Content ID must be a valid MongoDB ObjectId')
+  ],
+  validateQROptions,
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid input data",
+          error: {
+            code: "INVALID_INPUT",
+            details: errors.array()
+          }
+        });
+      }
+
+      const { contentType, contentId } = req.params;
+      const { size = 300, clientId } = req.query;
+
+      // Get client information
+      let clientInfo = null;
+      if (clientId) {
+        const clientName = await getClientName(clientId);
+        clientInfo = { clientId, clientName };
+      } else {
+        clientInfo = await getClientInfoFromContent(contentType, contentId);
+      }
+
+      if (!clientInfo || !clientInfo.clientName) {
+        return res.status(404).json({
+          success: false,
+          message: "Client information not found",
+          error: {
+            code: "CLIENT_NOT_FOUND",
+            details: `Unable to determine client information for this ${contentType}`
+          }
+        });
+      }
+
+      // Generate frontend URL with client name and content info
+      const frontendBaseUrl = 'https://www.ailisher.com';
+      const encodedClientName = encodeURIComponent(clientInfo.clientName);
+      const qrUrl = `${frontendBaseUrl}/${contentType}/${contentId}?client=${encodedClientName}&clientId=${clientInfo.clientId}`;
+
+      const qrCodeOptions = {
+        width: parseInt(size),
+        margin: 2,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        },
+        errorCorrectionLevel: 'H'
+      };
+
+      const qrCodeDataURL = await QRCode.toDataURL(qrUrl, qrCodeOptions);
+
+      // Get content details for metadata
+      let contentDetails = {};
+      try {
+        let content;
+        switch (contentType.toLowerCase()) {
+          case 'book':
+            content = await Book.findById(contentId);
+            if (content) {
+              contentDetails = {
+                title: content.title,
+                author: content.author,
+                mainCategory: content.mainCategory,
+                subCategory: content.subCategory
+              };
+            }
+            break;
+          case 'workbook':
+            content = await Workbook.findById(contentId);
+            if (content) {
+              contentDetails = {
+                title: content.title,
+                description: content.description
+              };
+            }
+            break;
+          case 'chapter':
+            content = await Chapter.findById(contentId);
+            if (content) {
+              contentDetails = {
+                title: content.title,
+                description: content.description,
+                parentType: content.parentType
+              };
+            }
+            break;
+          case 'topic':
+            content = await Topic.findById(contentId);
+            if (content) {
+              contentDetails = {
+                title: content.title,
+                description: content.description
+              };
+            }
+            break;
+          case 'subtopic':
+            content = await SubTopic.findById(contentId);
+            if (content) {
+              contentDetails = {
+                title: content.title,
+                description: content.description
+              };
+            }
+            break;
+        }
+      } catch (detailError) {
+        console.warn(`Could not fetch details for ${contentType}:`, detailError);
+      }
+
+      res.status(200).json({
+        success: true,
+        data: {
+          contentType: contentType,
+          contentId: contentId,
+          clientId: clientInfo.clientId,
+          clientName: clientInfo.clientName,
+          qrCode: qrCodeDataURL,
+          url: qrUrl,
+          size: parseInt(size),
+          metadata: contentDetails
+        }
+      });
+
+    } catch (error) {
+      console.error(`Generate ${req.params.contentType} QR code error:`, error);
       res.status(500).json({
         success: false,
         message: "Internal server error",
