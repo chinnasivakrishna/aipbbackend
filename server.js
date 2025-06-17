@@ -167,6 +167,7 @@ app.use('/api/clients/:clientId/mobile/review',
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
+app.use('/api/mobile-qr-auth', mobileQRAuthRoutes);
 
 app.use('/api/review', expertReviewRoutes);
 
