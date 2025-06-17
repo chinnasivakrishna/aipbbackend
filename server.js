@@ -169,7 +169,6 @@ app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subt
 app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
 
 app.use('/api/review', expertReviewRoutes);
-app.use('/api/mobile-qr-auth', mobileQRAuthRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {

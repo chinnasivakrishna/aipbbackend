@@ -3,6 +3,8 @@ const router = express.Router();
 const QRCode = require('qrcode');
 const Question = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
+const Book = require('../models/Book');
+const User = require('../models/User');
 const { validationResult, param, query } = require('express-validator');
 
 // Validation middleware
@@ -23,15 +25,86 @@ const validateQROptions = [
     .optional()
     .isInt({ min: 100, max: 1000 })
     .withMessage('Size must be between 100 and 1000 pixels'),
-  query('frontendBaseUrl')
+  query('clientId')
     .optional()
-    .isURL()
-    .withMessage('Frontend base URL must be a valid URL')
+    .isString()
+    .withMessage('Client ID must be a string')
 ];
+
+// Helper function to get client name by clientId
+async function getClientName(clientId) {
+  try {
+    const client = await User.findOne({ 
+      $or: [
+        { userId: clientId },
+      ],
+      role: 'client' 
+    });
+    
+    if (client) {
+      return client.businessName || client.name;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error fetching client:', error);
+    return null;
+  }
+}
+
+// Helper function to get client info from question/set
+async function getClientInfoFromQuestion(questionId) {
+  try {
+    const question = await Question.findById(questionId).populate('setId');
+    if (!question || !question.setId) {
+      return null;
+    }
+
+    // Get book associated with the set
+    const book = await Book.findOne({ _id: question.setId.itemId });
+    if (!book) {
+      return null;
+    }
+
+    const clientName = await getClientName(book.clientId);
+    return {
+      clientId: book.clientId,
+      clientName: clientName
+    };
+  } catch (error) {
+    console.error('Error fetching client info from question:', error);
+    return null;
+  }
+}
+
+// Helper function to get client info from set
+async function getClientInfoFromSet(setId) {
+  try {
+    const set = await AISWBSet.findById(setId);
+    if (!set) {
+      return null;
+    }
+
+    // Get book associated with the set
+    const book = await Book.findOne({ _id: set.itemId });
+    if (!book) {
+      return null;
+    }
+
+    const clientName = await getClientName(book.clientId);
+    return {
+      clientId: book.clientId,
+      clientName: clientName
+    };
+  } catch (error) {
+    console.error('Error fetching client info from set:', error);
+    return null;
+  }
+}
 
 // ==================== QR CODE GENERATION ROUTES ====================
 
-// Generate QR code for a single question (URL only)
+// Generate QR code for a single question (URL with client name)
 router.get('/questions/:questionId/qrcode', 
   validateQuestionId,
   validateQROptions,
@@ -50,7 +123,7 @@ router.get('/questions/:questionId/qrcode',
       }
 
       const { questionId } = req.params;
-      const { size = 300, frontendBaseUrl } = req.query;
+      const { size = 300, clientId } = req.query;
 
       // Verify question exists
       const question = await Question.findById(questionId);
@@ -65,11 +138,30 @@ router.get('/questions/:questionId/qrcode',
         });
       }
 
-      // Generate frontend URL or fallback to API URL
-      const baseUrl = frontendBaseUrl || `${req.protocol}://${req.get('host')}`;
-      const qrUrl = frontendBaseUrl 
-        ? `${frontendBaseUrl}/question/${questionId}`
-        : `${baseUrl}/api/aiswb/qr/questions/${questionId}/view`;
+      // Get client information
+      let clientInfo = null;
+      if (clientId) {
+        const clientName = await getClientName(clientId);
+        clientInfo = { clientId, clientName };
+      } else {
+        clientInfo = await getClientInfoFromQuestion(questionId);
+      }
+
+      if (!clientInfo || !clientInfo.clientName) {
+        return res.status(404).json({
+          success: false,
+          message: "Client information not found",
+          error: {
+            code: "CLIENT_NOT_FOUND",
+            details: "Unable to determine client information for this question"
+          }
+        });
+      }
+
+      // Generate frontend URL with client name and question ID
+      const frontendBaseUrl = 'https://www.ailisher.com';
+      const encodedClientName = encodeURIComponent(clientInfo.clientName);
+      const qrUrl = `${frontendBaseUrl}/question/${questionId}?client=${encodedClientName}&clientId=${clientInfo.clientId}`;
 
       // QR code options for better scanning
       const qrCodeOptions = {
@@ -88,6 +180,8 @@ router.get('/questions/:questionId/qrcode',
         success: true,
         data: {
           questionId: question._id.toString(),
+          clientId: clientInfo.clientId,
+          clientName: clientInfo.clientName,
           qrCode: qrCodeDataURL,
           url: qrUrl,
           size: parseInt(size),
@@ -114,7 +208,7 @@ router.get('/questions/:questionId/qrcode',
   }
 );
 
-// Generate QR code for a question set (URL only)
+// Generate QR code for a question set (URL with client name)
 router.get('/sets/:setId/qrcode',
   validateSetId,
   validateQROptions,
@@ -133,7 +227,7 @@ router.get('/sets/:setId/qrcode',
       }
 
       const { setId } = req.params;
-      const { size = 300, frontendBaseUrl } = req.query;
+      const { size = 300, clientId } = req.query;
 
       // Verify set exists
       const set = await AISWBSet.findById(setId).populate('questions');
@@ -148,11 +242,30 @@ router.get('/sets/:setId/qrcode',
         });
       }
 
-      // Generate frontend URL or fallback to API URL
-      const baseUrl = frontendBaseUrl || `${req.protocol}://${req.get('host')}`;
-      const qrUrl = frontendBaseUrl 
-        ? `${frontendBaseUrl}/set/${setId}`
-        : `${baseUrl}/api/aiswb/qr/sets/${setId}/view`;
+      // Get client information
+      let clientInfo = null;
+      if (clientId) {
+        const clientName = await getClientName(clientId);
+        clientInfo = { clientId, clientName };
+      } else {
+        clientInfo = await getClientInfoFromSet(setId);
+      }
+
+      if (!clientInfo || !clientInfo.clientName) {
+        return res.status(404).json({
+          success: false,
+          message: "Client information not found",
+          error: {
+            code: "CLIENT_NOT_FOUND",
+            details: "Unable to determine client information for this set"
+          }
+        });
+      }
+
+      // Generate frontend URL with client name and set ID
+      const frontendBaseUrl = 'https://www.ailisher.com';
+      const encodedClientName = encodeURIComponent(clientInfo.clientName);
+      const qrUrl = `${frontendBaseUrl}/set/${setId}?client=${encodedClientName}&clientId=${clientInfo.clientId}`;
 
       const qrCodeOptions = {
         width: parseInt(size),
@@ -171,6 +284,8 @@ router.get('/sets/:setId/qrcode',
         data: {
           setId: set._id.toString(),
           setName: set.name,
+          clientId: clientInfo.clientId,
+          clientName: clientInfo.clientName,
           qrCode: qrCodeDataURL,
           url: qrUrl,
           size: parseInt(size),
@@ -199,7 +314,7 @@ router.get('/sets/:setId/qrcode',
   }
 );
 
-// Generate batch QR codes for multiple questions (URLs only)
+// Generate batch QR codes for multiple questions (URLs with client names)
 router.post('/questions/batch/qrcode',
   validateQROptions,
   async (req, res) => {
@@ -217,7 +332,7 @@ router.post('/questions/batch/qrcode',
       }
 
       const { questionIds } = req.body;
-      const { size = 300, frontendBaseUrl } = req.query;
+      const { size = 300, clientId } = req.query;
 
       if (!questionIds || !Array.isArray(questionIds) || questionIds.length === 0) {
         return res.status(400).json({
@@ -244,7 +359,7 @@ router.post('/questions/batch/qrcode',
         });
       }
 
-      const baseUrl = frontendBaseUrl || `${req.protocol}://${req.get('host')}`;
+      const frontendBaseUrl = 'https://www.ailisher.com';
       const qrCodes = [];
 
       const qrCodeOptions = {
@@ -259,16 +374,35 @@ router.post('/questions/batch/qrcode',
 
       // Generate QR code for each question
       for (const question of questions) {
-        const qrUrl = frontendBaseUrl 
-          ? `${frontendBaseUrl}/question/${question._id}`
-          : `${baseUrl}/api/aiswb/qr/questions/${question._id}/view`;
-
         try {
+          // Get client information for this question
+          let clientInfo = null;
+          if (clientId) {
+            const clientName = await getClientName(clientId);
+            clientInfo = { clientId, clientName };
+          } else {
+            clientInfo = await getClientInfoFromQuestion(question._id);
+          }
+
+          if (!clientInfo || !clientInfo.clientName) {
+            qrCodes.push({
+              questionId: question._id.toString(),
+              questionPreview: question.question.substring(0, 100) + '...',
+              error: 'Client information not found'
+            });
+            continue;
+          }
+
+          const encodedClientName = encodeURIComponent(clientInfo.clientName);
+          const qrUrl = `${frontendBaseUrl}/question/${question._id}?client=${encodedClientName}&clientId=${clientInfo.clientId}`;
+
           const qrCodeDataURL = await QRCode.toDataURL(qrUrl, qrCodeOptions);
 
           qrCodes.push({
             questionId: question._id.toString(),
             questionPreview: question.question.substring(0, 100) + '...',
+            clientId: clientInfo.clientId,
+            clientName: clientInfo.clientName,
             qrCode: qrCodeDataURL,
             url: qrUrl,
             metadata: {
@@ -282,8 +416,7 @@ router.post('/questions/batch/qrcode',
           qrCodes.push({
             questionId: question._id.toString(),
             questionPreview: question.question.substring(0, 100) + '...',
-            error: 'QR generation failed',
-            url: qrUrl
+            error: 'QR generation failed'
           });
         }
       }
@@ -314,7 +447,7 @@ router.post('/questions/batch/qrcode',
 
 // ==================== DATA RETRIEVAL ROUTES ====================
 
-// Get single question data (for QR code scanning)
+// Get single question data (for QR code scanning) - now includes client info in response
 router.get('/questions/:questionId/view', 
   validateQuestionId,
   async (req, res) => {
@@ -346,11 +479,13 @@ router.get('/questions/:questionId/view',
         });
       }
 
+      // Get client information
+      const clientInfo = await getClientInfoFromQuestion(questionId);
+
       const responseData = {
         id: question._id.toString(),
         question: question.question,
         modalAnswer: question.modalAnswer,
-        detailedAnswer: question.detailedAnswer,
         answerVideoUrls: question.answerVideoUrls,
         metadata: {
           keywords: question.metadata.keywords,
@@ -362,7 +497,9 @@ router.get('/questions/:questionId/view',
         },
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
-        setId: question.setId
+        setId: question.setId,
+        // Include client information
+        clientInfo: clientInfo
       };
 
       // Include detailed answer only if requested
@@ -389,7 +526,7 @@ router.get('/questions/:questionId/view',
   }
 );
 
-// Get question set data (for QR code scanning)
+// Get question set data (for QR code scanning) - now includes client info in response
 router.get('/sets/:setId/view',
   validateSetId,
   async (req, res) => {
@@ -421,6 +558,9 @@ router.get('/sets/:setId/view',
         });
       }
 
+      // Get client information
+      const clientInfo = await getClientInfoFromSet(setId);
+
       // Pagination for questions
       const skip = (parseInt(page) - 1) * parseInt(limit);
       const questions = await Question.find({ setId: setId })
@@ -440,6 +580,8 @@ router.get('/sets/:setId/view',
           isWorkbook: set.isWorkbook,
           totalQuestions: totalQuestions
         },
+        // Include client information
+        clientInfo: clientInfo,
         questions: questions.map(q => ({
           id: q._id.toString(),
           question: q.question,
@@ -479,7 +621,7 @@ router.get('/sets/:setId/view',
   }
 );
 
-// Get multiple questions data (for batch QR scanning)
+// Get multiple questions data (for batch QR scanning) - now includes client info
 router.post('/questions/batch/view',
   async (req, res) => {
     try {
@@ -511,17 +653,25 @@ router.post('/questions/batch/view',
         });
       }
 
-      const responseData = questions.map(q => ({
-        id: q._id.toString(),
-        question: q.question,
-        ...(includeAnswers === 'true' && { detailedAnswer: q.detailedAnswer }),
-        modalAnswer: q.modalAnswer,
-        answerVideoUrls: q.answerVideoUrls,
-        metadata: q.metadata,
-        languageMode: q.languageMode,
-        evaluationMode: q.evaluationMode,
-        setId: q.setId
-      }));
+      const responseData = [];
+      
+      // Get client info for each question
+      for (const q of questions) {
+        const clientInfo = await getClientInfoFromQuestion(q._id);
+        
+        responseData.push({
+          id: q._id.toString(),
+          question: q.question,
+          ...(includeAnswers === 'true' && { detailedAnswer: q.detailedAnswer }),
+          modalAnswer: q.modalAnswer,
+          answerVideoUrls: q.answerVideoUrls,
+          metadata: q.metadata,
+          languageMode: q.languageMode,
+          evaluationMode: q.evaluationMode,
+          setId: q.setId,
+          clientInfo: clientInfo
+        });
+      }
 
       res.status(200).json({
         success: true,
