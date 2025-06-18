@@ -74,6 +74,7 @@ router.get('/', async (req, res) => {
         questionId attemptNumber answerImages textAnswer submissionStatus 
         submittedAt reviewedAt feedback evaluation publishStatus reviewStatus 
         popularityStatus metadata.timeSpent metadata.sourceType evaluatedAt
+        requestID requestnote
       `)
       .sort(sort)
       .skip(skip)
@@ -96,6 +97,8 @@ router.get('/', async (req, res) => {
       attemptNumber: answer.attemptNumber,
       submissionStatus: answer.submissionStatus,
       reviewStatus: answer.reviewStatus,
+      requestID: answer.requestID,
+      requestnote: answer.requestnote,
       publishStatus: answer.publishStatus,
       popularityStatus: answer.popularityStatus,
       submittedAt: answer.submittedAt,
@@ -216,6 +219,8 @@ router.get('/:answerId', async (req, res) => {
             submissionStatus: userAnswer.submissionStatus,
             reviewStatus: userAnswer.reviewStatus,
             submittedAt: userAnswer.submittedAt,
+            requestID: userAnswer.requestID,
+            requestnote: userAnswer.requestnote,
             analysisAvailable: false,
             expectedAnalysisTime: '24-48 hours' // You can make this dynamic
           }
@@ -236,6 +241,8 @@ router.get('/:answerId', async (req, res) => {
         submittedAt: userAnswer.submittedAt,
         reviewedAt: userAnswer.reviewedAt,
         evaluatedAt: userAnswer.evaluatedAt,
+        requestID: userAnswer.requestID,
+        requestnote: userAnswer.requestnote,
         analysisAvailable: true,
         
         // Question details

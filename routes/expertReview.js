@@ -59,6 +59,8 @@ router.post('/request', async (req, res) => {
 
     // Update answer status
     answer.reviewStatus = 'review_pending';
+    answer.requestID = reviewRequest._id;
+    answer.requestnote = reviewRequest.notes;
     await answer.save();
 
     res.status(200).json({
