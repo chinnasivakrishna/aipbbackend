@@ -99,6 +99,7 @@ router.get('/', async (req, res) => {
       reviewStatus: answer.reviewStatus,
       requestID: answer.requestID,
       requestnote: answer.requestnote,
+      feedback: answer.feedback,
       publishStatus: answer.publishStatus,
       popularityStatus: answer.popularityStatus,
       submittedAt: answer.submittedAt,
@@ -114,6 +115,7 @@ router.get('/', async (req, res) => {
       isEvaluated: answer.submissionStatus === 'evaluated',
       hasEvaluation: Boolean(answer.evaluation?.accuracy !== undefined || answer.evaluation?.marks !== undefined),
       hasFeedback: Boolean(answer.feedback?.score !== undefined || answer.feedback?.comments),
+      hasExpertReview: Boolean(answer.feedback?.expertReview?.score !== undefined || answer.feedback?.expertReview?.remarks),
       
       // Summary stats
       evaluationSummary: answer.evaluation ? {
@@ -128,6 +130,15 @@ router.get('/', async (req, res) => {
         score: answer.feedback.score,
         hasComments: Boolean(answer.feedback.comments),
         hasSuggestions: Boolean(answer.feedback.suggestions?.length)
+      } : null,
+      
+      // Expert Review Summary
+      expertReviewSummary: answer.feedback?.expertReview ? {
+        score: answer.feedback.expertReview.score,
+        result: answer.feedback.expertReview.result,
+        hasRemarks: Boolean(answer.feedback.expertReview.remarks),
+        hasAnnotatedImages: Boolean(answer.feedback.expertReview.annotatedImages?.length),
+        reviewedAt: answer.feedback.expertReview.reviewedAt
       } : null
     }));
 
@@ -203,7 +214,8 @@ router.get('/:answerId', async (req, res) => {
     const hasEvaluation = Boolean(
       userAnswer.evaluation?.accuracy !== undefined || 
       userAnswer.evaluation?.marks !== undefined ||
-      userAnswer.feedback?.score !== undefined
+      userAnswer.feedback?.score !== undefined ||
+      userAnswer.feedback?.expertReview?.score !== undefined
     );
 
     if (!hasEvaluation && userAnswer.submissionStatus !== 'evaluated') {
@@ -280,7 +292,15 @@ router.get('/:answerId', async (req, res) => {
         feedback: userAnswer.feedback ? {
           score: userAnswer.feedback.score,
           comments: userAnswer.feedback.comments,
-          suggestions: userAnswer.feedback.suggestions || []
+          suggestions: userAnswer.feedback.suggestions || [],
+          // Include full expert review data
+          expertReview: userAnswer.feedback.expertReview ? {
+            result: userAnswer.feedback.expertReview.result,
+            score: userAnswer.feedback.expertReview.score,
+            remarks: userAnswer.feedback.expertReview.remarks,
+            annotatedImages: userAnswer.feedback.expertReview.annotatedImages || [],
+            reviewedAt: userAnswer.feedback.expertReview.reviewedAt
+          } : null
         } : null,
         
         // Reviewer information (if reviewed manually)
