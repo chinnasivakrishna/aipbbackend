@@ -159,6 +159,7 @@ router.get('/answers', [
         reviewedAt: 1,
         evaluatedAt: 1,
         evaluation: 1,
+        feedback: 1,
         extractedTexts: 1,
         metadata: 1,
         'question._id': 1,
