@@ -1471,5 +1471,4 @@ router.get('/:answerId', authenticateMobileUser, async (req, res) => {
     });
   }
 });
-
 module.exports = router;
