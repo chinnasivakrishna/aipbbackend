@@ -50,7 +50,7 @@ const userAnswerSchema = new mongoose.Schema({
   },
   submissionStatus: {
     type: String,
-    enum: ['submitted', 'rejected', 'evaluated'],
+    enum: ['submitted', 'rejected', 'evaluated', 'invalid'],
     default: 'submitted'
   },
   submittedAt: {

@@ -80,6 +80,172 @@ const validateAnswerSubmission = [
     .withMessage('Set ID must be a valid MongoDB ObjectId')
 ];
 
+// New function to validate if extracted text is relevant to the question
+const validateTextRelevanceToQuestion = async (question, extractedTexts) => {
+  if (!extractedTexts || extractedTexts.length === 0) {
+    return { isValid: false, reason: 'No text extracted from images' };
+  }
+
+  // Check if any extracted text has meaningful content
+  const hasValidText = extractedTexts.some(text => 
+    text && 
+    text.trim().length > 0 && 
+    !text.startsWith('Failed to extract text') &&
+    !text.startsWith('No readable text found') &&
+    !text.includes('Text extraction failed') &&
+    text.trim() !== 'No readable text found'
+  );
+
+  if (!hasValidText) {
+    return { isValid: false, reason: 'No readable text found in images' };
+  }
+
+  const combinedText = extractedTexts.join(' ').toLowerCase();
+  const questionText = question.question.toLowerCase();
+  
+  // Extract key terms from the question (remove common words)
+  const commonWords = ['the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'of', 'with', 'by', 'is', 'are', 'was', 'were', 'be', 'been', 'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should', 'may', 'might', 'can', 'what', 'when', 'where', 'why', 'how', 'which', 'who', 'whom'];
+  
+  const questionWords = questionText
+    .replace(/[^\w\s]/g, ' ')
+    .split(/\s+/)
+    .filter(word => word.length > 2 && !commonWords.includes(word));
+
+  // Check for subject/topic relevance using AI if available
+  if (GEMINI_API_KEY || OPENAI_API_KEY) {
+    try {
+      const relevancePrompt = `
+        Analyze if the following student answer is relevant to the given question. 
+        
+        QUESTION: ${question.question}
+        
+        STUDENT ANSWER: ${combinedText}
+        
+        Please respond with only "RELEVANT" or "NOT_RELEVANT" followed by a brief reason.
+        
+        Consider the answer relevant if:
+        1. It attempts to address the question topic
+        2. It contains subject-related content
+        3. It shows understanding of the question context
+        
+        Consider it NOT_RELEVANT if:
+        1. It's completely unrelated to the question
+        2. It's just random text or numbers
+        3. It's clearly not an attempt to answer the question
+      `;
+
+      let relevanceResponse = null;
+
+      if (GEMINI_API_KEY) {
+        try {
+          const response = await axios.post(
+            `${GEMINI_API_URL}?key=${GEMINI_API_KEY}`,
+            {
+              contents: [{
+                parts: [{
+                  text: relevancePrompt
+                }]
+              }],
+              generationConfig: {
+                temperature: 0.1,
+                maxOutputTokens: 100,
+              }
+            },
+            {
+              headers: { 'Content-Type': 'application/json' },
+              timeout: 15000
+            }
+          );
+
+          if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            relevanceResponse = response.data.candidates[0].content.parts[0].text.trim();
+          }
+        } catch (geminiError) {
+          console.error('Gemini relevance check failed:', geminiError.message);
+        }
+      }
+
+      if (!relevanceResponse && OPENAI_API_KEY) {
+        try {
+          const response = await axios.post(
+            OPENAI_API_URL,
+            {
+              model: "gpt-4o-mini",
+              messages: [{
+                role: "user",
+                content: relevancePrompt
+              }],
+              max_tokens: 100,
+              temperature: 0.1
+            },
+            {
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${OPENAI_API_KEY}`
+              },
+              timeout: 15000
+            }
+          );
+
+          if (response.data?.choices?.[0]?.message?.content) {
+            relevanceResponse = response.data.choices[0].message.content.trim();
+          }
+        } catch (openaiError) {
+          console.error('OpenAI relevance check failed:', openaiError.message);
+        }
+      }
+
+      if (relevanceResponse) {
+        const isRelevant = relevanceResponse.toUpperCase().includes('RELEVANT') && 
+                          !relevanceResponse.toUpperCase().includes('NOT_RELEVANT');
+        
+        if (!isRelevant) {
+          return { 
+            isValid: false, 
+            reason: 'Answer content is not relevant to the question',
+            aiResponse: relevanceResponse
+          };
+        }
+      }
+    } catch (error) {
+      console.error('AI relevance check failed:', error.message);
+      // Continue with basic validation if AI check fails
+    }
+  }
+
+  // Basic keyword matching as fallback
+  const matchingWords = questionWords.filter(word => 
+    combinedText.includes(word) || 
+    combinedText.includes(word.substring(0, Math.max(4, word.length - 2)))
+  );
+
+  // If the answer is very short and has no matching keywords, consider it invalid
+  if (combinedText.length < 20 && matchingWords.length === 0) {
+    return { 
+      isValid: false, 
+      reason: 'Answer appears to be too short and unrelated to the question' 
+    };
+  }
+
+  // Additional checks for obviously invalid content
+  const invalidPatterns = [
+    /^[\d\s\-+*/=().]+$/, // Only numbers and math symbols
+    /^[a-z\s]{1,10}$/i,   // Very short random letters
+    /^(.)\1{5,}$/,        // Repeated characters
+  ];
+
+  for (const pattern of invalidPatterns) {
+    if (pattern.test(combinedText.trim())) {
+      return { 
+        isValid: false, 
+        reason: 'Answer contains invalid or meaningless content' 
+      };
+    }
+  }
+
+  return { isValid: true, reason: 'Answer appears relevant to the question' };
+};
+
 const extractTextFromImages = async (imageUrls) => {
   const extractedTexts = [];
   if (!OPENAI_API_KEY) {
@@ -901,6 +1067,35 @@ router.post('/questions/:questionId/answers',
           }
           const imageUrls = answerImages.map(img => img.imageUrl);          
           extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+          
+          // NEW: Validate text relevance to question
+          const relevanceValidation = await validateTextRelevanceToQuestion(question, extractedTexts);
+          
+          if (!relevanceValidation.isValid) {
+            // Clean up uploaded images since they're invalid
+            if (req.files && req.files.length > 0) {
+              for (const file of req.files) {
+                try {
+                  await cloudinary.uploader.destroy(file.filename);
+                } catch (cleanupError) {
+                  console.error('Error cleaning up invalid image:', cleanupError);
+                }
+              }
+            }
+            
+            return res.status(400).json({
+              success: false,
+              message: "Invalid image content",
+              error: {
+                code: "INVALID_IMAGE_CONTENT",
+                details: relevanceValidation.reason,
+                aiResponse: relevanceValidation.aiResponse || null
+              }
+            });
+          }
+          
+          console.log('Text relevance validation passed:', relevanceValidation.reason);
+          
           const hasValidText = extractedTexts.some(text => 
             text && 
             text.trim().length > 0 && 
@@ -908,6 +1103,7 @@ router.post('/questions/:questionId/answers',
             !text.startsWith('No readable text found') &&
             !text.includes('Text extraction failed')
           );
+          
           if (hasValidText) {            
             if (GEMINI_API_KEY) {
               try {
@@ -1009,15 +1205,46 @@ router.post('/questions/:questionId/answers',
               evaluation = generateMockEvaluation(question);
             }
           } else {
-            evaluation = generateMockEvaluation(question);
-            extractedTexts = extractedTexts.map(text => 
-              text.startsWith('Failed') || text.includes('extraction failed') ? 
-              text : 'No readable text could be extracted from this image'
-            );
+            // Clean up uploaded images since no valid text was extracted
+            if (req.files && req.files.length > 0) {
+              for (const file of req.files) {
+                try {
+                  await cloudinary.uploader.destroy(file.filename);
+                } catch (cleanupError) {
+                  console.error('Error cleaning up unreadable image:', cleanupError);
+                }
+              }
+            }
+            
+            return res.status(400).json({
+              success: false,
+              message: "Invalid image content",
+              error: {
+                code: "UNREADABLE_IMAGE_CONTENT",
+                details: "No readable text could be extracted from the uploaded images. Please ensure images are clear and contain relevant answer content."
+              }
+            });
           }
         } catch (extractionError) {
-          evaluation = generateMockEvaluation(question);
-          extractedTexts = [`Text extraction service error: ${extractionError.message}. Please try again or contact support if the issue persists.`];
+          // Clean up uploaded images on extraction error
+          if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+              try {
+                await cloudinary.uploader.destroy(file.filename);
+              } catch (cleanupError) {
+                console.error('Error cleaning up image after extraction error:', cleanupError);
+              }
+            }
+          }
+          
+          return res.status(500).json({
+            success: false,
+            message: "Text extraction failed",
+            error: {
+              code: "TEXT_EXTRACTION_ERROR",
+              details: `Text extraction service error: ${extractionError.message}. Please try again or contact support if the issue persists.`
+            }
+          });
         }
       } else if (isManualEvaluation) {
         console.log('Manual evaluation mode - skipping automatic evaluation and text extraction');
