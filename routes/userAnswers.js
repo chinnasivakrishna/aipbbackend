@@ -711,7 +711,7 @@ router.post('/answers/:answerId/evaluate-manual',
         
         // Update all relevant status fields
         userAnswer.submissionStatus = 'evaluated'; // Change status to evaluated
-        userAnswer.reviewStatus = 'review_completed';
+        // userAnswer.reviewStatus = 'review_completed';
         userAnswer.reviewedAt = new Date();
         userAnswer.evaluatedAt = new Date();
         
@@ -735,7 +735,7 @@ router.post('/answers/:answerId/evaluate-manual',
             maximumMarks: maxMarks || question.metadata?.maximumMarks
           }
         };
-
+        console.log(responseData)
         if (includeExtractedText && extractedTexts.length > 0) {
           responseData.extractedTexts = extractedTexts;
         }
