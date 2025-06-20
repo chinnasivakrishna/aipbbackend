@@ -37,7 +37,7 @@ const evaluatorReviewsRoutes = require('./routes/evaluatorReviews');
 const reviewRequestsRoutes = require('./routes/reviewRequests');
 const mobileReviewsRoutes = require('./routes/mobileReviews');
 const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
-
+const ai = require("./routes/aiServiceConfig");
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -55,7 +55,7 @@ if (!process.env.MISTRAL_API_KEY) {
 
 // API routes
 app.use('/api/admin/answers', require('./routes/adminAnswers'));
-
+app.use('/api/ai', ai);
 app.use('/api/auth', authRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/client', clientRoutes);
