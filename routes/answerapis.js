@@ -502,9 +502,6 @@ router.put('/answers/:answerId/evaluate', [
     // Handle publish status
     if (publish) {
       updateData.publishStatus = 'published';
-      updateData.reviewStatus = 'review_completed';
-    } else {
-      updateData.reviewStatus = 'review_accepted';
     }
 
     const updatedAnswer = await UserAnswer.findByIdAndUpdate(
@@ -596,7 +593,7 @@ router.put('/answers/:answerId/publish', [
       answerId,
       {
         publishStatus: 'published',
-        reviewStatus: 'review_completed'
+        // reviewStatus: 'review_completed'
       },
       { new: true, runValidators: true }
     ).populate([
@@ -672,7 +669,7 @@ router.put('/answers/:answerId/unpublish', [
       answerId,
       {
         publishStatus: 'not_published',
-        reviewStatus: 'review_accepted'
+        // reviewStatus: 'review_accepted'
       },
       { new: true, runValidators: true }
     ).populate([
@@ -780,10 +777,10 @@ router.put('/answers/:answerId/status', [
       updateData.popularityStatus = popularityStatus;
     }
 
-    // Add timestamps based on status changes
-    if (reviewStatus === 'review_completed' && !answer.reviewedAt) {
-      updateData.reviewedAt = new Date();
-    }
+    // // Add timestamps based on status changes
+    // if (reviewStatus === 'review_completed' && !answer.reviewedAt) {
+    //   updateData.reviewedAt = new Date();
+    // }
 
     const updatedAnswer = await UserAnswer.findByIdAndUpdate(
       answerId,

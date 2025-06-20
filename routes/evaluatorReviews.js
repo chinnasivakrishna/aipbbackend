@@ -1461,6 +1461,32 @@ const { verifyToken, verifyTokenforevaluator } = require('../middleware/auth'); 
 // });
 
 //evaluator pending requests
+
+//evaluator profile
+
+router.get('/profile',verifyTokenforevaluator,async(req,res)=>{
+  try {
+    const evaluatorId = req.evaluator._id;
+    
+    // Get evaluator to check client access
+    const evaluator = await Evaluator.findById(evaluatorId);
+    if (!evaluator) {
+      return res.status(404).json({
+        success: false,
+        message: 'Evaluator not found'
+      });
+    }
+
+    res.status(200).json({
+      success:true,
+      message:"successfull retrieved profile",
+      evaluator:evaluator
+    })
+  } catch (error) {
+    console.log(error)
+  }
+})
+
 router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
   try {
     const evaluatorId = req.evaluator._id;
@@ -1550,7 +1576,6 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
     });
   }
 });
-
 
 //evaluator accepted requests
 router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
@@ -1642,7 +1667,6 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
     });
   }
 });
-
 
 //evaluator completed requests
 router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {

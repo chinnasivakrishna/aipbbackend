@@ -9,81 +9,6 @@ const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const { generatePresignedUrl, generateAnnotatedImageUrl } = require('../utils/s3');
 const path = require('path');
 
-// 0. 📝 Create Review Request
-router.post('/request', async (req, res) => {
-  try {
-    const { answer_id, question_id, priority = 'medium', notes } = req.body;
-
-    // Validate required fields
-    if (!answer_id || !question_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'answer_id and question_id are required'
-      });
-    }
-
-    // Find the answer
-    const answer = await UserAnswer.findById(answer_id);
-    if (!answer) {
-      return res.status(404).json({
-        success: false,
-        message: 'Answer not found'
-      });
-    }
-
-    // Check if review request already exists
-    const existingRequest = await ReviewRequest.findOne({ answerId: answer_id });
-    if (existingRequest) {
-      return res.status(400).json({
-        success: false,
-        message: 'Review request already exists for this answer',
-        data: {
-          requestId: existingRequest._id,
-          status: existingRequest.requestStatus
-        }
-      });
-    }
-
-    // Create new review request
-    const reviewRequest = new ReviewRequest({
-      userId: answer.userId,
-      questionId: question_id,
-      answerId: answer_id,
-      clientId: answer.clientId,
-      notes,
-      priority,
-      requestStatus: 'pending'
-    });
-
-    await reviewRequest.save();
-
-    // Update answer status
-    answer.reviewStatus = 'review_pending';
-    answer.requestID = reviewRequest._id;
-    answer.requestnote = reviewRequest.notes;
-    await answer.save();
-
-    res.status(200).json({
-      success: true,
-      message: 'Review request created successfully',
-      data: {
-        requestId: reviewRequest._id,
-        status: reviewRequest.requestStatus,
-        answerId: answer._id,
-        reviewStatus: answer.reviewStatus
-      }
-    });
-
-  } catch (error) {
-    console.error('Error creating review request:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error',
-      error: error.message
-    });
-  }
-});
-
 // 1. 📋 Get Pending Review Requests
 router.get('/pending', async (req, res) => {
   try {
@@ -233,6 +158,15 @@ router.post('/:requestId/submit', async (req, res) => {
         expectedStatus: 'review_accepted'
       });
     }
+    // Check if answer is in correct status
+    if (answer.reviewStatus === 'review_completed') {
+      console.log(`Review already submitted`);
+      return res.status(400).json({
+        success: false,
+        message: `Review already submitted`,
+      });
+    }
+
 
     console.log('[Review Submit] Processing annotated images...');
     // Process annotated images

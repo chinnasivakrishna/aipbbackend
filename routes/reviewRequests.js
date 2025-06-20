@@ -43,6 +43,16 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
       });
     }
 
+    // Debug log for submissionStatus
+    console.log('Review request attempt for answer', answer._id, 'with submissionStatus:', answer.submissionStatus);
+
+    // Check if answer is evaluated
+    if (answer.submissionStatus !== 'evaluated') {
+      return res.status(200).json({
+        success: true,
+        message: `Review can only be requested for evaluated answers. Current status: ${answer.submissionStatus}`
+      });
+    }
     // Create new review request
     const reviewRequest = new ReviewRequest({
       userId,
