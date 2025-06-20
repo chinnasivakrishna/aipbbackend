@@ -1,7 +1,7 @@
 const axios = require("axios")
 const FormData = require("form-data")
 const { AiswbQuestion } = require("../models/AiswbQuestion")
-const AiServiceConfig = require("../models/AiServiceConfig")
+const AiServiceConfig = require("../models/AIServiceConfig")
 
 // Get service configuration for a specific task
 const getServiceForTask = async (taskType) => {

@@ -1,6 +1,6 @@
 const express = require("express")
 const router = express.Router()
-const AiServiceConfig = require("../models/AiServiceConfig")
+const AiServiceConfig = require("../models/AIServiceConfig")
 const { body, validationResult } = require("express-validator")
 
 // Updated validation middleware to include agentic service
