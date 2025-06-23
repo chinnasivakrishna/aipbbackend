@@ -77,6 +77,7 @@ app.use('/api/mybooks', myBooksRoutes);
 app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
 app.use('/api/review', expertReviewRoutes);
+app.use('/api/config', require('./routes/config'));
 
 // Global Evaluation routes (accessible without client-specific middleware)
 // These handle the main Assessment Dashboard APIs as per PDF requirements
