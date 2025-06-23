@@ -183,7 +183,21 @@ const userAnswerSchema = new mongoose.Schema({
       })
     }
   },
-  publishStatus: {
+  annotations: [{
+    s3Key: {
+      type: String,
+      required: true
+    },
+    downloadUrl: {
+      type: String,
+      required: true
+    },
+    uploadedAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+    publishStatus: {
     type: String,
     enum: ['published', 'not_published'],
     default: 'not_published'

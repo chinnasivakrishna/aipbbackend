@@ -101,6 +101,15 @@ const questionSchema = new mongoose.Schema({
     required: true,
     default: 'auto'
   },
+  evaluationType: {
+    type: String,
+    enum: ['with annotation', 'without annotation'],
+    required: function() {
+      return this.evaluationMode === 'manual';
+    },
+    default:'without annotation'
+  },
+  
   setId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AISWBSet'

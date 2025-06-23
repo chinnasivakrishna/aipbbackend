@@ -64,6 +64,7 @@ const addQuestion = async (req, res) => {
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
+        evaluationType: question.evaluationType,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -127,6 +128,7 @@ const updateQuestion = async (req, res) => {
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
+        evaluationType: question.evaluationType,
         updatedAt: question.updatedAt.toISOString()
       }
     });
@@ -213,6 +215,7 @@ const getQuestionDetails = async (req, res) => {
         metadata: question.metadata,
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
+        evaluationType: question.evaluationType,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -440,7 +443,8 @@ const getQuestionsInSet = async (req, res) => {
         }
       },
       languageMode: question.languageMode,
-      evaluationMode: question.evaluationMode
+      evaluationMode: question.evaluationMode,
+      evaluationType: question.evaluationType
     }));
 
     res.status(200).json({
@@ -463,6 +467,7 @@ const getQuestionsInSet = async (req, res) => {
 
 const addQuestionToSet = async (req, res) => {
   try {
+    console.log('Request body received in addQuestionToSet:', req.body);
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
       return res.status(400).json({
@@ -502,6 +507,7 @@ const addQuestionToSet = async (req, res) => {
     });
 
     await question.save();
+    console.log('Saved question in DB:', question);
 
     // Add question to set
     set.questions.push(question._id);
@@ -524,7 +530,8 @@ const addQuestionToSet = async (req, res) => {
           }
         },
         languageMode: question.languageMode,
-        evaluationMode: question.evaluationMode
+        evaluationMode: question.evaluationMode,
+        evaluationType: question.evaluationType
       }
     });
 

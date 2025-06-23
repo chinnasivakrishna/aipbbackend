@@ -82,6 +82,13 @@ const validateQuestion = [
     .isIn(['auto', 'manual'])
     .withMessage('Evaluation mode must be auto or manual'),
   
+  body('question.evaluationType')
+    .if(body('question.evaluationMode').equals('manual'))
+    .notEmpty()
+    .withMessage('Evaluation type is required for manual evaluation mode')
+    .isIn(['with annotation', 'without annotation'])
+    .withMessage('Evaluation type must be "with annotation" or "without annotation"'),
+  
   body('setId')
     .optional()
     .isMongoId()
@@ -195,7 +202,14 @@ const validateQuestionToSet = [
     .notEmpty()
     .withMessage('Evaluation mode is required')
     .isIn(['auto', 'manual'])
-    .withMessage('Evaluation mode must be auto or manual')
+    .withMessage('Evaluation mode must be auto or manual'),
+  
+  body('evaluationType')
+    .if(body('evaluationMode').equals('manual'))
+    .notEmpty()
+    .withMessage('Evaluation type is required for manual evaluation mode')
+    .isIn(['with annotation', 'without annotation'])
+    .withMessage('Evaluation type must be "with annotation" or "without annotation"')
 ];
 
 const validateQuestionSubmissionsQuery = [
