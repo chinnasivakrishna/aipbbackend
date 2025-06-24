@@ -31,7 +31,7 @@ const UserSchema = new mongoose.Schema({
   status: {
     type: String,
     enum: ['active', 'inactive', 'pending'],
-    default: 'pending'
+    default: 'active'
   },
   
   // Business registration fields

@@ -29,6 +29,7 @@
     "node-cache": "^5.1.2",
     "node-fetch": "^3.3.2",
     "nodemon": "^3.1.10",
+    "openai": "^5.6.0",
     "qrcode": "^1.5.4",
     "twilio": "^5.6.1"
   }
