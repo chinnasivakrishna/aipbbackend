@@ -112,6 +112,7 @@ router.post('/check-user', validateClient, async (req, res) => {
 });
 
 // Route: Enhanced Login/Register with better duplicate handling
+// Enhanced Login Route with clearer duplicate handling
 router.post('/login', validateClient, async (req, res) => {
   try {
     const { mobile } = req.body;
@@ -121,61 +122,91 @@ router.post('/login', validateClient, async (req, res) => {
     if (!mobile || !validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
-        responseCode: 1509, // Same as original login mobile validation
+        responseCode: 1509,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
 
+    // First, try to find existing user
     let mobileUser = await MobileUser.findByMobileAndClient(mobile, clientId);
-    const isNewUser = !mobileUser;
+    let isNewUser = false;
     
-    if (!mobileUser) {
+    if (mobileUser) {
+      // EXISTING USER - Treat as login
+      console.log(`Existing user login: ${mobile} for client: ${clientId}`);
+      
+      // Generate new token for existing user
+      const token = generateToken(mobileUser._id, mobile, clientId);
+      mobileUser.authToken = token;
+      await mobileUser.save(); // This will increment loginCount via pre-save hook
+      
+    } else {
+      // NEW USER - Create account
+      console.log(`Creating new user: ${mobile} for client: ${clientId}`);
+      isNewUser = true;
+      
       try {
-        // Create new mobile user for this client
         mobileUser = new MobileUser({
           mobile,
           clientId,
           isVerified: true
         });
-        await mobileUser.save();
-        console.log(`New mobile user created: ${mobile} for client: ${clientId}`);
         
-      } catch (error) {
-        // Handle duplicate key error specifically
-        if (error.message.includes('Mobile number already exists for this client')) {
-          // This shouldn't happen due to our findByMobileAndClient check, but just in case
+        const token = generateToken(null, mobile, clientId); // Temporary token for new user
+        mobileUser.authToken = token;
+        
+        await mobileUser.save();
+        
+        // Update token with actual user ID after save
+        const finalToken = generateToken(mobileUser._id, mobile, clientId);
+        mobileUser.authToken = finalToken;
+        await mobileUser.save();
+        
+        console.log(`New mobile user created successfully: ${mobile} for client: ${clientId}`);
+        
+      } catch (saveError) {
+        // Handle race condition where user might have been created between our check and save
+        if (saveError.message.includes('Mobile number already exists for this client')) {
+          console.log(`Race condition detected - user created concurrently: ${mobile} for client: ${clientId}`);
+          
+          // Fetch the user that was created in the meantime
           mobileUser = await MobileUser.findByMobileAndClient(mobile, clientId);
+          
           if (!mobileUser) {
-            throw error; // Re-throw if still not found
+            throw new Error('User creation failed and subsequent lookup failed');
           }
+          
+          // Treat as existing user login
+          const token = generateToken(mobileUser._id, mobile, clientId);
+          mobileUser.authToken = token;
+          await mobileUser.save();
+          isNewUser = false; // Update flag since user already existed
+          
         } else {
-          throw error;
+          throw saveError; // Re-throw other errors
         }
       }
     }
-
-    // Generate token and update user
-    const token = generateToken(mobileUser._id, mobile, clientId);
-    mobileUser.authToken = token;
-    await mobileUser.save();
 
     // Check profile completeness
     const profile = await UserProfile.findOne({ userId: mobileUser._id });
     const isProfileComplete = !!profile;
 
-    // Base response
+    // Prepare response
     const response = {
       status: isProfileComplete ? 'LOGIN_SUCCESS' : 'PROFILE_REQUIRED',
       success: true,
-      responseCode: isProfileComplete ? 1510 : 1511, // Same as original login success/profile required
-      token,
+      responseCode: isProfileComplete ? 1510 : 1511,
+      token: mobileUser.authToken,
       is_profile_complete: isProfileComplete,
       is_new_user: isNewUser,
       user_id: mobileUser._id,
       client_id: clientId,
       client_name: client.businessName,
       login_count: mobileUser.loginCount,
-      message: isProfileComplete ? 'Login successful.' : 'Please complete your profile to continue.'
+      message: isProfileComplete ? 
+        (isNewUser ? 'Account created and login successful.' : 'Login successful.') : 
+        'Please complete your profile to continue.'
     };
 
     // Add profile data if complete
@@ -203,7 +234,7 @@ router.post('/login', validateClient, async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1512, // Same as original login internal error
+      responseCode: 1512,
       message: 'Internal server error. Please try again later.'
     });
   }
