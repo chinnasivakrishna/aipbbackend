@@ -310,4 +310,270 @@ router.post('/bulk-check', validateClient, async (req, res) => {
   }
 });
 
+router.post('/profile', authenticateMobileUser, async (req, res) => {
+  try {
+    console.log('=== PROFILE CREATE ROUTE HIT ===');
+    const { name, age, gender, exams, native_language } = req.body;
+    const clientId = req.params.clientId;
+    const userId = req.user.id;
+
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        responseCode: 1513,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
+
+    // Validation
+    const errors = [];
+    if (!name || name.trim().length === 0) errors.push('Name is required.');
+    if (!age || !validateAgeGroup(age)) errors.push('Please select a valid age group.');
+    if (!gender || !['Male', 'Female', 'Other'].includes(gender)) errors.push('Please select a valid gender.');
+    if (!exams || !Array.isArray(exams) || exams.length === 0) errors.push('Please select at least one exam.');
+    if (!native_language) errors.push('Please select your native language.');
+
+    if (errors.length > 0) {
+      return res.status(400).json({
+        success: false,
+        responseCode: 1514,
+        message: 'Validation failed.',
+        errors
+      });
+    }
+
+    let profile = await UserProfile.findOne({ userId });
+    const isNewProfile = !profile;
+
+    if (profile) {
+      profile.name = name.trim();
+      profile.age = age;
+      profile.gender = gender;
+      profile.exams = exams;
+      profile.nativeLanguage = native_language;
+      profile.updatedAt = new Date();
+    } else {
+      profile = new UserProfile({
+        userId,
+        name: name.trim(),
+        age,
+        gender,
+        exams,
+        nativeLanguage: native_language,
+        clientId
+      });
+    }
+
+    await profile.save();
+
+    res.status(200).json({
+      status: 'PROFILE_SAVED',
+      success: true,
+      responseCode: isNewProfile ? 1515 : 1516,
+      message: isNewProfile ? 'Profile created successfully.' : 'Profile updated successfully.',
+      profile: {
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        exams: profile.exams,
+        native_language: profile.nativeLanguage
+      }
+    });
+
+  } catch (error) {
+    console.error('Profile creation error:', error);
+    res.status(500).json({
+      success: false,
+      responseCode: 1517,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Get Profile
+// GET /api/clients/:clientId/mobile/auth/profile
+router.get('/profile', authenticateMobileUser, async (req, res) => {
+  try {
+    console.log('=== GET PROFILE ROUTE HIT ===');
+    const clientId = req.params.clientId;
+    const userId = req.user.id;
+
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        responseCode: 1518,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
+
+    const profile = await UserProfile.findOne({ userId }).populate('userId', 'mobile createdAt');
+
+    if (!profile) {
+      return res.status(200).json({
+        success: true,
+        responseCode: 1519,
+        is_profile_complete: false,
+        message: 'Profile not found. Please complete your profile setup.'
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      responseCode: 1520,
+      is_profile_complete: true,
+      profile: {
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        exams: profile.exams,
+        native_language: profile.nativeLanguage,
+        mobile: profile.userId.mobile,
+        isEvaluator:profile.isEvaluator,
+        created_at: profile.createdAt,
+        updated_at: profile.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({
+      success: false,
+      responseCode: 1521,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Update Profile
+// PUT /api/clients/:clientId/mobile/auth/profile
+router.put('/profile', authenticateMobileUser, async (req, res) => {
+  try {
+    console.log('=== UPDATE PROFILE ROUTE HIT ===');
+    const { name, age, gender, exams, native_language } = req.body;
+    const clientId = req.params.clientId;
+    const userId = req.user.id;
+
+    const mobileUser = await MobileUser.findOne({ _id: userId, clientId });
+    if (!mobileUser) {
+      return res.status(403).json({
+        success: false,
+        responseCode: 1522,
+        message: 'Access denied. User does not belong to this client.'
+      });
+    }
+
+    const profile = await UserProfile.findOne({ userId });
+    if (!profile) {
+      return res.status(404).json({
+        success: false,
+        responseCode: 1523,
+        message: 'Profile not found. Please create profile first.'
+      });
+    }
+
+    // Update only provided fields with validation
+    if (name !== undefined) profile.name = name.trim();
+    if (age !== undefined) {
+      if (!validateAgeGroup(age)) {
+        return res.status(400).json({
+          success: false,
+          responseCode: 1524,
+          message: 'Please select a valid age group.'
+        });
+      }
+      profile.age = age;
+    }
+    if (gender !== undefined) profile.gender = gender;
+    if (exams !== undefined) profile.exams = exams;
+    if (native_language !== undefined) profile.nativeLanguage = native_language;
+    
+    profile.updatedAt = new Date();
+    await profile.save();
+
+    res.status(200).json({
+      success: true,
+      responseCode: 1525,
+      message: 'Profile updated successfully.',
+      profile: {
+        name: profile.name,
+        age: profile.age,
+        gender: profile.gender,
+        exams: profile.exams,
+        native_language: profile.nativeLanguage
+      }
+    });
+
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({
+      success: false,
+      responseCode: 1526,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Route: Logout (invalidate token)
+// POST /api/clients/:clientId/mobile/auth/logout
+router.post('/logout', authenticateMobileUser, async (req, res) => {
+  try {
+    console.log('=== LOGOUT ROUTE HIT ===');
+    const clientId = req.params.clientId;
+    const userId = req.user.id;
+
+    await MobileUser.findOneAndUpdate(
+      { _id: userId, clientId }, 
+      { authToken: null }
+    );
+
+    res.status(200).json({
+      success: true,
+      responseCode: 1527,
+      message: 'Logged out successfully.'
+    });
+
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({
+      success: false,
+      responseCode: 1528,
+      message: 'Internal server error. Please try again later.'
+    });
+  }
+});
+
+// Add a test route to verify the router is working
+router.get('/test', (req, res) => {
+  console.log('=== TEST ROUTE HIT ===');
+  console.log('req.params:', req.params);
+  res.json({
+    success: true,
+    responseCode: 1529,
+    message: 'Mobile auth router is working!',
+    clientId: req.params.clientId,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Add error handling middleware specific to this router
+router.use((error, req, res, next) => {
+  console.error('=== MOBILE AUTH ROUTER ERROR ===');
+  console.error('Error:', error);
+  console.error('Request URL:', req.originalUrl);
+  console.error('Request Method:', req.method);
+  console.error('Request Params:', req.params);
+  console.error('Request Body:', req.body);
+  
+  res.status(500).json({
+    success: false,
+    responseCode: 1530,
+    message: 'Router error occurred',
+    error: error.message
+  });
+});
+
+console.log("Mobile Auth Routes module exported successfully");
+
 module.exports = router;
