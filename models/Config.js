@@ -11,15 +11,18 @@ const modelSchema = new mongoose.Schema({
 
 const configSchema = new mongoose.Schema(
   {
+    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true, index: true },
     sourcetype: {
       type: String,
       enum: ['LLM', 'SST', 'TTS'],
-      required: true,
-      unique: true // Only one config per sourcetype
+      required: true
     },
-    models: [modelSchema] // Array of models for this type
+    models: [modelSchema], // Array of models for this type
+    isExpired: { type: Boolean, default: false }
   },
   { timestamps: true }
 );
+
+configSchema.index({ clientId: 1, sourcetype: 1 }, { unique: true });
 
 module.exports = mongoose.model('Config', configSchema);
