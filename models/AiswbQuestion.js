@@ -17,16 +17,7 @@ const questionSchema = new mongoose.Schema({
   },
   answerVideoUrls: [{
     type: String,
-    trim: true,
-    validate: {
-      validator: function(v) {
-        if (!v) return true; // Optional field
-        // YouTube URL validation regex
-        const youtubeRegex = /^(https?:\/\/)?(www\.)?(youtube\.com\/(watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+(&[\w=]*)?$/;
-        return youtubeRegex.test(v);
-      },
-      message: 'Answer video URL must be a valid YouTube URL'
-    }
+    trim: true
   }],
   metadata: {
     keywords: [{
