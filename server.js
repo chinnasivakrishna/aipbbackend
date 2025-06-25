@@ -38,20 +38,30 @@ const reviewRequestsRoutes = require('./routes/reviewRequests');
 const mobileReviewsRoutes = require('./routes/mobileReviews');
 const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
 const ai = require("./routes/aiServiceConfig");
-const configRoutes = require("./routes/config")
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('Connected to MongoDB'))
-  .catch(err => console.error('MongoDB connection error:', err));
+mongoose
+  .connect(process.env.MONGODB_URI)
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((err) => console.error("MongoDB connection error:", err))
 
-// Verify Mistral API key is configured
+// Verify required environment variables
+if (!process.env.OPENAI_API_KEY) {
+  console.warn("⚠️  OPENAI_API_KEY is not configured - Chat features will be disabled")
+} else {
+  console.log("✅ OpenAI API key configured")
+}
+
 if (!process.env.MISTRAL_API_KEY) {
-  console.warn('MISTRAL_API_KEY is not configured - OCR features will be disabled');
+  console.warn("MISTRAL_API_KEY is not configured - OCR features will be disabled")
+}
+
+if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  console.warn("Cloudinary configuration missing - PDF upload will be disabled")
 }
 
 // API routes
@@ -78,86 +88,95 @@ app.use('/api/mybooks', myBooksRoutes);
 app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
 app.use('/api/review', expertReviewRoutes);
-app.use('/api/config', configRoutes);
+app.use('/api/config', require('./routes/config'));
 
 // Global Evaluation routes (accessible without client-specific middleware)
-// These handle the main Assessment Dashboard APIs as per PDF requirements
-app.use('/api/aiswb', evaluationRoutes);
+app.use("/api/aiswb", evaluationRoutes)
 
 // Mobile routes with client-specific access
-app.use('/api/clients/:clientId/mobile/auth', 
+app.use(
+  "/api/clients/:clientId/mobile/auth",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  mobileAuthRoutes
-);
-app.use('/api/clients/:clientId/homepage', 
-  checkClientAccess(),
-  (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  mainBookstoreRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  mobileAuthRoutes,
+)
 
-app.use('/api/clients/:clientId', 
+app.use(
+  "/api/clients/:clientId/homepage",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  mainBookstoreRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  mainBookstoreRoutes,
+)
 
-app.use('/api/clients/:clientId/mobile/mybooks', 
+app.use(
+  "/api/clients/:clientId",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  myBooksRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  mainBookstoreRoutes,
+)
 
-app.use('/api/clients/:clientId/mobile/books', 
+app.use(
+  "/api/clients/:clientId/mobile/mybooks",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  mobileBooksRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  myBooksRoutes,
+)
 
-app.use('/api/clients/:clientId/mobile/userAnswers', 
+app.use(
+  "/api/clients/:clientId/mobile/books",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  userAnswersRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  mobileBooksRoutes,
+)
+
+app.use(
+  "/api/clients/:clientId/mobile/userAnswers",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  userAnswersRoutes,
+)
 
 // Client-specific evaluation routes for mobile users
-app.use('/api/clients/:clientId/mobile/evaluations', 
+app.use(
+  "/api/clients/:clientId/mobile/evaluations",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  evaluationRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  evaluationRoutes,
+)
 
-app.use('/api/clients/:clientId/mobile/submitted-answers', 
+app.use(
+  "/api/clients/:clientId/mobile/submitted-answers",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  mobileSubmittedAnswersRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  mobileSubmittedAnswersRoutes,
+)
 
-app.use('/api/clients/:clientId/mobile/review', 
+app.use(
+  "/api/clients/:clientId/mobile/review",
   checkClientAccess(),
   (req, res, next) => {
     req.clientId = req.params.clientId;
@@ -166,21 +185,21 @@ app.use('/api/clients/:clientId/mobile/review',
   reviewRequestsRoutes
 );
 
-
 // Mount subtopics routes
-app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
-app.use('/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);
-app.use('/api/mobile-qr-auth', mobileQRAuthRoutes);
-app.use('/api/evaluator-reviews', evaluatorReviewsRoutes);
-app.use('/api/review', expertReviewRoutes);
+app.use("/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics", subtopicsRoutes)
+app.use("/api/workbooks/:workbookId/chapters/:chapterId/topics/:topicId/subtopics", subtopicsRoutes)
+app.use("/api/mobile-qr-auth", mobileQRAuthRoutes)
+app.use("/api/evaluator-reviews", evaluatorReviewsRoutes)
+app.use("/api/review", expertReviewRoutes)
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(500).json({ success: false, message: 'Internal server error' });
-});
+  console.error(err.stack)
+  res.status(500).json({ success: false, message: "Internal server error" })
+})
 
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+  console.log(`🚀 Server running on port ${PORT}`)
+  
+})
