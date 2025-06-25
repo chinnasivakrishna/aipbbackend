@@ -38,6 +38,7 @@ const reviewRequestsRoutes = require('./routes/reviewRequests');
 const mobileReviewsRoutes = require('./routes/mobileReviews');
 const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
 const ai = require("./routes/aiServiceConfig");
+const configRoutes = require("./routes/config")
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -77,7 +78,7 @@ app.use('/api/mybooks', myBooksRoutes);
 app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
 app.use('/api/review', expertReviewRoutes);
-app.use('/api/config', require('./routes/config'));
+app.use('/api/config', configRoutes);
 
 // Global Evaluation routes (accessible without client-specific middleware)
 // These handle the main Assessment Dashboard APIs as per PDF requirements
@@ -164,6 +165,7 @@ app.use('/api/clients/:clientId/mobile/review',
   }, 
   reviewRequestsRoutes
 );
+
 
 // Mount subtopics routes
 app.use('/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics', subtopicsRoutes);

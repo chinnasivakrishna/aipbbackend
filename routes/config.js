@@ -3,17 +3,26 @@ const router = express.Router();
 const configController = require('../controllers/configController');
 const auth = require('../middleware/auth');
 
-// router.use(auth.verifyAdminToken)
-// Add a new model to a sourcetype
-router.post('/model', configController.addModel);
 
 // Get all configs or by sourcetype (use ?sourcetype=LLM)
-router.get('/', configController.getConfigs);
+router.get('/clients/:id', configController.getConfigs);
+
+// Check if config is expired
+router.get('/clients/:id/config/:sourcetype/expire', configController.checkIsExpired);
+// Set config expired flag
+router.put('/clients/:id/config/:sourcetype/expire', configController.setIsExpired);
+
+router.use(auth.verifyAdminToken)
+
+// Add a new model to a sourcetype
+router.post('/clients/:id/model', configController.addModel);
 
 // Update a model by key within a sourcetype
-router.put('/model/:sourcetype/:key', configController.updateModel);
+router.put('/clients/:id/model/:sourcetype/:key', configController.updateModel);
 
 // Delete a model by key within a sourcetype
-router.delete('/model/:sourcetype/:key', configController.deleteModel);
+router.delete('/clients/:id/model/:sourcetype/:key', configController.deleteModel);
+
+
 
 module.exports = router; 
