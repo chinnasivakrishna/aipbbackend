@@ -1,4 +1,5 @@
 // Enhanced mobileAuth.js with better duplicate handling and validation
+// Response codes aligned with previous implementation (1500-1530)
 
 const express = require('express');
 const router = express.Router({ mergeParams: true });
@@ -19,7 +20,7 @@ const validateClient = async (req, res, next) => {
     if (!clientId) {
       return res.status(400).json({
         success: false,
-        responseCode: 1500,
+        responseCode: 1500, // Same as check-user missing clientId
         message: 'Client ID is required.'
       });
     }
@@ -33,7 +34,7 @@ const validateClient = async (req, res, next) => {
     if (!client) {
       return res.status(400).json({
         success: false,
-        responseCode: 1501,
+        responseCode: 1501, // Same as check-user invalid client
         message: 'Invalid client ID or client is not active.'
       });
     }
@@ -44,7 +45,7 @@ const validateClient = async (req, res, next) => {
     console.error('Client validation error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1502,
+      responseCode: 1506, // Using internal server error code
       message: 'Error validating client.'
     });
   }
@@ -60,7 +61,7 @@ router.post('/check-user', validateClient, async (req, res) => {
     if (!mobile || !validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
-        responseCode: 1503,
+        responseCode: 1502, // Same as original check-user mobile validation
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
@@ -74,11 +75,11 @@ router.post('/check-user', validateClient, async (req, res) => {
       
       return res.status(200).json({
         success: true,
-        responseCode: 1504,
+        responseCode: 1503, // Same as original - new user
         user_exists: false,
         client_id: clientId,
         client_name: client.businessName,
-        message: 'New user for this client. Registration required.',
+        message: 'New user. Registration required.',
         // Optional info for debugging (remove in production if privacy concern)
         cross_client_usage_count: crossClientUsage.length
       });
@@ -89,7 +90,7 @@ router.post('/check-user', validateClient, async (req, res) => {
     
     res.status(200).json({
       success: true,
-      responseCode: profile ? 1505 : 1506,
+      responseCode: profile ? 1504 : 1505, // Same as original - complete/incomplete profile
       user_exists: true,
       is_profile_complete: !!profile,
       client_id: clientId,
@@ -104,13 +105,14 @@ router.post('/check-user', validateClient, async (req, res) => {
     console.error('Check user error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1507,
+      responseCode: 1506, // Same as original check-user internal error
       message: 'Internal server error. Please try again later.'
     });
   }
 });
 
 // Route: Enhanced Login/Register with better duplicate handling
+// Enhanced Login Route with clearer duplicate handling
 router.post('/login', validateClient, async (req, res) => {
   try {
     const { mobile } = req.body;
@@ -120,61 +122,91 @@ router.post('/login', validateClient, async (req, res) => {
     if (!mobile || !validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
-        responseCode: 1508,
+        responseCode: 1509,
         message: 'Please enter a valid 10-digit mobile number.'
       });
     }
 
+    // First, try to find existing user
     let mobileUser = await MobileUser.findByMobileAndClient(mobile, clientId);
-    const isNewUser = !mobileUser;
+    let isNewUser = false;
     
-    if (!mobileUser) {
+    if (mobileUser) {
+      // EXISTING USER - Treat as login
+      console.log(`Existing user login: ${mobile} for client: ${clientId}`);
+      
+      // Generate new token for existing user
+      const token = generateToken(mobileUser._id, mobile, clientId);
+      mobileUser.authToken = token;
+      await mobileUser.save(); // This will increment loginCount via pre-save hook
+      
+    } else {
+      // NEW USER - Create account
+      console.log(`Creating new user: ${mobile} for client: ${clientId}`);
+      isNewUser = true;
+      
       try {
-        // Create new mobile user for this client
         mobileUser = new MobileUser({
           mobile,
           clientId,
           isVerified: true
         });
-        await mobileUser.save();
-        console.log(`New mobile user created: ${mobile} for client: ${clientId}`);
         
-      } catch (error) {
-        // Handle duplicate key error specifically
-        if (error.message.includes('Mobile number already exists for this client')) {
-          // This shouldn't happen due to our findByMobileAndClient check, but just in case
+        const token = generateToken(null, mobile, clientId); // Temporary token for new user
+        mobileUser.authToken = token;
+        
+        await mobileUser.save();
+        
+        // Update token with actual user ID after save
+        const finalToken = generateToken(mobileUser._id, mobile, clientId);
+        mobileUser.authToken = finalToken;
+        await mobileUser.save();
+        
+        console.log(`New mobile user created successfully: ${mobile} for client: ${clientId}`);
+        
+      } catch (saveError) {
+        // Handle race condition where user might have been created between our check and save
+        if (saveError.message.includes('Mobile number already exists for this client')) {
+          console.log(`Race condition detected - user created concurrently: ${mobile} for client: ${clientId}`);
+          
+          // Fetch the user that was created in the meantime
           mobileUser = await MobileUser.findByMobileAndClient(mobile, clientId);
+          
           if (!mobileUser) {
-            throw error; // Re-throw if still not found
+            throw new Error('User creation failed and subsequent lookup failed');
           }
+          
+          // Treat as existing user login
+          const token = generateToken(mobileUser._id, mobile, clientId);
+          mobileUser.authToken = token;
+          await mobileUser.save();
+          isNewUser = false; // Update flag since user already existed
+          
         } else {
-          throw error;
+          throw saveError; // Re-throw other errors
         }
       }
     }
-
-    // Generate token and update user
-    const token = generateToken(mobileUser._id, mobile, clientId);
-    mobileUser.authToken = token;
-    await mobileUser.save();
 
     // Check profile completeness
     const profile = await UserProfile.findOne({ userId: mobileUser._id });
     const isProfileComplete = !!profile;
 
-    // Base response
+    // Prepare response
     const response = {
       status: isProfileComplete ? 'LOGIN_SUCCESS' : 'PROFILE_REQUIRED',
       success: true,
-      responseCode: isProfileComplete ? 1509 : 1510,
-      token,
+      responseCode: isProfileComplete ? 1510 : 1511,
+      token: mobileUser.authToken,
       is_profile_complete: isProfileComplete,
       is_new_user: isNewUser,
       user_id: mobileUser._id,
       client_id: clientId,
       client_name: client.businessName,
       login_count: mobileUser.loginCount,
-      message: isProfileComplete ? 'Login successful.' : 'Please complete your profile to continue.'
+      message: isProfileComplete ? 
+        (isNewUser ? 'Account created and login successful.' : 'Login successful.') : 
+        'Please complete your profile to continue.'
     };
 
     // Add profile data if complete
@@ -202,7 +234,7 @@ router.post('/login', validateClient, async (req, res) => {
     console.error('Login error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1511,
+      responseCode: 1512,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -216,7 +248,7 @@ router.get('/mobile-analytics/:mobile', async (req, res) => {
     if (!validateMobile(mobile)) {
       return res.status(400).json({
         success: false,
-        responseCode: 1512,
+        responseCode: 1502, // Using mobile validation error code
         message: 'Please provide a valid 10-digit mobile number.'
       });
     }
@@ -235,7 +267,7 @@ router.get('/mobile-analytics/:mobile', async (req, res) => {
 
     res.status(200).json({
       success: true,
-      responseCode: 1513,
+      responseCode: 1529, // Using test route success code for analytics
       mobile,
       total_clients: usage.length,
       client_details: clientDetails,
@@ -246,7 +278,7 @@ router.get('/mobile-analytics/:mobile', async (req, res) => {
     console.error('Mobile analytics error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1514,
+      responseCode: 1530, // Using router error code
       message: 'Internal server error.'
     });
   }
@@ -261,7 +293,7 @@ router.post('/bulk-check', validateClient, async (req, res) => {
     if (!Array.isArray(mobiles) || mobiles.length === 0) {
       return res.status(400).json({
         success: false,
-        responseCode: 1515,
+        responseCode: 1502, // Using mobile validation error code
         message: 'Please provide an array of mobile numbers.'
       });
     }
@@ -290,7 +322,7 @@ router.post('/bulk-check', validateClient, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      responseCode: 1516,
+      responseCode: 1529, // Using test route success code for bulk operations
       results,
       summary: {
         total: mobiles.length,
@@ -304,12 +336,13 @@ router.post('/bulk-check', validateClient, async (req, res) => {
     console.error('Bulk check error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1517,
+      responseCode: 1530, // Using router error code
       message: 'Internal server error.'
     });
   }
 });
 
+// Route: Create/Update Profile
 router.post('/profile', authenticateMobileUser, async (req, res) => {
   try {
     console.log('=== PROFILE CREATE ROUTE HIT ===');
@@ -321,7 +354,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
-        responseCode: 1513,
+        responseCode: 1513, // Same as original profile access denied
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -337,7 +370,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     if (errors.length > 0) {
       return res.status(400).json({
         success: false,
-        responseCode: 1514,
+        responseCode: 1514, // Same as original profile validation failed
         message: 'Validation failed.',
         errors
       });
@@ -370,7 +403,7 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     res.status(200).json({
       status: 'PROFILE_SAVED',
       success: true,
-      responseCode: isNewProfile ? 1515 : 1516,
+      responseCode: isNewProfile ? 1515 : 1516, // Same as original profile created/updated
       message: isNewProfile ? 'Profile created successfully.' : 'Profile updated successfully.',
       profile: {
         name: profile.name,
@@ -385,14 +418,13 @@ router.post('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Profile creation error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1517,
+      responseCode: 1517, // Same as original profile internal error
       message: 'Internal server error. Please try again later.'
     });
   }
 });
 
 // Route: Get Profile
-// GET /api/clients/:clientId/mobile/auth/profile
 router.get('/profile', authenticateMobileUser, async (req, res) => {
   try {
     console.log('=== GET PROFILE ROUTE HIT ===');
@@ -403,7 +435,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
-        responseCode: 1518,
+        responseCode: 1518, // Same as original get profile access denied
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -413,7 +445,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     if (!profile) {
       return res.status(200).json({
         success: true,
-        responseCode: 1519,
+        responseCode: 1519, // Same as original profile not found
         is_profile_complete: false,
         message: 'Profile not found. Please complete your profile setup.'
       });
@@ -421,7 +453,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      responseCode: 1520,
+      responseCode: 1520, // Same as original profile found
       is_profile_complete: true,
       profile: {
         name: profile.name,
@@ -430,7 +462,7 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
         exams: profile.exams,
         native_language: profile.nativeLanguage,
         mobile: profile.userId.mobile,
-        isEvaluator:profile.isEvaluator,
+        isEvaluator: profile.isEvaluator,
         created_at: profile.createdAt,
         updated_at: profile.updatedAt
       }
@@ -440,14 +472,13 @@ router.get('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Get profile error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1521,
+      responseCode: 1521, // Same as original get profile internal error
       message: 'Internal server error. Please try again later.'
     });
   }
 });
 
 // Route: Update Profile
-// PUT /api/clients/:clientId/mobile/auth/profile
 router.put('/profile', authenticateMobileUser, async (req, res) => {
   try {
     console.log('=== UPDATE PROFILE ROUTE HIT ===');
@@ -459,7 +490,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     if (!mobileUser) {
       return res.status(403).json({
         success: false,
-        responseCode: 1522,
+        responseCode: 1522, // Same as original update profile access denied
         message: 'Access denied. User does not belong to this client.'
       });
     }
@@ -468,7 +499,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     if (!profile) {
       return res.status(404).json({
         success: false,
-        responseCode: 1523,
+        responseCode: 1523, // Same as original update profile not found
         message: 'Profile not found. Please create profile first.'
       });
     }
@@ -479,7 +510,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
       if (!validateAgeGroup(age)) {
         return res.status(400).json({
           success: false,
-          responseCode: 1524,
+          responseCode: 1524, // Same as original update profile invalid age
           message: 'Please select a valid age group.'
         });
       }
@@ -494,7 +525,7 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      responseCode: 1525,
+      responseCode: 1525, // Same as original profile updated successfully
       message: 'Profile updated successfully.',
       profile: {
         name: profile.name,
@@ -509,14 +540,13 @@ router.put('/profile', authenticateMobileUser, async (req, res) => {
     console.error('Update profile error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1526,
+      responseCode: 1526, // Same as original update profile internal error
       message: 'Internal server error. Please try again later.'
     });
   }
 });
 
 // Route: Logout (invalidate token)
-// POST /api/clients/:clientId/mobile/auth/logout
 router.post('/logout', authenticateMobileUser, async (req, res) => {
   try {
     console.log('=== LOGOUT ROUTE HIT ===');
@@ -530,7 +560,7 @@ router.post('/logout', authenticateMobileUser, async (req, res) => {
 
     res.status(200).json({
       success: true,
-      responseCode: 1527,
+      responseCode: 1527, // Same as original logout success
       message: 'Logged out successfully.'
     });
 
@@ -538,7 +568,7 @@ router.post('/logout', authenticateMobileUser, async (req, res) => {
     console.error('Logout error:', error);
     res.status(500).json({
       success: false,
-      responseCode: 1528,
+      responseCode: 1528, // Same as original logout internal error
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -550,7 +580,7 @@ router.get('/test', (req, res) => {
   console.log('req.params:', req.params);
   res.json({
     success: true,
-    responseCode: 1529,
+    responseCode: 1529, // Same as original test route
     message: 'Mobile auth router is working!',
     clientId: req.params.clientId,
     timestamp: new Date().toISOString()
@@ -568,12 +598,13 @@ router.use((error, req, res, next) => {
   
   res.status(500).json({
     success: false,
-    responseCode: 1530,
+    responseCode: 1530, // Same as original router error
     message: 'Router error occurred',
     error: error.message
   });
 });
 
 console.log("Mobile Auth Routes module exported successfully");
+
 
 module.exports = router;
