@@ -74,7 +74,7 @@ router.get('/', async (req, res) => {
         questionId attemptNumber answerImages textAnswer submissionStatus 
         submittedAt reviewedAt feedback evaluation publishStatus reviewStatus 
         popularityStatus metadata.timeSpent metadata.sourceType evaluatedAt
-        requestID requestnote
+        requestID requestnote  annotations
       `)
       .sort(sort)
       .skip(skip)
@@ -108,6 +108,7 @@ router.get('/', async (req, res) => {
       hasImages: answer.answerImages && answer.answerImages.length > 0,
       hasTextAnswer: Boolean(answer.textAnswer),
       answerImages: answer.answerImages || [],
+      annotations: answer.annotations || [],
       timeSpent: answer.metadata?.timeSpent || 0,
       sourceType: answer.metadata?.sourceType || 'qr_scan',
       
@@ -139,9 +140,10 @@ router.get('/', async (req, res) => {
         hasRemarks: Boolean(answer.feedback.expertReview.remarks),
         hasAnnotatedImages: Boolean(answer.feedback.expertReview.annotatedImages?.length),
         reviewedAt: answer.feedback.expertReview.reviewedAt
-      } : null
+      } : null,
+      
     }));
-
+    console.log(transformedAnswers)
     res.status(200).json({
       success: true,
       message: 'Submitted answers retrieved successfully',
@@ -307,7 +309,10 @@ router.get('/:answerId', async (req, res) => {
         reviewedBy: userAnswer.reviewedBy ? {
           name: userAnswer.reviewedBy.name,
           email: userAnswer.reviewedBy.email
-        } : null
+        } : null,
+
+        // Add this line to include top-level annotations in the detail response
+        annotations: userAnswer.annotations || []
       }
     };
 
