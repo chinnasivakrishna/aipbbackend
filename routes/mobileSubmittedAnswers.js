@@ -258,6 +258,7 @@ router.get('/:answerId', async (req, res) => {
         requestID: userAnswer.requestID,
         requestnote: userAnswer.requestnote,
         analysisAvailable: true,
+        annotations:userAnswer.annotations,
         
         // Question details
         question: {
