@@ -4,7 +4,7 @@ const router = express.Router();
 const ReviewRequest = require('../models/ReviewRequest');
 const UserAnswer = require('../models/UserAnswer');
 const Evaluator = require('../models/Evaluator');
-const { verifyToken, verifyTokenforevaluator } = require('../middleware/auth'); // Assuming evaluators use regular auth
+const { verifyTokenforevaluator } = require('../middleware/auth'); // Assuming evaluators use regular auth
 const AiswbQuestion = require('../models/AiswbQuestion');
 const { generatePresignedUrl, generateAnnotatedImageUrl } = require('../utils/s3');
 const path = require('path');
@@ -3317,9 +3317,6 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
         message: 'Evaluator not found'
       });
     }
-
-    // Extract client IDs that evaluator has access to
-    const clientIds = evaluator.clientAccess.map(client => client.id);
     
     // Query parameters for pagination and filtering
     const { page = 1, limit = 10, clientId } = req.query;
@@ -3329,16 +3326,6 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
     const filter = {
       reviewStatus: 'review_pending'
     };
-
-    // Filter by client access
-    if (clientIds.length > 0) {
-      filter.clientId = { $in: clientIds };
-    }
-
-    // Additional client filter if specified
-    if (clientId && clientIds.includes(clientId)) {
-      filter.clientId = clientId;
-    }
 
     // Get pending reviews with pagination
     const pendingReviews = await UserAnswer.find(filter)
@@ -3409,8 +3396,6 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
       });
     }
 
-    // Extract client IDs that evaluator has access to
-    const clientIds = evaluator.clientAccess.map(client => client.id);
     
     // Query parameters for pagination and filtering
     const { page = 1, limit = 10, clientId } = req.query;
@@ -3421,15 +3406,6 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
       reviewStatus: 'review_accepted'
     };
 
-    // Filter by client access
-    if (clientIds.length > 0) {
-      filter.clientId = { $in: clientIds };
-    }
-
-    // Additional client filter if specified
-    if (clientId && clientIds.includes(clientId)) {
-      filter.clientId = clientId;
-    }
 
     // Get accepted reviews with pagination
     const acceptedReviews = await UserAnswer.find(filter)
@@ -3500,8 +3476,6 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
       });
     }
 
-    // Extract client IDs that evaluator has access to
-    const clientIds = evaluator.clientAccess.map(client => client.id);
     
     // Query parameters for pagination and filtering
     const { page = 1, limit = 10, clientId } = req.query;
@@ -3512,15 +3486,6 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
       reviewStatus: 'review_completed'
     };
 
-    // Filter by client access
-    if (clientIds.length > 0) {
-      filter.clientId = { $in: clientIds };
-    }
-
-    // Additional client filter if specified
-    if (clientId && clientIds.includes(clientId)) {
-      filter.clientId = clientId;
-    }
 
     // Get completed reviews with pagination
     const completedReviews = await UserAnswer.find(filter)

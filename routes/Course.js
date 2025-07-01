@@ -15,12 +15,12 @@ router.put('/:bookId/course/:courseId',verifyToken, updatecourse);
 
 router.delete('/:bookId/course/:courseId',verifyToken, deletecourse);
 
-router.post('/:bookId/course/:courseId/topic',createlecture);
+router.post('/:bookId/course/:courseId/topic',verifyToken,createlecture);
 
 router.get('/:bookId/course/:courseId/topic',getlecture);
 
-router.put('/:bookId/course/:courseId/topic/:lectureId',updatelecture);
+router.put('/:bookId/course/:courseId/topic/:lectureId',verifyToken,updatelecture);
 
-router.delete('/:bookId/course/:courseId/topic/:lectureId',deletelecture);
+router.delete('/:bookId/course/:courseId/topic/:lectureId',verifyToken,deletelecture);
 
 module.exports = router
