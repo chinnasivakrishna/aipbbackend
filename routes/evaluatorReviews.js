@@ -3354,7 +3354,8 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
       requestId:review.requestID,
       requestnote:review.requestnote,
       evaluation: review.evaluation,
-      metadata: review.metadata
+      metadata: review.metadata,
+      annotations:review.annotations || []
     }));
 
     res.json({
@@ -3434,7 +3435,8 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
       requestId: review.requestID,
       requestnote: review.requestnote,
       evaluation: review.evaluation,
-      metadata: review.metadata
+      metadata: review.metadata,
+      annotations:review.annotations || []
     }));
 
     res.json({
@@ -3515,7 +3517,8 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
       requestnote: review.requestnote,
       evaluation: review.evaluation,
       metadata: review.metadata,
-      feedback: review.feedback
+      feedback: review.feedback,
+      annotations:review.annotations
     }));
 
     res.json({
