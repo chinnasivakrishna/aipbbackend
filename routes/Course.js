@@ -5,7 +5,7 @@ const { createlecture, getlecture, updatelecture, deletelecture } = require('../
 
 const router = express.Router();
 
-router.get('/upload-url',verifyToken, getuploadurl);
+router.post('/upload-url',verifyToken, getuploadurl);
 
 router.post('/:bookId/course',verifyToken, createcourse);
 
