@@ -79,12 +79,14 @@ const createcourse = async (req, res) => {
       faculty: processedFaculty,
       bookId,
     });
-    book.isVideoEnable = true;
+    book.isVideoAvailabel = true;
+    await book.save();
 
     res.status(200).json({
       success: true,
       message: "course created successfully",
       course,
+      isVideoAvailabel: book.isVideoAvailabel || ""
     });
   } catch (error) {
     console.log(error);
@@ -172,7 +174,8 @@ const updatecourse = async (req, res) => {
         res.status(200).json({
             success: true,
             message: "Course updated successfully",
-            course: updatedCourse
+            course: updatedCourse,
+            isVideoAvailabel: book.isVideoAvailabel
         });
     } catch (error) {
         console.log(error);

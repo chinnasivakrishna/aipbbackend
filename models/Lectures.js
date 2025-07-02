@@ -8,7 +8,6 @@ const lectureSchema = new mongoose.Schema({
     },
     lectureNumber: {
         type: Number,
-        // required: true,
     },
     lectureName: {
         type: String,
@@ -34,8 +33,5 @@ const lectureSchema = new mongoose.Schema({
     },
 });
 
-lectureSchema.index({ courseId: 1, lectureNumber: 1 }, { unique: true });
-lectureSchema.index({ courseId: 1, lectureName: 1 }, { unique: true });
-// Note: topicName uniqueness within topics array is enforced in the controller, not via schema.
 
 module.exports = mongoose.model("Lecture", lectureSchema);

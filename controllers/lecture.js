@@ -7,7 +7,6 @@ const createlecture = async (req, res) => {
   try {
     const { bookId, courseId } = req.params;
     const {
-      lectureNumber,
       lectureName,
       lectureDescription,
       topics,
@@ -25,18 +24,16 @@ const createlecture = async (req, res) => {
         .json({ success: false, message: "Course not found" });
     }
 
-    // Enforce unique topicName within topics array
-    const topicNames = (topics || []).map(t => t.topicName);
-    if (new Set(topicNames).size !== topicNames.length) {
-      return res.status(400).json({ success: false, message: "Duplicate topicName in topics array" });
-    }
+    // Find the max lectureNumber for this course
+    const lastLecture = await Lecture.findOne({ courseId }).sort({ lectureNumber: -1 });
+    const nextLectureNumber = lastLecture ? lastLecture.lectureNumber + 1 : 1;
 
     const lecture = await Lecture.create({
-      lectureNumber,
       lectureName,
       lectureDescription,
       courseId:courseId,
-      topics
+      topics,
+      lectureNumber: nextLectureNumber
     });
     res
       .status(200)

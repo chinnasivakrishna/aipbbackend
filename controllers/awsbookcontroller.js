@@ -299,7 +299,8 @@ exports.createBook = async (req, res) => {
     return res.status(201).json({
       success: true,
       message: 'Book created successfully',
-      book: formattedBook
+      book: formattedBook,
+      isVideoAvailabel: book.isVideoAvailabel
     });
   } catch (error) {
     console.error('Create book error:', {
@@ -397,7 +398,8 @@ exports.getBooks = async (req, res) => {
         email: currentUser.email,
         role: currentUser.role,
         userId: currentUser.userId || currentUser._id.toString()
-      }
+      },
+      isVideoAvailabel: books.every(book => book.isVideoAvailabel)
     });
   } catch (error) {
     console.error('Get books error:', error);
@@ -440,7 +442,7 @@ exports.getBook = async (req, res) => {
 
     const bookWithUserInfo = await formatBookWithUserInfo(book);
 
-    return res.status(200).json({ success: true, book: bookWithUserInfo });
+    return res.status(200).json({ success: true, book: bookWithUserInfo, isVideoAvailabel: book.isVideoAvailabel });
   } catch (error) {
     console.error('Get book error:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
@@ -631,7 +633,8 @@ exports.updateBook = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: 'Book updated successfully',
-      book: formattedBook
+      book: formattedBook,
+      isVideoAvailabel: updatedBook.isVideoAvailabel
     });
   } catch (error) {
     console.error('Update book error:', error);
