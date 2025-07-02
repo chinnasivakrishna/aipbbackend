@@ -65,7 +65,8 @@ const getlecture  = async (req,res) => {
       return res.status(404).json({ success: false, message: "Course not found" });
     }
     const lecture = await Lecture.find({courseId:courseId});
-    res.status(200).json({ success: true, message: "Lecture fetched successfully", lecture });
+    res.status(200).json({ success: true, message: "Lecture fetched successfully",        lectureId:lecture._id,
+      lecture });
   }
   catch (error) {
     console.log(error);
@@ -91,7 +92,8 @@ const updatelecture = async (req,res) => {
     } 
     const updatedLecture = await Lecture.findByIdAndUpdate(lectureId, { lectureNumber, lectureName, lectureDescription, topics }, { new: true });
    
-    res.status(200).json({ success: true, message: "Lecture updated successfully", updatedLecture });
+    res.status(200).json({ success: true, message: "Lecture updated successfully",        lectureId:lecture._id,
+      updatedLecture });
   } 
   catch (error) {
     console.log(error);
@@ -115,7 +117,8 @@ const deletelecture = async (req,res) => {
       return res.status(404).json({ success: false, message: "Lecture not found" });
     } 
     await Lecture.findByIdAndDelete(lectureId);
-    res.status(200).json({ success: true, message: "Lecture deleted successfully" });
+    res.status(200).json({ success: true, message: "Lecture deleted successfully" ,        lectureId:lecture._id,
+    });
   } 
   catch (error) {
     console.log(error);

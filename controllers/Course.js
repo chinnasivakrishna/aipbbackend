@@ -4,6 +4,7 @@ const User = require("../models/User");
 const Course = require("../models/Course");
 const MobileUser = require("../models/MobileUser");
 const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require("../utils/s3");
+const { GetObjectCommand } = require('@aws-sdk/client-s3');
 
 // Get presigned URL for cover image upload
 const getuploadurl = async (req, res) => {
@@ -85,6 +86,7 @@ const createcourse = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "course created successfully",
+      courseId: course[0]?._id || "",
       course,
       isVideoAvailabel: book.isVideoAvailabel || ""
     });
@@ -117,7 +119,8 @@ const getcourses = async (req, res) => {
     res.status(200).json({
         success:true,
         message:"course retrieved successfully",
-        course:course
+        courseId: course[0]?._id || "",
+        course: course      
     })
   } catch (error) {
     console.log(error)
@@ -135,46 +138,69 @@ const updatecourse = async (req, res) => {
             return res.status(404).json({ success: false, message: "Book not found" });
         }
         // Find and update the course
-        const updatedCourse = await Course.findById(courseId);
+        const course = await Course.findById(courseId);
 
-        if (!updatedCourse) {
+        if (!course) {
             return res.status(404).json({ success: false, message: "Course not found" });
         }
-        // Delete old cover image if exists
-        if(updatedCourse.cover_imageKey && updatedCourse.cover_imageUrl){
-            await deleteObject(updatedCourse.cover_imageKey);
+        let imageUrl = course.cover_imageUrl;
+        let imageKey = course.cover_imageKey;
+
+        if(cover_imageKey && cover_imageKey !== course.cover_imageKey){
+          if(course.cover_imageKey)
+            {
+              await deleteObject(course.cover_imageKey);
+            }  
+            imageUrl = await generateGetPresignedUrl(cover_imageKey)
+            imageKey = cover_imageKey;
         }
-        // Delete old faculty images if exist
-        if(Array.isArray(updatedCourse.faculty)) {
-            for (const fac of updatedCourse.faculty) {
-                if(fac.faculty_imageKey && fac.faculty_imageUrl) {
-                    await deleteObject(fac.faculty_imageKey);
-                }
-            }
-        }
-        // Generate new cover image URL
-        const cover_imageUrl = await generateGetPresignedUrl(cover_imageKey);
-        // Process each faculty member for new URLs
+
+        // Process each faculty member, matching by name
         const processedFaculty = await Promise.all(
-            (faculty || []).map(async (fac) => ({
-                ...fac,
-                faculty_imageUrl: fac.faculty_imageKey
-                    ? await generateGetPresignedUrl(fac.faculty_imageKey)
-                    : undefined,
-            }))
+          (faculty || []).map(async (fac) => {
+            // Match by name instead of _id
+            let oldFac = course.faculty.find(f => f.name === fac.name);
+            let faculty_imageKey = fac.faculty_imageKey;
+            let faculty_imageUrl = fac.faculty_imageUrl;
+
+            if (oldFac) {
+              // If image key changed, delete old and generate new URL
+              if (fac.faculty_imageKey && fac.faculty_imageKey !== oldFac.faculty_imageKey) {
+                if (oldFac.faculty_imageKey) {
+                  await deleteObject(oldFac.faculty_imageKey);
+                }
+                faculty_imageUrl = await generateGetPresignedUrl(fac.faculty_imageKey);
+              } else {
+                // Not changed, keep old
+                faculty_imageKey = oldFac.faculty_imageKey;
+                faculty_imageUrl = oldFac.faculty_imageUrl;
+              }
+            } else if (fac.faculty_imageKey) {
+              // New faculty, generate URL if key provided
+              faculty_imageUrl = await generateGetPresignedUrl(fac.faculty_imageKey);
+            }
+
+            return {
+              ...fac,
+              faculty_imageKey,
+              faculty_imageUrl,
+            };
+          })
         );
-        updatedCourse.name = name;
-        updatedCourse.overview = overview;
-        updatedCourse.details = details;
-        updatedCourse.cover_imageKey = cover_imageKey;
-        updatedCourse.cover_imageUrl = cover_imageUrl;
-        updatedCourse.faculty = processedFaculty;
-        await updatedCourse.save();
+
+        course.name = name;
+        course.overview = overview;
+        course.details = details;
+        course.cover_imageKey = imageKey;
+        course.cover_imageUrl = imageUrl;
+        course.faculty = processedFaculty;
+        await course.save();
 
         res.status(200).json({
             success: true,
             message: "Course updated successfully",
-            course: updatedCourse,
+            courseId: course[0]?._id || "",
+            course: course,
             isVideoAvailabel: book.isVideoAvailabel
         });
     } catch (error) {
@@ -211,7 +237,7 @@ const deletecourse = async (req,res) =>
             res.status(200).json({
                 success:true,
                 message:"course deleted successfully",
-                courseId:courseId,
+                courseId: course[0]?._id || "",
                 course:course
             })
         } 
