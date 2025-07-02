@@ -7,6 +7,42 @@ const Chapter = require('../models/Chapter');
 const SubTopic = require('../models/SubTopic');
 const { verifyToken } = require('../middleware/auth');
 
+router.patch("/update-embedding-status/:itemId", async (req, res) => {
+  try {
+    const { itemId } = req.params
+    const { isEmbedded, embeddingCount, embeddedAt } = req.body
+
+    const updatedItem = await DataStoreItem.findByIdAndUpdate(
+      itemId,
+      {
+        isEmbedded,
+        embeddingCount,
+        embeddedAt,
+      },
+      { new: true },
+    )
+
+    if (!updatedItem) {
+      return res.status(404).json({
+        success: false,
+        message: "Item not found",
+      })
+    }
+
+    res.json({
+      success: true,
+      message: "Embedding status updated successfully",
+      item: updatedItem,
+    })
+  } catch (error) {
+    console.error("Error updating embedding status:", error)
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    })
+  }
+})
+
 // Get all book items
 router.get('/book/:bookId', verifyToken, async (req, res) => {
   try {
