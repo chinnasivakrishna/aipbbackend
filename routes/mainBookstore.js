@@ -408,7 +408,8 @@ router.get('/book/details', async (req, res) => {
         view_count: book.viewCount,
         created_at: book.createdAt,
         updated_at: book.updatedAt,
-        is_added_to_my_books: book.isAddedToMyBooks
+        is_added_to_my_books: book.isAddedToMyBooks,
+        isVideoAvailable:book.isVideoAvailabel,
       },
       meta: {
         clientId,
