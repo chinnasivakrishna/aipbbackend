@@ -1,22 +1,22 @@
 const axios = require("axios")
 const { DataAPIClient } = require("@datastax/astra-db-ts")
 const { v4: uuidv4 } = require("uuid")
-const OpenAI = require("openai")
+const { GoogleGenerativeAI } = require("@google/generative-ai")
 const pdf = require("pdf-parse")
 
 class EnhancedPDFProcessor {
   constructor(config) {
     this.chunkrApiKey = config.chunkrApiKey
-    this.embeddingModelName = config.embeddingModel || "text-embedding-3-small"
-    this.chatModelName = config.chatModel || "gpt-4o-mini"
-    this.vectorDimensions = Number.parseInt(config.vectorDimensions) || 768 // Changed from 1536 to 768
-    this.chunkSize = Number.parseInt(config.chunkSize) || 200 // Reduced for faster processing
-    this.chunkOverlap = Number.parseInt(config.chunkOverlap) || 30 // Minimal overlap
-    this.maxContextChunks = Number.parseInt(config.maxContextChunks) || 5 // Much fewer chunks
+    this.embeddingModelName = config.embeddingModel || "text-embedding-004"
+    this.chatModelName = config.chatModel || "gemini-1.5-flash"
+    this.vectorDimensions = Number.parseInt(config.vectorDimensions) || 768
+    this.chunkSize = Number.parseInt(config.chunkSize) || 200
+    this.chunkOverlap = Number.parseInt(config.chunkOverlap) || 30
+    this.maxContextChunks = Number.parseInt(config.maxContextChunks) || 5
 
-    this.openai = new OpenAI({
-      apiKey: config.openaiApiKey,
-    })
+    // Initialize Gemini AI
+    this.genAI = new GoogleGenerativeAI(config.geminiApiKey)
+    this.chatModel = this.genAI.getGenerativeModel({ model: this.chatModelName })
 
     this.astraClient = new DataAPIClient(config.astraToken)
     this.db = this.astraClient.db(config.astraApiEndpoint, {
@@ -44,7 +44,6 @@ class EnhancedPDFProcessor {
       const existingCollection = collections.find((col) => col.name === collectionName)
 
       if (existingCollection) {
-        // Use existing collection's dimension
         const existingDimension = existingCollection.options?.vector?.dimension
         if (existingDimension && existingDimension !== this.vectorDimensions) {
           console.log(
@@ -53,7 +52,6 @@ class EnhancedPDFProcessor {
           this.vectorDimensions = existingDimension
         }
       } else {
-        // For new collections, detect the embedding model's dimension
         const modelDimensions = this.getModelDimensions(this.embeddingModelName)
         if (modelDimensions !== this.vectorDimensions) {
           console.log(`Setting vector dimensions to ${modelDimensions} for model ${this.embeddingModelName}`)
@@ -74,13 +72,14 @@ class EnhancedPDFProcessor {
 
   getModelDimensions(modelName) {
     const dimensionMap = {
-      "text-embedding-3-small": 1536,
+      "text-embedding-004": 768,
+      "embedding-001": 768,
+      "text-embedding-3-small": 1536, // Fallback for OpenAI models
       "text-embedding-3-large": 3072,
       "text-embedding-ada-002": 1536,
-      "text-embedding-2": 1536,
     }
 
-    return dimensionMap[modelName] || 1536
+    return dimensionMap[modelName] || 768
   }
 
   async createBookCollection(collectionName) {
@@ -189,7 +188,7 @@ class EnhancedPDFProcessor {
     }
 
     const totalWords = chunks.reduce((sum, text) => sum + text.split(/\s+/).length, 0)
-    const tokensUsed = Math.round(totalWords * 1.33) // Approximate token count
+    const tokensUsed = Math.round(totalWords * 1.33)
 
     const documents = chunks.map((text, idx) => ({
       _id: uuidv4(),
@@ -261,7 +260,6 @@ class EnhancedPDFProcessor {
       }
 
       const retrievalStart = Date.now()
-      // Limit initial retrieval for speed
       const allDocs = await this.collection.find(searchFilter).limit(50).toArray()
       timingMetrics.retrieval = Date.now() - retrievalStart
 
@@ -313,49 +311,48 @@ class EnhancedPDFProcessor {
 
   async generateUltraFastAnswer(question, relevantChunks, bookId) {
     try {
-      // Take only top 2 most relevant chunks for maximum speed
       const topChunks = relevantChunks.slice(0, 2)
-
+  
       const context = topChunks
         .map((chunk, index) => {
           const similarity = Math.round((chunk.$similarity || 0) * 100)
           return `[${index + 1}] ${chunk.text_content.substring(0, 200)}... (${similarity}% match)`
         })
         .join("\n\n")
-
-      const ultraFastPrompt = `Context: ${context}
-
-Question: ${question}
-
-Answer in 1-2 sentences:`
-
-      const completion = await this.openai.chat.completions.create({
-        model: this.chatModelName,
-        messages: [
+  
+      // Gemini uses a different message format than OpenAI
+      const prompt = `Context: ${context}
+  
+  Question: ${question}
+  
+  Answer in 1-2 sentences:`
+  
+      const result = await this.chatModel.generateContent({
+        contents: [
           {
-            role: "system",
-            content: "Provide ultra-concise answers in 1-2 sentences only.",
-          },
-          {
-            role: "user",
-            content: ultraFastPrompt,
-          },
-        ],
-        max_tokens: 100, // Very limited for speed
-        temperature: 0, // No creativity for speed
+            parts: [
+              { text: "You are a helpful AI assistant that provides concise answers in 1-2 sentences." },
+              { text: prompt }
+            ]
+          }
+        ]
       })
-
-      const answer = completion.choices[0].message.content
-      const tokensUsed = completion.usage?.total_tokens || 0
-
+  
+      const response = await result.response
+      const answer = response.text()
+      
+      // Estimate tokens based on text length
+      const tokensUsed = Math.round((prompt.length + answer.length) / 4)
+  
       return {
         answer: answer,
-        method: "ultra-fast-openai",
+        method: "ultra-fast-gemini",
         contextUsed: topChunks.length,
         bookId: bookId,
         tokensUsed: tokensUsed,
       }
     } catch (error) {
+      console.error("Gemini API error:", error)
       return {
         answer: "Unable to generate response. Please try again.",
         method: "error-fallback",
@@ -462,7 +459,7 @@ Answer in 1-2 sentences:`
 
     for (let i = 0; i < Math.min(queryEmbedding.length, docEmbedding.length); i++) {
       dotProduct += queryEmbedding[i] * docEmbedding[i]
-      queryMagnitude += queryEmbedding[i] * queryMagnitude[i]
+      queryMagnitude += queryEmbedding[i] * queryEmbedding[i]
       docMagnitude += docEmbedding[i] * docEmbedding[i]
     }
 
@@ -478,24 +475,7 @@ Answer in 1-2 sentences:`
 
   async performFastRetrieval(question, documents) {
     try {
-      const embeddingResponse = await this.openai.embeddings.create({
-        model: this.embeddingModelName,
-        input: question.substring(0, 500),
-      })
-
-      let queryEmbedding = embeddingResponse.data[0].embedding
-
-      // Ensure query embedding matches collection dimensions
-      if (queryEmbedding.length !== this.vectorDimensions) {
-        console.log(`Adjusting query embedding dimension from ${queryEmbedding.length} to ${this.vectorDimensions}`)
-
-        if (queryEmbedding.length > this.vectorDimensions) {
-          queryEmbedding = queryEmbedding.slice(0, this.vectorDimensions)
-        } else {
-          const padding = new Array(this.vectorDimensions - queryEmbedding.length).fill(0)
-          queryEmbedding = [...queryEmbedding, ...padding]
-        }
-      }
+      const queryEmbedding = await this.generateSingleEmbedding(question.substring(0, 500))
 
       const scoredDocs = documents.map((doc) => ({
         ...doc,
@@ -549,7 +529,7 @@ Answer in 1-2 sentences:`
 
     const chunks = []
     const words = cleanText.split(/\s+/)
-    const wordsPerChunk = Math.floor(chunkSize / 5) // Approximate words per chunk
+    const wordsPerChunk = Math.floor(chunkSize / 5)
 
     for (let i = 0; i < words.length; i += wordsPerChunk - Math.floor(overlap / 5)) {
       const chunk = words.slice(i, i + wordsPerChunk).join(" ")
@@ -561,45 +541,53 @@ Answer in 1-2 sentences:`
     return chunks.length > 0 ? chunks : ["Unable to extract meaningful content from this document."]
   }
 
+  async generateSingleEmbedding(text) {
+    try {
+      const embeddingModel = this.genAI.getGenerativeModel({ model: this.embeddingModelName })
+      const result = await embeddingModel.embedContent(text.substring(0, 4000))
+      let embedding = result.embedding.values
+
+      // Ensure embedding matches expected dimensions
+      if (embedding.length !== this.vectorDimensions) {
+        console.log(`Adjusting embedding dimension from ${embedding.length} to ${this.vectorDimensions}`)
+
+        if (embedding.length > this.vectorDimensions) {
+          embedding = embedding.slice(0, this.vectorDimensions)
+        } else {
+          const padding = new Array(this.vectorDimensions - embedding.length).fill(0)
+          embedding = [...embedding, ...padding]
+        }
+      }
+
+      return embedding
+    } catch (error) {
+      console.error("Error generating single embedding:", error)
+      return new Array(this.vectorDimensions).fill(0.001)
+    }
+  }
+
   async generateEmbeddingsWithRetry(texts, maxRetries = 1) {
     const embeddings = []
-    const batchSize = 10
+    const batchSize = 5 // Smaller batch size for Gemini
 
     for (let i = 0; i < texts.length; i += batchSize) {
       const batch = texts.slice(i, i + batchSize)
 
       try {
-        const truncatedBatch = batch.map((text) => (text.length > 4000 ? text.substring(0, 4000) : text))
-
-        const embeddingResponse = await this.openai.embeddings.create({
-          model: this.embeddingModelName,
-          input: truncatedBatch,
-        })
-
-        const batchEmbeddings = embeddingResponse.data.map((item) => {
-          let embedding = item.embedding
-
-          // Ensure embedding matches expected dimensions
-          if (embedding.length !== this.vectorDimensions) {
-            console.log(`Adjusting embedding dimension from ${embedding.length} to ${this.vectorDimensions}`)
-
-            if (embedding.length > this.vectorDimensions) {
-              // Truncate if too long
-              embedding = embedding.slice(0, this.vectorDimensions)
-            } else {
-              // Pad with zeros if too short
-              const padding = new Array(this.vectorDimensions - embedding.length).fill(0)
-              embedding = [...embedding, ...padding]
-            }
-          }
-
-          return embedding
-        })
+        const batchEmbeddings = []
+        
+        for (const text of batch) {
+          const embedding = await this.generateSingleEmbedding(text)
+          batchEmbeddings.push(embedding)
+          
+          // Small delay to avoid rate limiting
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
 
         embeddings.push(...batchEmbeddings)
 
         if (i + batchSize < texts.length) {
-          await new Promise((resolve) => setTimeout(resolve, 100))
+          await new Promise((resolve) => setTimeout(resolve, 200))
         }
       } catch (error) {
         console.error(`Error generating embeddings for batch ${i}:`, error)

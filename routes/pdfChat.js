@@ -22,14 +22,14 @@ const optionalAuth = (req, res, next) => {
 
 const processor = new EnhancedPDFProcessor({
   chunkrApiKey: process.env.CHUNKR_API_KEY,
-  openaiApiKey: process.env.OPENAI_API_KEY,
+  geminiApiKey: process.env.GEMINI_API_KEY, // Changed from openaiApiKey
   astraToken: process.env.ASTRA_TOKEN,
   astraApiEndpoint: process.env.ASTRA_API_ENDPOINT,
   keyspace: process.env.ASTRA_KEYSPACE,
   collectionName: process.env.ASTRA_COLLECTION,
-  embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-3-small",
-  chatModel: process.env.CHAT_MODEL || "gpt-4o-mini",
-  vectorDimensions: process.env.VECTOR_DIMENSIONS || "768", // Changed from 1536
+  embeddingModel: process.env.EMBEDDING_MODEL || "text-embedding-004", // Gemini embedding model
+  chatModel: process.env.CHAT_MODEL || "gemini-1.5-flash", // Gemini chat model
+  vectorDimensions: process.env.VECTOR_DIMENSIONS || "768",
   chunkSize: process.env.CHUNK_SIZE || "200",
   chunkOverlap: process.env.CHUNK_OVERLAP || "30",
   maxContextChunks: process.env.MAX_CONTEXT_CHUNKS || "5",
@@ -232,40 +232,39 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
     }
 
     const result = await processor.answerQuestion(question, null, userId, false, bookId)
-
     const totalTime = Date.now() - startTime
 
-    res.json({
-      success: true,
-      answer: result.answer,
-      confidence: result.confidence,
-      sources: result.sources,
-      method: result.method,
-      bookId: result.bookId,
-      bookTitle: book.title,
+res.json({
+  success: true,
+  answer: result.answer,
+  confidence: result.confidence,
+  sources: result.sources,
+  method: result.method,
+  bookId: result.bookId,
+  bookTitle: book.title,
 
-      // Enhanced response metrics
-      modelUsed: result.modelUsed,
-      tokensUsed: result.tokensUsed,
+  // Enhanced response metrics
+  modelUsed: result.modelUsed,
+  tokensUsed: result.tokensUsed,
 
-      timing: {
-        retrieval: result.timing.retrieval + "ms",
-        processing: result.timing.processing + "ms",
-        generation: result.timing.generation + "ms",
-        aiProcessing: result.timing.total + "ms",
-        totalResponse: totalTime + "ms",
-      },
-    })
-  } catch (error) {
-    const totalTime = Date.now() - startTime
-    res.status(500).json({
-      success: false,
-      message: error.message || "Failed to process chat request",
-      timing: {
-        totalResponse: totalTime + "ms",
-      },
-    })
-  }
+  timing: {
+    retrieval: result.timing.retrieval + "ms",
+    processing: result.timing.processing + "ms",
+    generation: result.timing.generation + "ms",
+    aiProcessing: result.timing.total + "ms",
+    totalResponse: totalTime + "ms",
+  },
 })
-
-module.exports = router
+} catch (error) {
+  const totalTime = Date.now() - startTime
+  res.status(500).json({
+  success: false,
+  message: error.message || "Failed to process chat request",
+  timing: {
+  totalResponse: totalTime + "ms",
+  },
+  })
+  }
+  })
+  
+  module.exports = router
