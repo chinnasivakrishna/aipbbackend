@@ -412,7 +412,8 @@ exports.getBook = async (req, res) => {
       .populate('user', 'name email userId')
       .populate('highlightedBy', 'name email userId')
       .populate('trendingBy', 'name email userId')
-      .populate('categoryOrderBy', 'name email userId');
+      .populate('categoryOrderBy', 'name email userId')
+
 
     if (!book) {
       return res.status(404).json({ success: false, message: 'Book not found' });

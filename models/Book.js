@@ -264,6 +264,10 @@ const BookSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  isVideoAvailabel:{
+    type:Boolean,
+    default:false
+  },
   createdAt: {
     type: Date,
     default: Date.now

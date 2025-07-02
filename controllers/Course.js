@@ -79,6 +79,7 @@ const createcourse = async (req, res) => {
       faculty: processedFaculty,
       bookId,
     });
+    book.isVideoEnable = true;
 
     res.status(200).json({
       success: true,
@@ -131,29 +132,41 @@ const updatecourse = async (req, res) => {
         if (!book) {
             return res.status(404).json({ success: false, message: "Book not found" });
         }
-        
-
         // Find and update the course
         const updatedCourse = await Course.findById(courseId);
 
         if (!updatedCourse) {
             return res.status(404).json({ success: false, message: "Course not found" });
         }
+        // Delete old cover image if exists
         if(updatedCourse.cover_imageKey && updatedCourse.cover_imageUrl){
             await deleteObject(updatedCourse.cover_imageKey);
         }
-        if(updatedCourse.faculty.faculty_imageKey && updatedCourse.faculty.faculty_imageUrl){
-            await deleteObject(updatedCourse.faculty.faculty_imageKey);
+        // Delete old faculty images if exist
+        if(Array.isArray(updatedCourse.faculty)) {
+            for (const fac of updatedCourse.faculty) {
+                if(fac.faculty_imageKey && fac.faculty_imageUrl) {
+                    await deleteObject(fac.faculty_imageKey);
+                }
+            }
         }
+        // Generate new cover image URL
         const cover_imageUrl = await generateGetPresignedUrl(cover_imageKey);
-        const faculty_imageUrl = await generateGetPresignedUrl(faculty.faculty_imageKey);
+        // Process each faculty member for new URLs
+        const processedFaculty = await Promise.all(
+            (faculty || []).map(async (fac) => ({
+                ...fac,
+                faculty_imageUrl: fac.faculty_imageKey
+                    ? await generateGetPresignedUrl(fac.faculty_imageKey)
+                    : undefined,
+            }))
+        );
         updatedCourse.name = name;
         updatedCourse.overview = overview;
         updatedCourse.details = details;
         updatedCourse.cover_imageKey = cover_imageKey;
         updatedCourse.cover_imageUrl = cover_imageUrl;
-        updatedCourse.faculty = faculty;
-        updatedCourse.faculty.faculty_imageUrl = faculty_imageUrl;
+        updatedCourse.faculty = processedFaculty;
         await updatedCourse.save();
 
         res.status(200).json({
