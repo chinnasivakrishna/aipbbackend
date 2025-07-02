@@ -102,7 +102,14 @@ const getcourses = async (req, res) => {
         .json({ success: false, message: "Book not found" });
     }
     
-    const course = await Course.find();
+    const course = await Course.find({bookId});
+
+    if(course.length === 0)
+    {
+      return res
+      .status(200)
+      .json({success:true, message:`Course not found in this Book ${bookId}`})
+    }
 
     res.status(200).json({
         success:true,
@@ -127,7 +134,7 @@ const updatecourse = async (req, res) => {
         
 
         // Find and update the course
-        const updatedCourse = await Course.findById(courseId,);
+        const updatedCourse = await Course.findById(courseId);
 
         if (!updatedCourse) {
             return res.status(404).json({ success: false, message: "Course not found" });

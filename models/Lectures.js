@@ -8,7 +8,7 @@ const lectureSchema = new mongoose.Schema({
     },
     lectureNumber: {
         type: Number,
-        required: true,
+        // required: true,
     },
     lectureName: {
         type: String,
