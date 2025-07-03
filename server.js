@@ -37,6 +37,7 @@ const evaluatorReviewsRoutes = require('./routes/evaluatorReviews');
 const reviewRequestsRoutes = require('./routes/reviewRequests');
 const mobileReviewsRoutes = require('./routes/mobileReviews');
 const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
+const courseRoutes = require('./routes/Course')
 const ai = require("./routes/aiServiceConfig");
 
 app.use(cors())
@@ -89,6 +90,7 @@ app.use('/api/evaluators', evaluatorsRoutes);
 app.use('/api/homepage', mainBookstoreRoutes);
 app.use('/api/review', expertReviewRoutes);
 app.use('/api/config', require('./routes/config'));
+app.use('/api/book', courseRoutes);
 app.use("/api/pdf-embedding", require("./routes/pdfEmbedding"))
 app.use("/api/pdf-chat", require("./routes/pdfChat"))
 
