@@ -655,7 +655,7 @@ const extractTextFromImagesWithFallback = async (imageUrls) => {
   }
 }
 
-// Generate evaluation prompt for AI
+// Generate evaluation prompt for AI (Updated to include remark generation)
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n")
 
@@ -671,8 +671,10 @@ ${combinedText}
 
 Please provide a detailed evaluation in the following format:
 
-ACCURACY: [Score out of 100]
+RELEVANT: [Score out of 100 - How relevant is the answer to the question]
 MARKS AWARDED: [Marks out of ${question.metadata?.maximumMarks || 10}]
+
+REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
 
 STRENGTHS:
 - [List 2-3 specific strengths]
@@ -684,12 +686,12 @@ SUGGESTIONS:
 - [List 2-3 specific recommendations]
 
 DETAILED FEEDBACK:
-[Provide constructive feedback about the answer]
+[Provide constructive feedback about the answer's relevance and content]
 
-Please be fair, constructive, and specific in your evaluation.`
+Please be fair, constructive, and specific in your evaluation, focusing on how well the answer addresses the question.`
 }
 
-// Parse evaluation response from AI
+// Parse evaluation response from AI (Updated to handle remark)
 const parseEvaluationResponse = (evaluationText, question) => {
   try {
     console.log("Parsing evaluation response:", evaluationText.substring(0, 200) + "...")
@@ -698,9 +700,11 @@ const parseEvaluationResponse = (evaluationText, question) => {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0)
+    
     const evaluation = {
-      accuracy: 75,
+      relevant: 75,
       marks: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
+      remark: "", // Added remark field
       strengths: [],
       weaknesses: [],
       suggestions: [],
@@ -714,16 +718,23 @@ const parseEvaluationResponse = (evaluationText, question) => {
       const line = lines[i]
 
       // Check for section headers
-      if (line.toLowerCase().includes("accuracy:") || line.toLowerCase().startsWith("accuracy:")) {
+      if (line.toLowerCase().includes("relevant:") || line.toLowerCase().startsWith("relevant:")) {
         const match = line.match(/(\d+)/)
         if (match) {
-          evaluation.accuracy = Math.min(100, Math.max(0, Number.parseInt(match[1])))
+          evaluation.relevant = Math.min(100, Math.max(0, Number.parseInt(match[1])))
         }
         currentSection = ""
       } else if (line.toLowerCase().includes("marks awarded:") || line.toLowerCase().includes("marks:")) {
         const match = line.match(/(\d+)/)
         if (match) {
           evaluation.marks = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])))
+        }
+        currentSection = ""
+      } else if (line.toLowerCase().includes("remark:") || line.toLowerCase().startsWith("remark:")) {
+        // Extract remark content
+        const remarkContent = line.replace(/^remark:/i, "").trim()
+        if (remarkContent) {
+          evaluation.remark = remarkContent.length > 250 ? remarkContent.substring(0, 247) + "..." : remarkContent
         }
         currentSection = ""
       } else if (line.toLowerCase().includes("strengths:") || line.toLowerCase() === "strengths") {
@@ -759,6 +770,11 @@ const parseEvaluationResponse = (evaluationText, question) => {
     // Join feedback lines
     evaluation.feedback = feedbackLines.join(" ").trim()
 
+    // Generate default remark if not found
+    if (!evaluation.remark || evaluation.remark.length === 0) {
+      evaluation.remark = generateDefaultRemark(evaluation.relevant, evaluation.marks, question.metadata?.maximumMarks || 10)
+    }
+
     // Ensure we have at least some default content
     if (evaluation.strengths.length === 0) {
       evaluation.strengths = ["Answer shows understanding of the topic", "Relevant content provided"]
@@ -790,15 +806,35 @@ const parseEvaluationResponse = (evaluationText, question) => {
   }
 }
 
-// Generate mock evaluation (fallback)
+// Generate default remark based on performance
+const generateDefaultRemark = (relevant, marks, maxMarks) => {
+  const percentage = (marks / maxMarks) * 100
+  
+  if (percentage >= 90) {
+    return "Excellent answer with comprehensive understanding and clear presentation."
+  } else if (percentage >= 80) {
+    return "Good answer demonstrating solid understanding with minor areas for improvement."
+  } else if (percentage >= 70) {
+    return "Satisfactory answer showing basic understanding but needs more detailed explanations."
+  } else if (percentage >= 60) {
+    return "Average answer with some correct points but lacking depth and clarity."
+  } else if (percentage >= 50) {
+    return "Below average answer with limited understanding and significant gaps."
+  } else {
+    return "Poor answer with minimal understanding and requires substantial improvement."
+  }
+}
+
+// Generate mock evaluation (fallback) - Updated to include remark
 const generateMockEvaluation = (question) => {
-  const baseAccuracy = Math.floor(Math.random() * 30) + 60 // 60-90%
+  const baseRelevant = Math.floor(Math.random() * 30) + 60 // 60-90%
   const maxMarks = question.metadata?.maximumMarks || 10
-  const marks = Math.floor((baseAccuracy / 100) * maxMarks)
+  const marks = Math.floor((baseRelevant / 100) * maxMarks)
 
   return {
-    accuracy: baseAccuracy,
+    relevant: baseRelevant,
     marks: marks,
+    remark: generateDefaultRemark(baseRelevant, marks, maxMarks), // Added default remark
     strengths: [
       "Shows understanding of core concepts",
       "Attempts to address the question requirements",
@@ -819,7 +855,7 @@ const generateMockEvaluation = (question) => {
   }
 }
 
-// Generate custom evaluation prompt
+// Generate custom evaluation prompt (Updated to include remark)
 const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, options = {}) => {
   const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options
 
@@ -850,11 +886,13 @@ const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, op
     prompt += `STUDENT'S ANSWER (extracted from images):\n${combinedText}\n\n`
   }
 
-  // Add response format
+  // Add response format with remark included
   prompt += `Please provide a detailed evaluation in the following format:
 
-ACCURACY: [Score out of 100]
+RELEVANT: [Score out of 100 - How relevant is the answer to the question]
 MARKS AWARDED: [Marks out of ${maxMarks || question?.metadata?.maximumMarks || 10}]
+
+REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
 
 STRENGTHS:
 - [List 2-3 specific strengths based on your evaluation criteria]
@@ -868,7 +906,7 @@ SUGGESTIONS:
 DETAILED FEEDBACK:
 [Provide comprehensive feedback based on your custom evaluation criteria]
 
-Please be fair, constructive, and specific in your evaluation according to the provided criteria.`
+Please be fair, constructive, and specific in your evaluation according to the provided criteria, focusing on how well the answer addresses the question.`
 
   return prompt
 }

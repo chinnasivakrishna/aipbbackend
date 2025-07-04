@@ -417,10 +417,10 @@ router.put('/answers/:answerId/evaluate', [
     .optional()
     .isObject()
     .withMessage('Evaluation must be an object'),
-  body('evaluation.accuracy')
+  body('evaluation.relevant')
     .optional()
     .isInt({ min: 0, max: 100 })
-    .withMessage('Accuracy must be between 0 and 100'),
+    .withMessage('Relevant must be between 0 and 100'),
   body('evaluation.marks')
     .optional()
     .isInt({ min: 0 })
@@ -882,6 +882,157 @@ router.get('/answers/:answerId', [
 
   } catch (error) {
     console.error('Error fetching answer:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
+// PUT /crud/answers/:answerId/update - Update answer evaluation (works for both auto and manual modes)
+router.put('/answers/:answerId/update', [
+  param('answerId')
+    .isMongoId()
+    .withMessage('Answer ID must be a valid MongoDB ObjectId'),
+  body('evaluation')
+    .optional()
+    .isObject()
+    .withMessage('Evaluation must be an object'),
+  body('evaluation.relevant')
+    .optional()
+    .isInt({ min: 0, max: 100 })
+    .withMessage('Relevant must be between 0 and 100'),
+  body('evaluation.marks')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Marks must be a positive integer'),
+  body('evaluation.strengths')
+    .optional()
+    .isArray()
+    .withMessage('Strengths must be an array'),
+  body('evaluation.weaknesses')
+    .optional()
+    .isArray()
+    .withMessage('Weaknesses must be an array'),
+  body('evaluation.suggestions')
+    .optional()
+    .isArray()
+    .withMessage('Suggestions must be an array'),
+  body('evaluation.feedback')
+    .optional()
+    .isString()
+    .trim()
+    .withMessage('Feedback must be a string'),
+  body('publishStatus')
+    .optional()
+    .isIn(['published', 'not_published'])
+    .withMessage('Invalid publish status'),
+  body('submissionStatus')
+    .optional()
+    .isIn(['submitted', 'rejected', 'evaluated'])
+    .withMessage('Invalid submission status'),
+  body('reviewStatus')
+    .optional()
+    .isIn(['review_pending', 'review_accepted', 'review_completed'])
+    .withMessage('Invalid review status')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid input data",
+        error: {
+          code: "INVALID_INPUT",
+          details: errors.array()
+        }
+      });
+    }
+
+    const { answerId } = req.params;
+    const { 
+      evaluation, 
+      publishStatus, 
+      submissionStatus, 
+      reviewStatus 
+    } = req.body;
+
+    // Find the answer with question details
+    const answer = await UserAnswer.findById(answerId).populate('questionId');
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: "Answer not found",
+        error: {
+          code: "ANSWER_NOT_FOUND",
+          details: "The specified answer does not exist"
+        }
+      });
+    }
+
+    // Prepare update data
+    const updateData = {
+      updatedAt: new Date()
+    };
+
+    // Update evaluation if provided
+    if (evaluation) {
+      updateData.evaluation = {
+        ...answer.evaluation,
+        ...evaluation
+      };
+      
+      // Ensure the answer is marked as evaluated if evaluation is provided
+      updateData.submissionStatus = 'evaluated';
+      updateData.evaluatedAt = new Date();
+    }
+
+    // Update status fields if provided
+    if (publishStatus !== undefined) {
+      updateData.publishStatus = publishStatus;
+    }
+    
+    if (submissionStatus !== undefined) {
+      updateData.submissionStatus = submissionStatus;
+    }
+    
+    if (reviewStatus !== undefined) {
+      updateData.reviewStatus = reviewStatus;
+    }
+
+    const updatedAnswer = await UserAnswer.findByIdAndUpdate(
+      answerId,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate([
+      {
+        path: 'questionId',
+        select: 'question evaluationMode metadata'
+      },
+      {
+        path: 'userId',
+        select: 'name email phoneNumber'
+      },
+      {
+        path: 'setId',
+        select: 'name itemType'
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Answer updated successfully",
+      data: {
+        answer: updatedAnswer
+      }
+    });
+
+  } catch (error) {
+    console.error('Error updating answer:', error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

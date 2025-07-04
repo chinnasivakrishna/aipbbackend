@@ -379,7 +379,7 @@ router.post(
           responseCode: 1573,
           error: {
             code: "SUBMISSION_LIMIT_EXCEEDED",
-            details: "Maximum 5 attempts allowed per question",
+            details: "Maximum 15 attempts allowed per question",
           },
         })
       }
@@ -442,8 +442,8 @@ router.post(
       let evaluation = null
       let extractedTexts = []
 
-      // Only perform evaluation and text extraction for auto evaluation mode
-      if (!isManualEvaluation && answerImages.length > 0) {
+      // Perform evaluation and text extraction for both modes when images are present
+      if (answerImages.length > 0) {
         try {
           console.log("Starting text extraction with fallback mechanism...")
           const imageUrls = answerImages.map((img) => img.imageUrl)
@@ -624,21 +624,18 @@ router.post(
             },
           })
         }
-      } else if (isManualEvaluation) {
-        console.log("Manual evaluation mode - skipping automatic evaluation and text extraction")
-        evaluation = null
-        extractedTexts = []
       } else {
-        console.log("No images provided, skipping text extraction")
+        console.log("No images provided, skipping text extraction and evaluation")
       }
 
+      // Prepare user answer data
       const userAnswerData = {
         userId: userId,
         questionId: questionId,
         clientId: req.user.clientId,
         answerImages: answerImages,
         textAnswer: textAnswer || "",
-        submissionStatus: "submitted",
+        submissionStatus: "submitted", // Always start with submitted
         reviewStatus: null,
         metadata: {
           timeSpent: Number.parseInt(timeSpent) || 0,
@@ -648,24 +645,34 @@ router.post(
         },
       }
 
-      // Only add evaluation and extractedTexts if it's auto evaluation mode
-      if (!isManualEvaluation) {
-        if (evaluation) {
-          userAnswerData.evaluation = evaluation
-          userAnswerData.evaluatedAt = new Date()
+      // Add evaluation and extractedTexts data (for both manual and auto modes)
+      if (evaluation) {
+        userAnswerData.evaluation = evaluation
+        userAnswerData.evaluatedAt = new Date()
+        
+        // CRITICAL FIX: Only change status to "evaluated" for AUTO mode
+        if (!isManualEvaluation) {
           userAnswerData.submissionStatus = "evaluated"
           userAnswerData.publishStatus = "published"
           userAnswerData.reviewStatus = null
+          console.log("Auto evaluation mode - setting status to 'evaluated'")
+        } else {
+          // For manual mode, keep status as "submitted" even after AI evaluation
+          userAnswerData.submissionStatus = "submitted"
+          userAnswerData.reviewStatus = "review_pending"
+          console.log("Manual evaluation mode - keeping status as 'submitted' despite AI evaluation")
         }
-        if (extractedTexts.length > 0) {
-          userAnswerData.extractedTexts = extractedTexts
-        }
+      }
+
+      if (extractedTexts.length > 0) {
+        userAnswerData.extractedTexts = extractedTexts
       }
 
       if (setId) {
         userAnswerData.setId = setId
       }
 
+      // Create the user answer
       let userAnswer
       try {
         console.log(`Creating new attempt (safe) for user ${userId} and question ${questionId}`)
@@ -697,7 +704,7 @@ router.post(
         reviewStatus: userAnswer.reviewStatus,
         submittedAt: userAnswer.submittedAt,
         isFinalAttempt: userAnswer.isFinalAttempt(),
-        remainingAttempts: Math.max(0, 5 - userAnswer.attemptNumber),
+        remainingAttempts: Math.max(0, 15 - userAnswer.attemptNumber),
         evaluationMode: question.evaluationMode,
         question: {
           id: question._id,
@@ -717,20 +724,26 @@ router.post(
         }
       }
 
-      // Only add evaluation and extractedTexts data for auto evaluation mode
-      if (!isManualEvaluation) {
-        if (evaluation) {
-          responseData.evaluation = evaluation
-        }
-        if (extractedTexts.length > 0) {
-          responseData.extractedTexts = extractedTexts
-        }
+      // Add evaluation and extractedTexts data (for both manual and auto modes)
+      if (evaluation) {
+        responseData.evaluation = evaluation
+        responseData.evaluatedAt = userAnswer.evaluatedAt
+      }
+      if (extractedTexts.length > 0) {
+        responseData.extractedTexts = extractedTexts
       }
 
-      // Determine success message based on evaluation mode
-      const successMessage = isManualEvaluation
-        ? "Answer submitted successfully and will be evaluated manually"
-        : "Answer submitted and evaluated successfully"
+      // Determine success message based on evaluation mode and whether AI evaluation was performed
+      let successMessage
+      if (isManualEvaluation) {
+        if (evaluation) {
+          successMessage = "Answer submitted successfully with AI pre-evaluation. Manual review pending."
+        } else {
+          successMessage = "Answer submitted successfully and will be evaluated manually"
+        }
+      } else {
+        successMessage = "Answer submitted and evaluated successfully"
+      }
 
       res.status(200).json({
         success: true,
@@ -773,7 +786,7 @@ router.post(
           responseCode: 1581,
           error: {
             code: error.code,
-            details: "Maximum 5 attempts allowed per question",
+            details: "Maximum 15 attempts allowed per question",
           },
         })
       }

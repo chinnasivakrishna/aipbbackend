@@ -25,7 +25,7 @@ const userAnswerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 1,
-    max: 5
+    max: 20
   },
   answerImages: [{
     imageUrl: {
@@ -141,7 +141,7 @@ const userAnswerSchema = new mongoose.Schema({
     }
   },
   evaluation: {
-    accuracy: {
+    relevant: {  // Changed from accuracy to relevant
       type: Number,
       min: 0,
       max: 100,
@@ -170,6 +170,12 @@ const userAnswerSchema = new mongoose.Schema({
     feedback: {
       type: String,
       trim: true
+    },
+    // NEW: Added remark field for AI-generated concise summary
+    remark: {
+      type: String,
+      trim: true,
+      maxlength: 250 // Limit to ensure it stays concise (1-2 lines)
     },
     feedbackStatus: {
       type: Boolean,
@@ -226,6 +232,9 @@ const userAnswerSchema = new mongoose.Schema({
   }],
   evaluatedAt: {
     type: Date
+  },
+  updatedAt: {
+    type: Date
   }
 }, {
   timestamps: true
@@ -267,9 +276,9 @@ userAnswerSchema.statics.canUserSubmit = async function(userId, questionId) {
   });
   
   return {
-    canSubmit: count < 5,
+    canSubmit: count < 20,
     currentAttempts: count,
-    remainingAttempts: Math.max(0, 5 - count)
+    remainingAttempts: Math.max(0, 20 - count)
   };
 };
 
@@ -307,7 +316,7 @@ userAnswerSchema.statics.getNotPublishedAnswers = function(filter = {}) {
 
 // Method to check if this is the final attempt
 userAnswerSchema.methods.isFinalAttempt = function() {
-  return this.attemptNumber === 5;
+  return this.attemptNumber === 20;
 };
 
 // Method to check if answer is published
@@ -327,6 +336,28 @@ userAnswerSchema.methods.unpublish = function() {
   return this.save();
 };
 
+// NEW: Method to set remark with validation
+userAnswerSchema.methods.setRemark = function(remark) {
+  if (!remark || typeof remark !== 'string') {
+    throw new Error('Remark must be a non-empty string');
+  }
+  
+  // Ensure remark is concise (1-2 lines, max 250 characters)
+  const trimmedRemark = remark.trim();
+  if (trimmedRemark.length > 250) {
+    this.evaluation.remark = trimmedRemark.substring(0, 247) + '...';
+  } else {
+    this.evaluation.remark = trimmedRemark;
+  }
+  
+  return this.save();
+};
+
+// NEW: Method to get remark
+userAnswerSchema.methods.getRemark = function() {
+  return this.evaluation.remark || '';
+};
+
 // Enhanced create new attempt method with better error handling
 userAnswerSchema.statics.createNewAttempt = async function(answerData) {
   const { userId, questionId } = answerData;
@@ -340,8 +371,8 @@ userAnswerSchema.statics.createNewAttempt = async function(answerData) {
     return await session.withTransaction(async () => {
       // Check if user has reached maximum attempts
       const existingCount = await this.countDocuments({ userId, questionId }).session(session);
-      if (existingCount >= 5) {
-        const error = new Error('Maximum submission limit (5) reached for this question');
+      if (existingCount >= 20) {
+        const error = new Error('Maximum submission limit (20) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
@@ -359,8 +390,8 @@ userAnswerSchema.statics.createNewAttempt = async function(answerData) {
       console.log(`Next attempt number will be: ${nextAttemptNumber}`);
       
       // Validate the next attempt number
-      if (nextAttemptNumber > 5) {
-        const error = new Error('Maximum submission limit (5) reached for this question');
+      if (nextAttemptNumber > 20) {
+        const error = new Error('Maximum submission limit (20) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
@@ -395,8 +426,8 @@ userAnswerSchema.statics.createNewAttemptSafe = async function(answerData) {
     try {
       // Check current attempt count
       const existingCount = await this.countDocuments({ userId, questionId });
-      if (existingCount >= 5) {
-        const error = new Error('Maximum submission limit (5) reached for this question');
+      if (existingCount >= 20) {
+        const error = new Error('Maximum submission limit (20) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
@@ -411,15 +442,15 @@ userAnswerSchema.statics.createNewAttemptSafe = async function(answerData) {
       let nextAttemptNumber = 1;
       const existingNumbers = existingAttempts.map(a => a.attemptNumber).sort((a, b) => a - b);
       
-      for (let i = 1; i <= 5; i++) {
+      for (let i = 1; i <= 20; i++) {
         if (!existingNumbers.includes(i)) {
           nextAttemptNumber = i;
           break;
         }
       }
       
-      if (nextAttemptNumber > 5) {
-        const error = new Error('Maximum submission limit (5) reached for this question');
+      if (nextAttemptNumber > 20) {
+        const error = new Error('Maximum submission limit (20) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
