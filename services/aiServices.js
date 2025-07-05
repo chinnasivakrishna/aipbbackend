@@ -730,8 +730,8 @@ Analyze the answer based on comprehensive evaluation parameters covering:
 
 Please provide a detailed evaluation in the following format:
 
-RELEVANT: [Score out of 100 - How relevant is the answer to the question]
-MARKS AWARDED: [Marks out of ${question.metadata?.maximumMarks || 10}]
+RELEVANCY: [Score out of 100 - How relevant is the answer to the question]
+SCORE: [Score out of ${question.metadata?.maximumMarks || 10}]
 
 ANALYSIS:
 Introduction: [Analyze the introduction quality and provide specific feedback using evaluation parameters]
@@ -787,8 +787,8 @@ const parseEvaluationResponse = (evaluationText, question) => {
     
     const evaluationParams = getEvaluationParameters();
     const evaluation = {
-      relevant: 75,
-      marks: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
+      relevancy: 75,
+      score: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
       remark: "",
       comments: [],
       analysis: {
@@ -807,16 +807,16 @@ const parseEvaluationResponse = (evaluationText, question) => {
 
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (line.toLowerCase().includes("relevant:") || line.toLowerCase().startsWith("relevant:")) {
+      if (line.toLowerCase().includes("relevancy:") || line.toLowerCase().startsWith("relevancy:")) {
         const match = line.match(/(\d+)/);
         if (match) {
-          evaluation.relevant = Math.min(100, Math.max(0, Number.parseInt(match[1])));
+          evaluation.relevancy = Math.min(100, Math.max(0, Number.parseInt(match[1])));
         }
         currentSection = "";
-      } else if (line.toLowerCase().includes("marks awarded:") || line.toLowerCase().includes("marks:")) {
+      } else if (line.toLowerCase().includes("score:") || line.toLowerCase().includes("score awarded:")) {
         const match = line.match(/(\d+)/);
         if (match) {
-          evaluation.marks = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])));
+          evaluation.score = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])));
         }
         currentSection = "";
       } else if (line.toLowerCase().includes("analysis:")) {
@@ -869,16 +869,16 @@ const parseEvaluationResponse = (evaluationText, question) => {
     if (evaluation.comments.length === 0) {
       evaluation.comments = generateEvaluationComments(
         evaluation.analysis,
-        evaluation.relevant,
-        evaluation.marks,
+        evaluation.relevancy,
+        evaluation.score,
         question.metadata?.maximumMarks || 10
       );
     }
 
     if (!evaluation.remark || evaluation.remark.length === 0) {
       evaluation.remark = generateDefaultRemark(
-        evaluation.relevant, 
-        evaluation.marks, 
+        evaluation.relevancy, 
+        evaluation.score, 
         question.metadata?.maximumMarks || 10
       );
     }
@@ -904,9 +904,9 @@ const parseEvaluationResponse = (evaluationText, question) => {
   }
 };
 
-const generateEvaluationComments = (analysis, relevantScore, marks, maxMarks) => {
+const generateEvaluationComments = (analysis, relevancyScore, score, maxMarks) => {
   const comments = [];
-  const percentage = (marks / maxMarks) * 100;
+  const percentage = (score / maxMarks) * 100;
   
   if (percentage >= 80) {
     comments.push("The answer demonstrates a strong understanding of the topic with clear organization and relevant content. The student has effectively addressed the question requirements and provided well-structured arguments.");
@@ -937,15 +937,15 @@ const generateEvaluationComments = (analysis, relevantScore, marks, maxMarks) =>
 };
 
 const generateMockEvaluation = (question) => {
-  const baseRelevant = Math.floor(Math.random() * 30) + 60;
+  const baseRelevancy = Math.floor(Math.random() * 30) + 60;
   const maxMarks = question.metadata?.maximumMarks || 10;
-  const marks = Math.floor((baseRelevant / 100) * maxMarks);
+  const score = Math.floor((baseRelevancy / 100) * maxMarks);
   const evaluationParams = getEvaluationParameters();
   
   const mockEvaluation = {
-    relevant: baseRelevant,
-    marks: marks,
-    remark: generateDefaultRemark(baseRelevant, marks, maxMarks),
+    relevancy: baseRelevancy,
+    score: score,
+    remark: generateDefaultRemark(baseRelevancy, score, maxMarks),
     comments: [
       "The answer demonstrates a reasonable understanding of the topic but could benefit from more detailed explanations and examples.",
       "Good structure overall, but some sections could be better organized with clearer transitions between ideas.",
@@ -986,8 +986,8 @@ const generateMockEvaluation = (question) => {
   return mockEvaluation;
 };
 
-const generateDefaultRemark = (relevant, marks, maxMarks) => {
-  const percentage = (marks / maxMarks) * 100;
+const generateDefaultRemark = (relevancy, score, maxMarks) => {
+  const percentage = (score / maxMarks) * 100;
   const evaluationParams = getEvaluationParameters();
   
   if (percentage >= 90) {
@@ -1031,8 +1031,8 @@ const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, op
   }
   
   prompt += `Please provide a detailed evaluation in the following format:
-RELEVANT: [Score out of 100 - How relevant is the answer to the question]
-MARKS AWARDED: [Marks out of ${maxMarks || question?.metadata?.maximumMarks || 10}]
+RELEVANCY: [Score out of 100 - How relevant is the answer to the question]
+SCORE: [Score out of ${maxMarks || question?.metadata?.maximumMarks || 10}]
 
 ANALYSIS:
 Introduction: [Analyze the introduction quality and provide specific feedback]

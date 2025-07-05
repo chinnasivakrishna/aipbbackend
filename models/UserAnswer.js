@@ -141,7 +141,7 @@ const userAnswerSchema = new mongoose.Schema({
     }
   },
   evaluation: {
-    relevant: {
+    relevancy: {
       type: Number,
       min: 0,
       max: 100,
@@ -151,7 +151,7 @@ const userAnswerSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
-    marks: {
+    score: {
       type: Number,
       min: 0
     },
