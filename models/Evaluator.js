@@ -17,6 +17,11 @@ const evaluatorSchema = new mongoose.Schema({
     trim: true,
     match: [/^\w+([.-]?\w+)*@\w+([.-]?\w+)*(\.\w{2,3})+$/, 'Please enter a valid email']
   },
+  password:{
+    type:String,
+    required: [true, 'Password is required'],
+    minlength: [8, 'Password must be at least 8 characters long']
+  },
   phoneNumber: {
     type: String,
     required: [true, 'Phone number is required'],

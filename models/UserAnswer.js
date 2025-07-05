@@ -50,7 +50,7 @@ const userAnswerSchema = new mongoose.Schema({
   },
   submissionStatus: {
     type: String,
-    enum: ['submitted', 'rejected', 'evaluated', 'invalid'],
+    enum: ['submitted', 'accepted', 'rejected', 'evaluated', 'invalid'],
     default: 'submitted'
   },
   submittedAt: {
@@ -63,6 +63,11 @@ const userAnswerSchema = new mongoose.Schema({
   reviewedBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
+  },
+  reviewedByEvaluator: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Evaluator',
+    required: false
   },
   feedback: {
     score: {

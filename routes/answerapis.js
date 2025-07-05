@@ -4,6 +4,7 @@ const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
+const { verifyTokenforevaluator } = require('../middleware/auth');
 
 // GET /crud/answers - List all submitted answers with pagination and filters
 router.get('/answers', [
@@ -547,6 +548,301 @@ router.put('/answers/:answerId/evaluate', [
   }
 });
 
+// GET /crud/answers/accepted - Get all accepted answers
+router.get('/answers/accepted', [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+  query('search')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Search term must be less than 100 characters')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid query parameters",
+        error: {
+          code: "INVALID_QUERY",
+          details: errors.array()
+        }
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Build aggregation pipeline for accepted answers
+    const pipeline = [
+      { $match: { submissionStatus: 'accepted' } },
+      {
+        $lookup: {
+          from: 'aiswbquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'question'
+        }
+      },
+      {
+        $lookup: {
+          from: 'mobileusers',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $lookup: {
+          from: 'aiswbsets',
+          localField: 'setId',
+          foreignField: '_id',
+          as: 'set'
+        }
+      },
+      {
+        $lookup: {
+          from: 'evaluators',
+          localField: 'reviewedByEvaluator',
+          foreignField: '_id',
+          as: 'evaluator'
+        }
+      },
+      {
+        $unwind: {
+          path: '$question',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$set',
+          preserveNullAndEmptyArrays: true
+        }
+      },
+      {
+        $unwind: {
+          path: '$evaluator',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    // Add search functionality
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'question.question': searchRegex },
+            { 'user.name': searchRegex },
+            { 'user.email': searchRegex },
+            { 'evaluator.name': searchRegex },
+            { textAnswer: searchRegex }
+          ]
+        }
+      });
+    }
+
+    // Add projection to select only needed fields
+    pipeline.push({
+      $project: {
+        _id: 1,
+        userId: 1,
+        questionId: 1,
+        setId: 1,
+        attemptNumber: 1,
+        answerImages: 1,
+        textAnswer: 1,
+        submissionStatus: 1,
+        reviewStatus: 1,
+        publishStatus: 1,
+        popularityStatus: 1,
+        submittedAt: 1,
+        reviewedAt: 1,
+        evaluatedAt: 1,
+        evaluation: 1,
+        feedback: 1,
+        extractedTexts: 1,
+        metadata: 1,
+        annotations: 1,
+        reviewedByEvaluator: 1,
+        'question._id': 1,
+        'question.question': 1,
+        'question.evaluationMode': 1,
+        'question.evaluationType': 1,
+        'question.metadata.difficultyLevel': 1,
+        'question.metadata.maximumMarks': 1,
+        'question.metadata.estimatedTime': 1,
+        'user._id': 1,
+        'user.name': 1,
+        'user.email': 1,
+        'user.phoneNumber': 1,
+        'set._id': 1,
+        'set.name': 1,
+        'set.itemType': 1,
+        'evaluator._id': 1,
+        'evaluator.name': 1,
+        'evaluator.email': 1
+      }
+    });
+
+    // Add sorting by review date (most recent first)
+    pipeline.push({
+      $sort: { reviewedAt: -1 }
+    });
+
+    // Get total count for pagination
+    const countPipeline = [...pipeline];
+    countPipeline.push({ $count: "total" });
+    
+    const [countResult] = await UserAnswer.aggregate(countPipeline);
+    const totalCount = countResult ? countResult.total : 0;
+
+    // Add pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const acceptedAnswers = await UserAnswer.aggregate(pipeline);
+
+    res.status(200).json({
+      success: true,
+      message: "Accepted answers retrieved successfully",
+      data: {
+        answers: acceptedAnswers,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount: totalCount,
+          limit: limit
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching accepted answers:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
+// PUT /crud/answers/:answerId/accept - Accept answer (for manual mode)
+router.put('/answers/:answerId/accept', verifyTokenforevaluator, [
+  param('answerId')
+    .isMongoId()
+    .withMessage('Answer ID must be a valid MongoDB ObjectId')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid input data",
+        error: {
+          code: "INVALID_INPUT",
+          details: errors.array()
+        }
+      });
+    }
+
+    const { answerId } = req.params;
+    const evaluatorId = req.evaluator._id; // From verifyTokenforevaluator middleware
+
+    // Find the answer
+    const answer = await UserAnswer.findById(answerId);
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: "Answer not found",
+        error: {
+          code: "ANSWER_NOT_FOUND",
+          details: "The specified answer does not exist"
+        }
+      });
+    }
+
+    // Check if answer is in submitted status
+    if (answer.submissionStatus !== 'submitted') {
+      return res.status(400).json({
+        success: false,
+        message: "Answer cannot be accepted",
+        error: {
+          code: "INVALID_STATUS",
+          details: `Only answers with 'submitted' status can be accepted. Current status: ${answer.submissionStatus}`
+        }
+      });
+    }
+
+    // Update the answer
+    const updatedAnswer = await UserAnswer.findByIdAndUpdate(
+      answerId,
+      {
+        submissionStatus: 'accepted',
+        reviewedAt: new Date(),
+        reviewedByEvaluator: evaluatorId
+      },
+      { new: true, runValidators: true }
+    ).populate([
+      {
+        path: 'questionId',
+        select: 'question evaluationMode metadata'
+      },
+      {
+        path: 'userId',
+        select: 'name email phoneNumber'
+      },
+      {
+        path: 'setId',
+        select: 'name itemType'
+      },
+      {
+        path: 'reviewedByEvaluator',
+        select: 'name email'
+      }
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Answer accepted successfully",
+      data: {
+        answer: updatedAnswer
+      }
+    });
+
+  } catch (error) {
+    console.error('Error accepting answer:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
 // PUT /crud/answers/:answerId/publish - Publish answer
 router.put('/answers/:answerId/publish', [
   param('answerId')
@@ -882,6 +1178,290 @@ router.get('/answers/:answerId', [
 
   } catch (error) {
     console.error('Error fetching answer:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
+
+
+// GET /crud/answers/evaluator/accepted - Get accepted answers for the authenticated evaluator
+router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+  query('search')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Search term must be less than 100 characters'),
+  query('publishStatus')
+    .optional()
+    .isIn(['published', 'not_published'])
+    .withMessage('Invalid publish status filter')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid query parameters",
+        error: {
+          code: "INVALID_QUERY",
+          details: errors.array()
+        }
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Get evaluator ID from authenticated request
+    const evaluatorId = req.evaluator._id;
+
+    // Build filter for accepted answers by this evaluator
+    const filter = {
+      submissionStatus: 'accepted',
+      reviewedByEvaluator: evaluatorId
+    };
+
+    // Add publish status filter if specified
+    if (req.query.publishStatus) {
+      filter.publishStatus = req.query.publishStatus;
+    }
+
+    // Build aggregation pipeline for accepted answers by this evaluator
+    const pipeline = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'aiswbquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'question'
+        }
+      },
+      {
+        $lookup: {
+          from: 'mobileusers',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $lookup: {
+          from: 'aiswbsets',
+          localField: 'setId',
+          foreignField: '_id',
+          as: 'set'
+        }
+      },
+      {
+        $unwind: {
+          path: '$question',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$set',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    // Add search functionality
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'question.question': searchRegex },
+            { 'user.name': searchRegex },
+            { 'user.email': searchRegex },
+            { textAnswer: searchRegex }
+          ]
+        }
+      });
+    }
+
+    // Add projection to select only needed fields
+    pipeline.push({
+      $project: {
+        _id: 1,
+        userId: 1,
+        questionId: 1,
+        reviewedByEvaluator:1,
+        setId: 1,
+        attemptNumber: 1,
+        answerImages: 1,
+        textAnswer: 1,
+        submissionStatus: 1,
+        reviewStatus: 1,
+        publishStatus: 1,
+        popularityStatus: 1,
+        submittedAt: 1,
+        reviewedAt: 1,
+        evaluatedAt: 1,
+        evaluation: 1,
+        feedback: 1,
+        extractedTexts: 1,
+        metadata: 1,
+        annotations: 1,
+        'question._id': 1,
+        'question.question': 1,
+        'question.evaluationMode': 1,
+        'question.evaluationType': 1,
+        'question.metadata.difficultyLevel': 1,
+        'question.metadata.maximumMarks': 1,
+        'question.metadata.estimatedTime': 1,
+        'user._id': 1,
+        'user.name': 1,
+        'user.email': 1,
+        'user.phoneNumber': 1,
+        'set._id': 1,
+        'set.name': 1,
+        'set.itemType': 1
+      }
+    });
+
+    // Add sorting by review date (most recent first)
+    pipeline.push({
+      $sort: { reviewedAt: -1 }
+    });
+
+    // Get total count for pagination
+    const countPipeline = [...pipeline];
+    countPipeline.push({ $count: "total" });
+    
+    const [countResult] = await UserAnswer.aggregate(countPipeline);
+    const totalCount = countResult ? countResult.total : 0;
+
+    // Add pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const acceptedAnswers = await UserAnswer.aggregate(pipeline);
+
+    res.status(200).json({
+      success: true,
+      message: "Your accepted answers retrieved successfully",
+      data: {
+        answers: acceptedAnswers,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount: totalCount,
+          limit: limit,
+          hasNextPage: page < Math.ceil(totalCount / limit),
+          hasPrevPage: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching evaluator accepted answers:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
+
+// GET /crud/answers/evaluator/:answerId - Get single answer details for authenticated evaluator
+router.get('/answers/evaluator/:answerId', verifyTokenforevaluator, [
+  param('answerId')
+    .isMongoId()
+    .withMessage('Answer ID must be a valid MongoDB ObjectId')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid input data",
+        error: {
+          code: "INVALID_INPUT",
+          details: errors.array()
+        }
+      });
+    }
+
+    const { answerId } = req.params;
+    const evaluatorId = req.evaluator._id; // Get evaluator ID from authenticated request
+
+    const answer = await UserAnswer.findById(answerId).populate([
+      {
+        path: 'questionId',
+        select: 'question detailedAnswer evaluationMode metadata'
+      },
+      {
+        path: 'userId',
+        select: 'name email phoneNumber'
+      },
+      {
+        path: 'setId',
+        select: 'name itemType description'
+      }
+    ]);
+
+    if (!answer) {
+      return res.status(404).json({
+        success: false,
+        message: "Answer not found",
+        error: {
+          code: "ANSWER_NOT_FOUND",
+          details: "The specified answer does not exist"
+        }
+      });
+    }
+
+    // Check if the answer was accepted by the current evaluator
+    if (answer.submissionStatus === 'accepted' && answer.reviewedByEvaluator.toString() !== evaluatorId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: "Access denied",
+        error: {
+          code: "ACCESS_DENIED",
+          details: "You can only view answers that you have accepted"
+        }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Answer retrieved successfully",
+      data: {
+        answer: answer
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching evaluator answer:', error);
     res.status(500).json({
       success: false,
       message: "Internal server error",

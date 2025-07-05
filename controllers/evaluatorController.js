@@ -16,6 +16,7 @@ exports.registerEvaluator = async (req, res) => {
     const {
       name,
       email,
+      password,
       phoneNumber,
       currentcity,
       subjectMatterExpert,
@@ -37,10 +38,15 @@ exports.registerEvaluator = async (req, res) => {
       });
     }
 
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
     // Create new evaluator
     const evaluator = await Evaluator.create({
       name,
       email,
+      password: hashedPassword,
       phoneNumber,
       currentcity,
       subjectMatterExpert,
@@ -77,7 +83,7 @@ exports.registerEvaluator = async (req, res) => {
 
 exports.loginEvaluator = async (req, res) => {
   try {
-    const { email, phoneNumber } = req.body;
+    const { email, phoneNumber, password } = req.body;
 
     // Find evaluator by email or phone number
     const evaluator = await Evaluator.findOne({
@@ -96,6 +102,15 @@ exports.loginEvaluator = async (req, res) => {
       return res.status(401).json({
         success: false,
         message: 'Your account has been disabled. Please contact support.'
+      });
+    }
+
+    // Check password
+    const isMatch = await bcrypt.compare(password, evaluator.password);
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials'
       });
     }
 
