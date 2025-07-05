@@ -1,29 +1,26 @@
-const axios = require("axios")
-const FormData = require("form-data")
-const { AiswbQuestion } = require("../models/AiswbQuestion")
-const AiServiceConfig = require("../models/AIServiceConfig")
+const axios = require("axios");
+const FormData = require("form-data");
+const { AiswbQuestion } = require("../models/AiswbQuestion");
+const AiServiceConfig = require("../models/AIServiceConfig");
 
-// Get service configuration for a specific task
 const getServiceForTask = async (taskType) => {
   try {
-    const service = await AiServiceConfig.getActiveServiceForTask(taskType)
+    const service = await AiServiceConfig.getActiveServiceForTask(taskType);
     if (!service) {
-      throw new Error(`No active AI service configured for task: ${taskType}`)
+      throw new Error(`No active AI service configured for task: ${taskType}`);
     }
-    return service
+    return service;
   } catch (error) {
-    console.error(`Error getting service for task ${taskType}:`, error)
-    throw error
+    console.error(`Error getting service for task ${taskType}:`, error);
+    throw error;
   }
-}
+};
 
-// Validate if extracted text is relevant to the question
 const validateTextRelevanceToQuestion = async (question, extractedTexts) => {
   if (!extractedTexts || extractedTexts.length === 0) {
-    return { isValid: false, reason: "No text extracted from images" }
+    return { isValid: false, reason: "No text extracted from images" };
   }
 
-  // Check if any extracted text has meaningful content
   const hasValidText = extractedTexts.some(
     (text) =>
       text &&
@@ -31,92 +28,47 @@ const validateTextRelevanceToQuestion = async (question, extractedTexts) => {
       !text.startsWith("Failed to extract text") &&
       !text.startsWith("No readable text found") &&
       !text.includes("Text extraction failed") &&
-      text.trim() !== "No readable text found",
-  )
+      text.trim() !== "No readable text found"
+  );
 
   if (!hasValidText) {
-    return { isValid: false, reason: "No readable text found in images" }
+    return { isValid: false, reason: "No readable text found in images" };
   }
 
-  const combinedText = extractedTexts.join(" ").toLowerCase()
-  const questionText = question.question.toLowerCase()
+  const combinedText = extractedTexts.join(" ").toLowerCase();
+  const questionText = question.question.toLowerCase();
 
-  // Extract key terms from the question
   const commonWords = [
-    "the",
-    "a",
-    "an",
-    "and",
-    "or",
-    "but",
-    "in",
-    "on",
-    "at",
-    "to",
-    "for",
-    "of",
-    "with",
-    "by",
-    "is",
-    "are",
-    "was",
-    "were",
-    "be",
-    "been",
-    "have",
-    "has",
-    "had",
-    "do",
-    "does",
-    "did",
-    "will",
-    "would",
-    "could",
-    "should",
-    "may",
-    "might",
-    "can",
-    "what",
-    "when",
-    "where",
-    "why",
-    "how",
-    "which",
-    "who",
-    "whom",
-  ]
+    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", 
+    "for", "of", "with", "by", "is", "are", "was", "were", "be", 
+    "been", "have", "has", "had", "do", "does", "did", "will", 
+    "would", "could", "should", "may", "might", "can", "what", 
+    "when", "where", "why", "how", "which", "who", "whom"
+  ];
 
   const questionWords = questionText
     .replace(/[^\w\s]/g, " ")
     .split(/\s+/)
-    .filter((word) => word.length > 2 && !commonWords.includes(word))
+    .filter((word) => word.length > 2 && !commonWords.includes(word));
 
-  // Check for subject/topic relevance using AI if available
   try {
-    const analysisService = await getServiceForTask("analysis")
-
+    const analysisService = await getServiceForTask("analysis");
     const relevancePrompt = `
       Analyze if the following student answer is relevant to the given question. 
-      
       QUESTION: ${question.question}
-      
       STUDENT ANSWER: ${combinedText}
-      
       Please respond with only "RELEVANT" or "NOT_RELEVANT" followed by a brief reason.
-      
       Consider the answer relevant if:
       1. It attempts to address the question topic
       2. It contains subject-related content
       3. It shows understanding of the question context
-      
       Consider it NOT_RELEVANT if:
       1. It's completely unrelated to the question
       2. It's just random text or numbers
       3. It's clearly not an attempt to answer the question
-    `
+    `;
 
-    let relevanceResponse = null
-
+    let relevanceResponse = null;
     if (analysisService.serviceName === "gemini") {
       try {
         const response = await axios.post(
@@ -139,14 +91,14 @@ const validateTextRelevanceToQuestion = async (question, extractedTexts) => {
           {
             headers: { "Content-Type": "application/json" },
             timeout: 15000,
-          },
-        )
+          }
+        );
 
         if (response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-          relevanceResponse = response.data.candidates[0].content.parts[0].text.trim()
+          relevanceResponse = response.data.candidates[0].content.parts[0].text.trim();
         }
       } catch (geminiError) {
-        console.error("Gemini relevance check failed:", geminiError.message)
+        console.error("Gemini relevance check failed:", geminiError.message);
       }
     } else if (analysisService.serviceName === "openai") {
       try {
@@ -169,317 +121,250 @@ const validateTextRelevanceToQuestion = async (question, extractedTexts) => {
               Authorization: `Bearer ${analysisService.apiKey}`,
             },
             timeout: 15000,
-          },
-        )
+          }
+        );
 
         if (response.data?.choices?.[0]?.message?.content) {
-          relevanceResponse = response.data.choices[0].message.content.trim()
+          relevanceResponse = response.data.choices[0].message.content.trim();
         }
       } catch (openaiError) {
-        console.error("OpenAI relevance check failed:", openaiError.message)
+        console.error("OpenAI relevance check failed:", openaiError.message);
       }
     }
 
     if (relevanceResponse) {
       const isRelevant =
         relevanceResponse.toUpperCase().includes("RELEVANT") &&
-        !relevanceResponse.toUpperCase().includes("NOT_RELEVANT")
-
+        !relevanceResponse.toUpperCase().includes("NOT_RELEVANT");
       if (!isRelevant) {
         return {
           isValid: false,
           reason: "Answer content is not relevant to the question",
           aiResponse: relevanceResponse,
-        }
+        };
       }
     }
   } catch (error) {
-    console.error("AI relevance check failed:", error.message)
-    // Continue with basic validation if AI check fails
+    console.error("AI relevance check failed:", error.message);
   }
 
-  // Basic keyword matching as fallback
   const matchingWords = questionWords.filter(
-    (word) => combinedText.includes(word) || combinedText.includes(word.substring(0, Math.max(4, word.length - 2))),
-  )
+    (word) => combinedText.includes(word) || combinedText.includes(word.substring(0, Math.max(4, word.length - 2)))
+  );
 
-  // If the answer is very short and has no matching keywords, consider it invalid
   if (combinedText.length < 20 && matchingWords.length === 0) {
     return {
       isValid: false,
       reason: "Answer appears to be too short and unrelated to the question",
-    }
+    };
   }
 
-  // Additional checks for obviously invalid content
   const invalidPatterns = [
-    /^[\d\s\-+*/=().]+$/, // Only numbers and math symbols
-    /^[a-z\s]{1,10}$/i, // Very short random letters
-    /^(.)\1{5,}$/, // Repeated characters
-  ]
+    /^[\d\s\-+*/=().]+$/,
+    /^[a-z\s]{1,10}$/i,
+    /^(.)\1{5,}$/,
+  ];
 
   for (const pattern of invalidPatterns) {
     if (pattern.test(combinedText.trim())) {
       return {
         isValid: false,
         reason: "Answer contains invalid or meaningless content",
-      }
+      };
     }
   }
 
-  return { isValid: true, reason: "Answer appears relevant to the question" }
-}
+  return { isValid: true, reason: "Answer appears relevant to the question" };
+};
 
-// Extract text from images using Agentic Document Extraction API
 const extractTextFromImagesAgentic = async (imageUrls, serviceConfig) => {
-  const extractedTexts = []
-
+  const extractedTexts = [];
   for (let i = 0; i < imageUrls.length; i++) {
-    const imageUrl = imageUrls[i]
+    const imageUrl = imageUrls[i];
     try {
-      console.log(`Processing image ${i + 1}/${imageUrls.length} with Agentic API...`)
-      console.log(`Image URL: ${imageUrl}`)
-      console.log(`Service Config:`, JSON.stringify(serviceConfig.serviceConfig, null, 2))
-
-      // Create form data for the API request
-      const formData = new FormData()
-
-      // Handle different image sources
+      const formData = new FormData();
       if (imageUrl.startsWith("http")) {
-        // Download the image first for remote URLs
         const imageResponse = await axios.get(imageUrl, {
           responseType: "stream",
           timeout: 30000,
           headers: {
             "User-Agent": "Mozilla/5.0 (compatible; TextExtractor/1.0)",
           },
-        })
-
+        });
         if (imageResponse.status !== 200) {
-          throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`)
+          throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
         }
-
-        // Determine file extension from URL or content type
-        let fileExtension = "jpg"
-        const contentType = imageResponse.headers["content-type"]
+        let fileExtension = "jpg";
+        const contentType = imageResponse.headers["content-type"];
         if (contentType) {
-          if (contentType.includes("png")) fileExtension = "png"
-          else if (contentType.includes("pdf")) fileExtension = "pdf"
-          else if (contentType.includes("webp")) fileExtension = "webp"
+          if (contentType.includes("png")) fileExtension = "png";
+          else if (contentType.includes("pdf")) fileExtension = "pdf";
+          else if (contentType.includes("webp")) fileExtension = "webp";
         }
-
         formData.append("image", imageResponse.data, {
           filename: `document_${i + 1}.${fileExtension}`,
           contentType: contentType || "image/jpeg",
-        })
+        });
       } else {
-        // For local files or base64 data
         formData.append("image", imageUrl, {
           filename: `document_${i + 1}.jpg`,
           contentType: "image/jpeg",
-        })
+        });
       }
 
-      // Add optional parameters from service config (matching API documentation)
       if (serviceConfig.serviceConfig?.includeMarginalia !== undefined) {
-        formData.append("include_marginalia", serviceConfig.serviceConfig.includeMarginalia.toString())
+        formData.append("include_marginalia", serviceConfig.serviceConfig.includeMarginalia.toString());
       } else {
-        formData.append("include_marginalia", "true")
+        formData.append("include_marginalia", "true");
       }
 
       if (serviceConfig.serviceConfig?.includeMetadataInMarkdown !== undefined) {
         formData.append(
           "include_metadata_in_markdown",
-          serviceConfig.serviceConfig.includeMetadataInMarkdown.toString(),
-        )
+          serviceConfig.serviceConfig.includeMetadataInMarkdown.toString()
+        );
       } else {
-        formData.append("include_metadata_in_markdown", "true")
+        formData.append("include_metadata_in_markdown", "true");
       }
 
-      // Build query parameters
-      const queryParams = new URLSearchParams()
+      const queryParams = new URLSearchParams();
       if (serviceConfig.serviceConfig?.pages) {
-        queryParams.append("pages", serviceConfig.serviceConfig.pages)
+        queryParams.append("pages", serviceConfig.serviceConfig.pages);
       }
       if (serviceConfig.serviceConfig?.timeout) {
-        queryParams.append("timeout", serviceConfig.serviceConfig.timeout.toString())
+        queryParams.append("timeout", serviceConfig.serviceConfig.timeout.toString());
       }
 
-      // Use the correct API endpoint from documentation
-      const apiUrl = `https://api.va.landing.ai/v1/tools/agentic-document-analysis${queryParams.toString() ? `?${queryParams.toString()}` : ""}`
-
-      console.log(`Making request to Agentic API: ${apiUrl}`)
-      console.log(`Authorization: Basic ${serviceConfig.apiKey.substring(0, 10)}...`)
-
-      // Make request to Agentic Document Extraction API (using Basic auth as per documentation)
+      const apiUrl = `https://api.va.landing.ai/v1/tools/agentic-document-analysis${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
       const agenticResponse = await axios.post(apiUrl, formData, {
         headers: {
           ...formData.getHeaders(),
           Authorization: `Basic ${serviceConfig.apiKey}`,
         },
-        timeout: (serviceConfig.serviceConfig?.timeout || 480) * 1000, // Convert to milliseconds
-      })
+        timeout: (serviceConfig.serviceConfig?.timeout || 480) * 1000,
+      });
 
-      console.log(`Agentic API Response Status: ${agenticResponse.status}`)
-      console.log(`Agentic API Response Headers:`, agenticResponse.headers)
-
-      const responseData = agenticResponse.data
-
-      // Check if response is HTML (indicates redirect/error page)
+      const responseData = agenticResponse.data;
       if (typeof responseData === "string" && responseData.includes("<!DOCTYPE html>")) {
-        console.error("Received HTML response instead of API data - likely authentication or endpoint issue")
-        throw new Error("Authentication failed - received HTML redirect page instead of API response")
+        throw new Error("Authentication failed - received HTML redirect page instead of API response");
       }
 
-      // Handle the response format as per API documentation
       if (agenticResponse.status === 200 && responseData && responseData.data) {
-        let extractedText = ""
-        const apiData = responseData.data
-
-        // Priority: markdown > chunks text > raw text
+        let extractedText = "";
+        const apiData = responseData.data;
         if (apiData.markdown && apiData.markdown.trim()) {
-          extractedText = apiData.markdown.trim()
-          console.log(`Extracted markdown content (${extractedText.length} chars)`)
+          extractedText = apiData.markdown.trim();
         } else if (apiData.chunks && Array.isArray(apiData.chunks)) {
-          // Extract text from chunks
           const chunkTexts = apiData.chunks
             .filter((chunk) => chunk.text && chunk.text.trim())
-            .map((chunk) => chunk.text.trim())
-
+            .map((chunk) => chunk.text.trim());
           if (chunkTexts.length > 0) {
-            extractedText = chunkTexts.join("\n\n")
-            console.log(`Extracted text from ${chunkTexts.length} chunks (${extractedText.length} chars)`)
+            extractedText = chunkTexts.join("\n\n");
           }
         }
 
         if (extractedText && extractedText.length > 0) {
-          console.log(`Successfully extracted ${extractedText.length} characters from image ${i + 1} using Agentic API`)
-          extractedTexts.push(extractedText)
+          extractedTexts.push(extractedText);
         } else {
-          console.log(`No text found in image ${i + 1} using Agentic API`)
-          extractedTexts.push("No readable text found")
+          extractedTexts.push("No readable text found");
         }
 
-        // Log any errors from the API response
         if (responseData.errors && responseData.errors.length > 0) {
-          console.warn(`Agentic API warnings for image ${i + 1}:`, responseData.errors)
+          console.warn(`Agentic API warnings for image ${i + 1}:`, responseData.errors);
         }
-
-        // Log extraction errors
         if (responseData.extraction_error) {
-          console.warn(`Agentic API extraction error for image ${i + 1}:`, responseData.extraction_error)
+          console.warn(`Agentic API extraction error for image ${i + 1}:`, responseData.extraction_error);
         }
       } else {
-        throw new Error(`Unexpected response status or format: ${agenticResponse.status}`)
+        throw new Error(`Unexpected response status or format: ${agenticResponse.status}`);
       }
     } catch (error) {
-      console.error(`Agentic extraction error for image ${i + 1}:`, error.message)
-      console.error(`Error details:`, error.response?.data || error.stack)
-
-      let errorMessage = "Failed to extract text with Agentic API"
-
+      let errorMessage = "Failed to extract text with Agentic API";
       if (error.code === "ECONNABORTED" || error.message.includes("timeout")) {
-        errorMessage = "Agentic API extraction timed out - document may be too complex"
+        errorMessage = "Agentic API extraction timed out - document may be too complex";
       } else if (error.response?.status === 401 || error.message.includes("401")) {
-        errorMessage = "Agentic API authentication failed - check API key"
+        errorMessage = "Agentic API authentication failed - check API key";
       } else if (error.response?.status === 429 || error.message.includes("429")) {
-        errorMessage = "Agentic API rate limit exceeded - please try again later"
+        errorMessage = "Agentic API rate limit exceeded - please try again later";
       } else if (error.response?.status === 400) {
-        errorMessage = "Invalid request to Agentic API - check document format"
+        errorMessage = "Invalid request to Agentic API - check document format";
       } else if (error.response?.status >= 500) {
-        errorMessage = "Agentic API server error - please try again later"
+        errorMessage = "Agentic API server error - please try again later";
       } else if (error.message.includes("content type")) {
-        errorMessage = "Invalid document format for Agentic API"
+        errorMessage = "Invalid document format for Agentic API";
       }
-
-      extractedTexts.push(`${errorMessage}: ${error.message}`)
+      extractedTexts.push(`${errorMessage}: ${error.message}`);
     }
   }
+  return extractedTexts;
+};
 
-  return extractedTexts
-}
-
-// Helper function to extract text from JSON structure
 const extractTextFromJsonStructure = (jsonData) => {
-  let text = ""
-
+  let text = "";
   if (typeof jsonData === "string") {
-    return jsonData
+    return jsonData;
   }
-
   if (Array.isArray(jsonData)) {
-    return jsonData.map((item) => extractTextFromJsonStructure(item)).join(" ")
+    return jsonData.map((item) => extractTextFromJsonStructure(item)).join(" ");
   }
-
   if (typeof jsonData === "object" && jsonData !== null) {
     for (const [key, value] of Object.entries(jsonData)) {
       if (typeof value === "string" && value.trim()) {
-        text += value + " "
+        text += value + " ";
       } else if (typeof value === "object") {
-        text += extractTextFromJsonStructure(value) + " "
+        text += extractTextFromJsonStructure(value) + " ";
       }
     }
   }
+  return text.trim();
+};
 
-  return text.trim()
-}
-
-// Extract text from images using configured service
 const extractTextFromImages = async (imageUrls) => {
   try {
-    const textExtractionService = await getServiceForTask("text_extraction")
-    console.log(`Using ${textExtractionService.serviceName} service for text extraction`)
-
+    const textExtractionService = await getServiceForTask("text_extraction");
     if (textExtractionService.serviceName === "agentic") {
-      return await extractTextFromImagesAgentic(imageUrls, textExtractionService)
+      return await extractTextFromImagesAgentic(imageUrls, textExtractionService);
     } else if (textExtractionService.serviceName === "openai") {
-      return await extractTextFromImagesOpenAI(imageUrls, textExtractionService)
+      return await extractTextFromImagesOpenAI(imageUrls, textExtractionService);
     } else if (textExtractionService.serviceName === "gemini") {
-      return await extractTextFromImagesGemini(imageUrls, textExtractionService)
+      return await extractTextFromImagesGemini(imageUrls, textExtractionService);
     } else {
-      throw new Error(`Unsupported service for text extraction: ${textExtractionService.serviceName}`)
+      throw new Error(`Unsupported service for text extraction: ${textExtractionService.serviceName}`);
     }
   } catch (error) {
-    console.error("Text extraction failed:", error)
-    throw error
+    console.error("Text extraction failed:", error);
+    throw error;
   }
-}
+};
 
-// Extract text from images using OpenAI
 const extractTextFromImagesOpenAI = async (imageUrls, serviceConfig) => {
-  const extractedTexts = []
-
+  const extractedTexts = [];
   for (let i = 0; i < imageUrls.length; i++) {
-    const imageUrl = imageUrls[i]
+    const imageUrl = imageUrls[i];
     try {
-      let processedImageUrl = imageUrl
-      if (imageUrl.includes("cloudinary.com")) {
-        processedImageUrl = imageUrl
-      } else {
+      let processedImageUrl = imageUrl;
+      if (!imageUrl.includes("cloudinary.com")) {
         const imageResponse = await axios.get(imageUrl, {
           responseType: "arraybuffer",
           timeout: 30000,
           headers: {
             "User-Agent": "Mozilla/5.0 (compatible; TextExtractor/1.0)",
           },
-        })
+        });
         if (imageResponse.status !== 200) {
-          throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`)
+          throw new Error(`Failed to fetch image: ${imageResponse.status} ${imageResponse.statusText}`);
         }
-        const contentType = imageResponse.headers["content-type"]
+        const contentType = imageResponse.headers["content-type"];
         if (!contentType || !contentType.startsWith("image/")) {
-          throw new Error(`Invalid content type: ${contentType}`)
+          throw new Error(`Invalid content type: ${contentType}`);
         }
-        const imageBuffer = Buffer.from(imageResponse.data)
-        if (imageBuffer.length === 0) {
-          throw new Error("Empty image buffer received")
-        }
-        const base64Image = imageBuffer.toString("base64")
-        let imageFormat = "jpeg"
-        if (contentType.includes("png")) imageFormat = "png"
-        else if (contentType.includes("webp")) imageFormat = "webp"
-        else if (contentType.includes("gif")) imageFormat = "gif"
-        processedImageUrl = `data:image/${imageFormat};base64,${base64Image}`
+        const imageBuffer = Buffer.from(imageResponse.data);
+        const base64Image = imageBuffer.toString("base64");
+        let imageFormat = "jpeg";
+        if (contentType.includes("png")) imageFormat = "png";
+        else if (contentType.includes("webp")) imageFormat = "webp";
+        else if (contentType.includes("gif")) imageFormat = "gif";
+        processedImageUrl = `data:image/${imageFormat};base64,${base64Image}`;
       }
 
       const visionResponse = await axios.post(
@@ -493,7 +378,6 @@ const extractTextFromImagesOpenAI = async (imageUrls, serviceConfig) => {
                 {
                   type: "text",
                   text: `You are a precise OCR (Optical Character Recognition) system. Your task is to extract ALL text content from this image.
-
 Instructions:
 1. Extract ALL visible text exactly as it appears
 2. Maintain the original formatting, line breaks, and spacing
@@ -503,7 +387,6 @@ Instructions:
 6. If the text is in multiple languages, extract all of it
 7. If there are tables, preserve the table structure
 8. If no readable text is found, respond with exactly: "No readable text found"
-
 Return only the extracted text content:`,
                 },
                 {
@@ -525,56 +408,50 @@ Return only the extracted text content:`,
             Authorization: `Bearer ${serviceConfig.apiKey}`,
           },
           timeout: 45000,
-        },
-      )
+        }
+      );
 
       if (!visionResponse.data || !visionResponse.data.choices || visionResponse.data.choices.length === 0) {
-        throw new Error("Invalid response structure from OpenAI Vision API")
+        throw new Error("Invalid response structure from OpenAI Vision API");
       }
-
-      const choice = visionResponse.data.choices[0]
+      const choice = visionResponse.data.choices[0];
       if (!choice.message || !choice.message.content) {
-        throw new Error("No content in OpenAI Vision API response")
+        throw new Error("No content in OpenAI Vision API response");
       }
-
-      const extractedText = choice.message.content.trim()
+      const extractedText = choice.message.content.trim();
       if (extractedText === "No readable text found" || extractedText.length === 0) {
-        console.log(`No text found in image ${i + 1}`)
-        extractedTexts.push("No readable text found")
+        extractedTexts.push("No readable text found");
       } else {
-        console.log(`Successfully extracted ${extractedText.length} characters from image ${i + 1}`)
-        extractedTexts.push(extractedText)
+        extractedTexts.push(extractedText);
       }
     } catch (error) {
-      let errorMessage = "Failed to extract text"
+      let errorMessage = "Failed to extract text";
       if (error.message.includes("timeout")) {
-        errorMessage = "Text extraction timed out - image may be too large"
+        errorMessage = "Text extraction timed out - image may be too large";
       } else if (error.message.includes("API key")) {
-        errorMessage = "API authentication failed"
+        errorMessage = "API authentication failed";
       } else if (error.message.includes("rate limit")) {
-        errorMessage = "Rate limit exceeded - please try again later"
+        errorMessage = "Rate limit exceeded - please try again later";
       } else if (error.message.includes("content type")) {
-        errorMessage = "Invalid image format"
+        errorMessage = "Invalid image format";
       }
-      extractedTexts.push(`${errorMessage}: ${error.message}`)
+      extractedTexts.push(`${errorMessage}: ${error.message}`);
     }
   }
-  return extractedTexts
-}
+  return extractedTexts;
+};
 
-// Extract text from images using Gemini
 const extractTextFromImagesGemini = async (imageUrls, serviceConfig) => {
-  const extractedTexts = []
+  const extractedTexts = [];
   for (const imageUrl of imageUrls) {
     try {
       const imageResponse = await axios.get(imageUrl, {
         responseType: "arraybuffer",
         timeout: 30000,
-      })
-
-      const imageBuffer = Buffer.from(imageResponse.data)
-      const base64Image = imageBuffer.toString("base64")
-      const contentType = imageResponse.headers["content-type"] || "image/jpeg"
+      });
+      const imageBuffer = Buffer.from(imageResponse.data);
+      const base64Image = imageBuffer.toString("base64");
+      const contentType = imageResponse.headers["content-type"] || "image/jpeg";
 
       const response = await axios.post(
         `${serviceConfig.apiUrl}?key=${serviceConfig.apiKey}`,
@@ -602,64 +479,236 @@ const extractTextFromImagesGemini = async (imageUrls, serviceConfig) => {
         {
           headers: { "Content-Type": "application/json" },
           timeout: 30000,
-        },
-      )
+        }
+      );
 
-      const extractedText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "No readable text found"
-      extractedTexts.push(extractedText.trim())
+      const extractedText = response.data?.candidates?.[0]?.content?.parts?.[0]?.text || "No readable text found";
+      extractedTexts.push(extractedText.trim());
     } catch (error) {
-      console.error("Gemini extraction error:", error.message)
-      extractedTexts.push(`Failed to extract text: ${error.message}`)
+      console.error("Gemini extraction error:", error.message);
+      extractedTexts.push(`Failed to extract text: ${error.message}`);
     }
   }
-  return extractedTexts
-}
+  return extractedTexts;
+};
 
-// Extract text with fallback mechanism
 const extractTextFromImagesWithFallback = async (imageUrls) => {
   if (!imageUrls || imageUrls.length === 0) {
-    return []
+    return [];
   }
-
   try {
-    console.log(`Starting text extraction for ${imageUrls.length} images`)
-    return await extractTextFromImages(imageUrls)
+    return await extractTextFromImages(imageUrls);
   } catch (error) {
-    console.error("Primary text extraction failed:", error)
-
-    // Try to get a fallback service
     try {
-      const activeServices = await AiServiceConfig.getActiveServices()
+      const activeServices = await AiServiceConfig.getActiveServices();
       const fallbackService = activeServices.find(
-        (service) => service.supportedTasks.includes("text_extraction") && !service.taskPreferences.text_extraction,
-      )
-
+        (service) => service.supportedTasks.includes("text_extraction") && !service.taskPreferences.text_extraction
+      );
       if (fallbackService) {
-        console.log(`Trying fallback service: ${fallbackService.serviceName}`)
         if (fallbackService.serviceName === "agentic") {
-          return await extractTextFromImagesAgentic(imageUrls, fallbackService)
+          return await extractTextFromImagesAgentic(imageUrls, fallbackService);
         } else if (fallbackService.serviceName === "openai") {
-          return await extractTextFromImagesOpenAI(imageUrls, fallbackService)
+          return await extractTextFromImagesOpenAI(imageUrls, fallbackService);
         } else if (fallbackService.serviceName === "gemini") {
-          return await extractTextFromImagesGemini(imageUrls, fallbackService)
+          return await extractTextFromImagesGemini(imageUrls, fallbackService);
         }
       }
     } catch (fallbackError) {
-      console.error("Fallback text extraction also failed:", fallbackError)
+      console.error("Fallback text extraction also failed:", fallbackError);
     }
-
     return imageUrls.map(
       (_, index) =>
-        `Text extraction failed for image ${index + 1}. Please ensure the image is clear and contains readable text.`,
-    )
+        `Text extraction failed for image ${index + 1}. Please ensure the image is clear and contains readable text.`
+    );
   }
-}
+};
 
-// Generate evaluation prompt for AI (Updated to include remark generation)
+const getEvaluationParameters = () => {
+  return {
+    analysis: {
+      introduction: [
+        "Relevant introduction, as defined, about the topic with appropriate context",
+        "Relevant Introduction supported by data like statistical figures or research findings",
+        "Your introduction is well presented with factual information and clear context",
+        "Your introduction is valid but concise and mentions key keywords effectively",
+        "Your introduction is general, you may start introduction with more specific focus",
+        "Your introduction can be enriched by adding keywords related to the core topic",
+        "Your introduction is relevant but too long - it needs to be concise, within 20-30 words",
+        "Introduction lacks clarity and fails to establish proper context for the answer",
+        "Introduction is too brief and doesn't provide adequate background information",
+        "Introduction effectively sets the stage for detailed discussion of the topic"
+      ],
+      body: [
+        "Frame the heading to reflect the core demand of the question accurately",
+        "Well-formatted main heading in a box with proper structure and clarity",
+        "Write main heading in a box to enhance visual presentation and readability",
+        "You missed a part of demand of question - ensure comprehensive coverage",
+        "Your presentation is rough; avoid paragraph format and use structured points",
+        "Your points are not very effective; present them in a more structured and impactful manner",
+        "Your points are relevant, but they need substantiation with examples to strengthen argument",
+        "Valid point with proper substantiation using facts, data, or real-world examples",
+        "Your points are valid as per the implicit demand but add supporting points for completeness",
+        "Your points are valid as per the explicit demand but include additional relevant aspects",
+        "Your points are valid and substantiated with credible evidence and examples",
+        "Your points are valid and supported by relevant examples from current affairs",
+        "Try to use heading and subheadings for better presentation and logical flow",
+        "Try to understand core demand of question and address all aspects systematically",
+        "Points are valid but use sub-headings for better presentation and organization",
+        "Your points can be enriched by elaborating properly with detailed explanations",
+        "Underline specific keywords for better presentation and emphasis of key concepts",
+        "You should work on presentation - improve formatting and visual appeal",
+        "Your points can be enriched by adding examples or substantiate them with evidence",
+        "Enrich your points by adding examples or substantiate with current developments",
+        "Your points are less effective and can be enriched in effective manner with depth",
+        "Good use of diagram and relevant content - visual aids enhance understanding",
+        "Good use of map but the map can be drawn better with clearer labels and details",
+        "Lack of legibility - Please work on handwriting clarity and neatness",
+        "Your points are valid but need supporting data, facts, reports and current statistics",
+        "Content shows good understanding but lacks proper organization and structure",
+        "Answer demonstrates knowledge but fails to connect ideas logically",
+        "Points are scattered and need better sequencing for coherent presentation",
+        "Good analytical approach but needs more depth in explanation of concepts",
+        "Answer covers multiple dimensions but lacks focus on key aspects"
+      ],
+      conclusion: [
+        "Your conclusion is based on balanced answer and provides logical closure",
+        "Relevant conclusion, as it reflects a futuristic vision and forward-thinking approach",
+        "Your conclusion is relevant as it outlines suggestions in a constructive manner",
+        "Less effective conclusion - you may conclude in more impactful manner with recommendations",
+        "Relevant conclusion but you may add policy suggestions or implementation strategies",
+        "Relevant conclusion but you may conclude in more effective manner with broader implications",
+        "Your conclusion is relevant as it outlines steps but may be concluded with long-term vision",
+        "Your conclusion is relevant but too long - it needs to be concise, within 20-30 words",
+        "Conclusion lacks synthesis of main arguments and fails to provide closure",
+        "Conclusion is abrupt and doesn't summarize key points effectively",
+        "Conclusion effectively ties together all major arguments and provides clear direction",
+        "Conclusion shows forward-thinking approach with practical recommendations",
+        "Conclusion needs to be more decisive and provide clear stance on the issue"
+      ],
+      strengths: [
+        "Excellent comprehensive understanding of the topic with multi-dimensional analysis",
+        "Good conceptual clarity and logical flow of ideas throughout the answer",
+        "Effective use of examples and case studies to support arguments",
+        "Clear structure with proper introduction, body, and conclusion format",
+        "Demonstrates good analytical skills and critical thinking approach",
+        "Shows awareness of current affairs and contemporary developments",
+        "Proper use of headings and subheadings for better organization",
+        "Good presentation with clear handwriting and neat formatting",
+        "Balanced approach addressing multiple perspectives of the issue",
+        "Relevant content that directly addresses the core demand of the question",
+        "Effective use of data, statistics, and factual information",
+        "Good time management evident from complete answer within given format",
+        "Shows in-depth subject knowledge and understanding of concepts",
+        "Creative approach with innovative solutions and suggestions",
+        "Proper conclusion that ties together all major arguments effectively"
+      ],
+      weaknesses: [
+        "Lacks comprehensive coverage of all aspects mentioned in the question",
+        "Poor presentation and formatting affects overall readability",
+        "Insufficient examples and case studies to support the arguments",
+        "Missing proper structure - needs clear introduction, body, and conclusion",
+        "Lacks depth in analysis and fails to explore various dimensions",
+        "Poor handwriting and illegible content in several sections",
+        "Doesn't address the core demand of the question effectively",
+        "Lacks supporting data, facts, and current statistics",
+        "Too lengthy without proper organization and focus",
+        "Missing key concepts and terminologies relevant to the topic",
+        "Weak conclusion that doesn't provide proper closure",
+        "Lacks critical analysis and presents only one-sided view",
+        "Poor time management evident from incomplete answer",
+        "Lacks contemporary examples and current affairs references",
+        "Fails to establish proper linkages between different concepts",
+        "Presentation is monotonous without proper headings and subheadings",
+        "Lacks originality and creative thinking in approach",
+        "Doesn't demonstrate proper understanding of the topic's complexity"
+      ],
+      suggestions: [
+        "Include more specific examples and case studies to strengthen arguments",
+        "Improve presentation with proper headings, subheadings, and formatting",
+        "Add supporting data, facts, reports, and current statistics",
+        "Work on legibility and maintain clear, neat handwriting throughout",
+        "Structure answer with clear introduction, body, and conclusion format",
+        "Underline keywords and important concepts for better emphasis",
+        "Use diagrams, flowcharts, and maps where appropriate for visual appeal",
+        "Ensure conclusion is concise, effective, and provides proper closure",
+        "Address all parts of the question demand systematically",
+        "Substantiate points with relevant examples from current affairs",
+        "Develop better analytical skills and critical thinking approach",
+        "Practice time management to complete answers within given timeframe",
+        "Read more current affairs and contemporary developments",
+        "Work on connecting different concepts and establishing logical linkages",
+        "Develop a more balanced approach by addressing multiple perspectives",
+        "Focus on core demand of the question and avoid irrelevant content",
+        "Practice writing skills to improve speed and legibility",
+        "Develop subject knowledge through regular study and revision",
+        "Learn to prioritize important points and present them effectively",
+        "Work on presentation skills to make answers more visually appealing"
+      ],
+      feedback: [
+        "Overall, the answer demonstrates a good understanding of the topic but could benefit from more detailed explanations and examples.",
+        "The response shows potential but needs improvement in organization and depth of analysis.",
+        "While the answer addresses the question, it would be strengthened with better structure and supporting evidence.",
+        "The content is relevant but the presentation could be enhanced for better clarity and impact.",
+        "This is a solid attempt that would benefit from more comprehensive coverage of key aspects.",
+        "The answer shows understanding but needs refinement in connecting ideas and providing deeper analysis.",
+        "Good effort demonstrated, though the response would be stronger with more specific examples and clearer organization.",
+        "The foundation is good but the answer requires more development and substantiation of points.",
+        "The response covers the basics but would benefit from more sophisticated analysis and clearer structure.",
+        "While the main points are addressed, the answer could be more compelling with better examples and flow."
+      ]
+    },
+    remark: {
+      excellent: [
+        "Excellent comprehensive answer with outstanding presentation and depth",
+        "Exceptional understanding demonstrated with excellent analytical approach",
+        "Outstanding answer with perfect structure and comprehensive coverage",
+        "Excellent work with innovative approach and creative solutions",
+        "Exemplary answer demonstrating mastery of the subject"
+      ],
+      good: [
+        "Good understanding demonstrated with relevant examples and proper structure",
+        "Good analytical approach with comprehensive coverage of key aspects",
+        "Good answer with effective presentation and logical flow",
+        "Good attempt with valid points and proper substantiation",
+        "Good knowledge base with effective use of examples and case studies"
+      ],
+      satisfactory: [
+        "Satisfactory attempt with valid points covered adequately",
+        "Satisfactory understanding with room for improvement in presentation",
+        "Satisfactory answer demonstrating basic grasp of the topic",
+        "Satisfactory coverage with some gaps in comprehensive analysis",
+        "Satisfactory effort with potential for enhanced depth and clarity"
+      ],
+      average: [
+        "Average answer showing basic understanding but lacks depth",
+        "Average attempt with some relevant points but needs improvement",
+        "Average understanding with scope for better presentation",
+        "Average coverage missing key aspects of the question",
+        "Average effort requiring more comprehensive approach"
+      ],
+      below_average: [
+        "Below average answer lacking comprehensive understanding and depth",
+        "Below average presentation with significant gaps in content coverage",
+        "Below average attempt missing key components of the answer",
+        "Below average understanding with insufficient substantiation of points",
+        "Below average effort requiring substantial improvement in all aspects"
+      ],
+      poor: [
+        "Poor answer with minimal understanding and significant deficiencies",
+        "Poor presentation affecting overall quality and readability",
+        "Poor attempt with inadequate coverage of question requirements",
+        "Poor understanding evident from lack of relevant content",
+        "Poor effort requiring complete revision of approach and content"
+      ]
+    }
+  };
+};
+
 const generateEvaluationPrompt = (question, extractedTexts) => {
-  const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n")
-
-  return `Please evaluate this student's answer to the given question.
+  const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
+  const evaluationParams = getEvaluationParameters();
+  
+  return `Please evaluate this student's answer to the given question using comprehensive analysis parameters.
 
 QUESTION:
 ${question.question}
@@ -669,247 +718,305 @@ MAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}
 STUDENT'S ANSWER (extracted from images):
 ${combinedText}
 
+EVALUATION FRAMEWORK:
+Analyze the answer based on comprehensive evaluation parameters covering:
+1. INTRODUCTION - Relevance, clarity, context, and keyword usage
+2. BODY - Content structure, presentation, substantiation, core demand fulfillment, and organization
+3. CONCLUSION - Effectiveness, relevance, synthesis, and closure
+4. STRENGTHS - Positive aspects and commendable features
+5. WEAKNESSES - Areas of concern and deficiencies
+6. SUGGESTIONS - Specific recommendations for improvement
+7. FEEDBACK - Overall assessment and constructive comments
+
 Please provide a detailed evaluation in the following format:
 
 RELEVANT: [Score out of 100 - How relevant is the answer to the question]
 MARKS AWARDED: [Marks out of ${question.metadata?.maximumMarks || 10}]
 
-REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
+ANALYSIS:
+Introduction: [Analyze the introduction quality and provide specific feedback using evaluation parameters]
+Body: [Evaluate the main content, structure, and presentation using detailed parameters]
+Conclusion: [Assess the conclusion effectiveness and closure]
+Strengths: [List 3-4 specific strengths from the comprehensive strength parameters]
+Weaknesses: [List 3-4 specific weaknesses from the comprehensive weakness parameters]
+Suggestions: [List 3-4 specific recommendations from the suggestion parameters]
+Feedback: [Provide overall assessment and constructive comments]
 
-STRENGTHS:
-- [List 2-3 specific strengths]
+REMARK: [Provide a concise 1-2 line overall assessment from the remark categories]
 
-WEAKNESSES:
-- [List 2-3 areas for improvement]
+Use the following evaluation parameters as guidelines:
 
-SUGGESTIONS:
-- [List 2-3 specific recommendations]
+INTRODUCTION ANALYSIS:
+${evaluationParams.analysis.introduction.map(item => `- ${item}`).join('\n')}
 
-DETAILED FEEDBACK:
-[Provide constructive feedback about the answer's relevance and content]
+BODY ANALYSIS:
+${evaluationParams.analysis.body.map(item => `- ${item}`).join('\n')}
 
-Please be fair, constructive, and specific in your evaluation, focusing on how well the answer addresses the question.`
-}
+CONCLUSION ANALYSIS:
+${evaluationParams.analysis.conclusion.map(item => `- ${item}`).join('\n')}
 
-// Parse evaluation response from AI (Updated to handle remark)
+STRENGTHS OPTIONS:
+${evaluationParams.analysis.strengths.map(item => `- ${item}`).join('\n')}
+
+WEAKNESSES OPTIONS:
+${evaluationParams.analysis.weaknesses.map(item => `- ${item}`).join('\n')}
+
+SUGGESTIONS OPTIONS:
+${evaluationParams.analysis.suggestions.map(item => `- ${item}`).join('\n')}
+
+FEEDBACK OPTIONS:
+${evaluationParams.analysis.feedback.map(item => `- ${item}`).join('\n')}
+
+REMARK CATEGORIES:
+Excellent: ${evaluationParams.remark.excellent.join(' | ')}
+Good: ${evaluationParams.remark.good.join(' | ')}
+Satisfactory: ${evaluationParams.remark.satisfactory.join(' | ')}
+Average: ${evaluationParams.remark.average.join(' | ')}
+Below Average: ${evaluationParams.remark.below_average.join(' | ')}
+Poor: ${evaluationParams.remark.poor.join(' | ')}`;
+};
+
 const parseEvaluationResponse = (evaluationText, question) => {
   try {
-    console.log("Parsing evaluation response:", evaluationText.substring(0, 200) + "...")
-
     const lines = evaluationText
       .split("\n")
       .map((line) => line.trim())
-      .filter((line) => line.length > 0)
+      .filter((line) => line.length > 0);
     
+    const evaluationParams = getEvaluationParameters();
     const evaluation = {
       relevant: 75,
       marks: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
-      remark: "", // Added remark field
-      strengths: [],
-      weaknesses: [],
-      suggestions: [],
-      feedback: "",
-    }
+      analysis: {
+        introduction: [],
+        body: [],
+        conclusion: [],
+        strengths: [],
+        weaknesses: [],
+        suggestions: [],
+        feedback: []
+      },
+      remark: ""
+    };
 
-    let currentSection = ""
-    const feedbackLines = []
+    let currentSection = "";
+    let currentAnalysisSection = "";
 
     for (let i = 0; i < lines.length; i++) {
-      const line = lines[i]
-
-      // Check for section headers
+      const line = lines[i];
       if (line.toLowerCase().includes("relevant:") || line.toLowerCase().startsWith("relevant:")) {
-        const match = line.match(/(\d+)/)
+        const match = line.match(/(\d+)/);
         if (match) {
-          evaluation.relevant = Math.min(100, Math.max(0, Number.parseInt(match[1])))
+          evaluation.relevant = Math.min(100, Math.max(0, Number.parseInt(match[1])));
         }
-        currentSection = ""
+        currentSection = "";
       } else if (line.toLowerCase().includes("marks awarded:") || line.toLowerCase().includes("marks:")) {
-        const match = line.match(/(\d+)/)
+        const match = line.match(/(\d+)/);
         if (match) {
-          evaluation.marks = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])))
+          evaluation.marks = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])));
         }
-        currentSection = ""
-      } else if (line.toLowerCase().includes("remark:") || line.toLowerCase().startsWith("remark:")) {
-        // Extract remark content
-        const remarkContent = line.replace(/^remark:/i, "").trim()
+        currentSection = "";
+      } else if (line.toLowerCase().includes("analysis:")) {
+        currentSection = "analysis";
+      } else if (line.toLowerCase().includes("introduction:")) {
+        currentAnalysisSection = "introduction";
+      } else if (line.toLowerCase().includes("body:")) {
+        currentAnalysisSection = "body";
+      } else if (line.toLowerCase().includes("conclusion:")) {
+        currentAnalysisSection = "conclusion";
+      } else if (line.toLowerCase().includes("strengths:")) {
+        currentAnalysisSection = "strengths";
+      } else if (line.toLowerCase().includes("weaknesses:")) {
+        currentAnalysisSection = "weaknesses";
+      } else if (line.toLowerCase().includes("suggestions:")) {
+        currentAnalysisSection = "suggestions";
+      } else if (line.toLowerCase().includes("feedback:")) {
+        currentAnalysisSection = "feedback";
+      } else if (line.toLowerCase().includes("remark:")) {
+        currentSection = "remark";
+        const remarkContent = line.replace(/^remark:/i, "").trim();
         if (remarkContent) {
-          evaluation.remark = remarkContent.length > 250 ? remarkContent.substring(0, 247) + "..." : remarkContent
+          evaluation.remark = remarkContent.length > 250 ? remarkContent.substring(0, 247) + "..." : remarkContent;
         }
-        currentSection = ""
-      } else if (line.toLowerCase().includes("strengths:") || line.toLowerCase() === "strengths") {
-        currentSection = "strengths"
-      } else if (line.toLowerCase().includes("weaknesses:") || line.toLowerCase() === "weaknesses") {
-        currentSection = "weaknesses"
-      } else if (line.toLowerCase().includes("suggestions:") || line.toLowerCase() === "suggestions") {
-        currentSection = "suggestions"
-      } else if (line.toLowerCase().includes("detailed feedback:") || line.toLowerCase().includes("feedback:")) {
-        currentSection = "feedback"
-      } else if (currentSection) {
-        // Process content based on current section
-        if (currentSection === "feedback") {
-          feedbackLines.push(line)
-        } else if (line.startsWith("- ") || line.startsWith("• ") || line.match(/^\d+\./)) {
-          // Handle bullet points and numbered lists
+      } else if (currentSection === "analysis" && currentAnalysisSection) {
+        if (line.startsWith("- ") || line.startsWith("• ") || line.match(/^\d+\./)) {
           const content = line
             .replace(/^[-•]\s*/, "")
             .replace(/^\d+\.\s*/, "")
-            .trim()
-          if (content && evaluation[currentSection]) {
-            evaluation[currentSection].push(content)
+            .trim();
+          if (content) {
+            evaluation.analysis[currentAnalysisSection].push(content);
           }
-        } else if (line.length > 0 && !line.toLowerCase().includes(":")) {
-          // Handle lines without bullet points
-          if (evaluation[currentSection] && Array.isArray(evaluation[currentSection])) {
-            evaluation[currentSection].push(line)
-          }
+        } else if (line.length > 0) {
+          evaluation.analysis[currentAnalysisSection].push(line);
+        }
+      } else if (currentSection === "remark") {
+        if (line.length > 0 && !evaluation.remark) {
+          evaluation.remark = line.length > 250 ? line.substring(0, 247) + "..." : line;
         }
       }
     }
 
-    // Join feedback lines
-    evaluation.feedback = feedbackLines.join(" ").trim()
-
-    // Generate default remark if not found
+    // Ensure we have default values for all sections
     if (!evaluation.remark || evaluation.remark.length === 0) {
-      evaluation.remark = generateDefaultRemark(evaluation.relevant, evaluation.marks, question.metadata?.maximumMarks || 10)
+      evaluation.remark = generateDefaultRemark(evaluation.relevant, evaluation.marks, question.metadata?.maximumMarks || 10);
+    }
+    
+    if (evaluation.analysis.strengths.length === 0) {
+      evaluation.analysis.strengths = [
+        "Answer shows understanding of the topic",
+        "Relevant content provided"
+      ];
+    }
+    
+    if (evaluation.analysis.weaknesses.length === 0) {
+      evaluation.analysis.weaknesses = [
+        "Could provide more detailed explanations",
+        "Some areas need improvement"
+      ];
+    }
+    
+    if (evaluation.analysis.suggestions.length === 0) {
+      evaluation.analysis.suggestions = [
+        "Include more specific examples",
+        "Structure the answer more clearly"
+      ];
+    }
+    
+    if (evaluation.analysis.feedback.length === 0) {
+      evaluation.analysis.feedback = [
+        "Overall, the answer demonstrates a good understanding of the topic but could benefit from more detailed explanations and examples."
+      ];
     }
 
-    // Ensure we have at least some default content
-    if (evaluation.strengths.length === 0) {
-      evaluation.strengths = ["Answer shows understanding of the topic", "Relevant content provided"]
-    }
+    // Limit the number of items in each section
+    evaluation.analysis.strengths = evaluation.analysis.strengths.slice(0, 5);
+    evaluation.analysis.weaknesses = evaluation.analysis.weaknesses.slice(0, 5);
+    evaluation.analysis.suggestions = evaluation.analysis.suggestions.slice(0, 5);
+    evaluation.analysis.feedback = evaluation.analysis.feedback.slice(0, 1);
 
-    if (evaluation.weaknesses.length === 0) {
-      evaluation.weaknesses = ["Could provide more detailed explanations", "Some areas need improvement"]
-    }
+    // Match analysis items with the predefined parameters
+    Object.keys(evaluation.analysis).forEach(section => {
+      if (evaluationParams.analysis[section]) {
+        evaluation.analysis[section] = evaluation.analysis[section].map(item => {
+          const matchedParam = evaluationParams.analysis[section].find(param => 
+            item.toLowerCase().includes(param.toLowerCase().substring(0, 20)));
+          return matchedParam || item;
+        }).filter(item => item);
+      }
+    });
 
-    if (evaluation.suggestions.length === 0) {
-      evaluation.suggestions = ["Include more specific examples", "Structure the answer more clearly"]
-    }
-
-    if (!evaluation.feedback || evaluation.feedback.length === 0) {
-      evaluation.feedback =
-        "The answer demonstrates understanding but could be enhanced with more detailed explanations and examples."
-    }
-
-    // Limit array lengths to avoid overly long responses
-    evaluation.strengths = evaluation.strengths.slice(0, 5)
-    evaluation.weaknesses = evaluation.weaknesses.slice(0, 5)
-    evaluation.suggestions = evaluation.suggestions.slice(0, 5)
-
-    console.log("Parsed evaluation:", JSON.stringify(evaluation, null, 2))
-    return evaluation
+    return evaluation;
   } catch (error) {
-    console.error("Error parsing evaluation:", error)
-    return generateMockEvaluation(question)
+    console.error("Error parsing evaluation:", error);
+    return generateMockEvaluation(question);
   }
-}
+};
 
-// Generate default remark based on performance
-const generateDefaultRemark = (relevant, marks, maxMarks) => {
-  const percentage = (marks / maxMarks) * 100
-  
-  if (percentage >= 90) {
-    return "Excellent answer with comprehensive understanding and clear presentation."
-  } else if (percentage >= 80) {
-    return "Good answer demonstrating solid understanding with minor areas for improvement."
-  } else if (percentage >= 70) {
-    return "Satisfactory answer showing basic understanding but needs more detailed explanations."
-  } else if (percentage >= 60) {
-    return "Average answer with some correct points but lacking depth and clarity."
-  } else if (percentage >= 50) {
-    return "Below average answer with limited understanding and significant gaps."
-  } else {
-    return "Poor answer with minimal understanding and requires substantial improvement."
-  }
-}
-
-// Generate mock evaluation (fallback) - Updated to include remark
 const generateMockEvaluation = (question) => {
-  const baseRelevant = Math.floor(Math.random() * 30) + 60 // 60-90%
-  const maxMarks = question.metadata?.maximumMarks || 10
-  const marks = Math.floor((baseRelevant / 100) * maxMarks)
-
+  const baseRelevant = Math.floor(Math.random() * 30) + 60;
+  const maxMarks = question.metadata?.maximumMarks || 10;
+  const marks = Math.floor((baseRelevant / 100) * maxMarks);
+  const evaluationParams = getEvaluationParameters();
+  
   return {
     relevant: baseRelevant,
     marks: marks,
-    remark: generateDefaultRemark(baseRelevant, marks, maxMarks), // Added default remark
-    strengths: [
-      "Shows understanding of core concepts",
-      "Attempts to address the question requirements",
-      "Demonstrates basic knowledge of the topic",
-    ],
-    weaknesses: [
-      "Could provide more detailed explanations",
-      "Some concepts could be explained more clearly",
-      "Missing some key points",
-    ],
-    suggestions: [
-      "Include more specific examples to support your points",
-      "Structure your answer with clear sections or headings",
-      "Provide more comprehensive coverage of the topic",
-    ],
-    feedback:
-      "The answer shows a good understanding of the topic and addresses the main question. However, it could be improved with more detailed explanations, specific examples, and better organization. Consider expanding on key concepts and providing clearer connections between different points.",
+    analysis: {
+      introduction: [
+        evaluationParams.analysis.introduction[2],
+        evaluationParams.analysis.introduction[3]
+      ],
+      body: [
+        evaluationParams.analysis.body[6],
+        evaluationParams.analysis.body[10]
+      ],
+      conclusion: [
+        evaluationParams.analysis.conclusion[0],
+        evaluationParams.analysis.conclusion[1]
+      ],
+      strengths: [
+        evaluationParams.analysis.strengths[0],
+        evaluationParams.analysis.strengths[1]
+      ],
+      weaknesses: [
+        evaluationParams.analysis.weaknesses[0],
+        evaluationParams.analysis.weaknesses[1]
+      ],
+      suggestions: [
+        evaluationParams.analysis.suggestions[0],
+        evaluationParams.analysis.suggestions[1]
+      ],
+      feedback: [
+        evaluationParams.analysis.feedback[0]
+      ]
+    },
+    remark: generateDefaultRemark(baseRelevant, marks, maxMarks)
+  };
+};
+
+const generateDefaultRemark = (relevant, marks, maxMarks) => {
+  const percentage = (marks / maxMarks) * 100;
+  const evaluationParams = getEvaluationParameters();
+  
+  if (percentage >= 90) {
+    return evaluationParams.remark.excellent[0] || "Excellent answer with comprehensive understanding and clear presentation.";
+  } else if (percentage >= 80) {
+    return evaluationParams.remark.good[0] || "Good answer demonstrating solid understanding with minor areas for improvement.";
+  } else if (percentage >= 70) {
+    return evaluationParams.remark.satisfactory[0] || "Satisfactory answer showing basic understanding but needs more detailed explanations.";
+  } else if (percentage >= 60) {
+    return evaluationParams.remark.average[0] || "Average answer with some correct points but lacking depth and clarity.";
+  } else if (percentage >= 50) {
+    return evaluationParams.remark.below_average[0] || "Below average answer with limited understanding and significant gaps.";
+  } else {
+    return evaluationParams.remark.poor[0] || "Poor answer with minimal understanding and requires substantial improvement.";
   }
-}
+};
 
-// Generate custom evaluation prompt (Updated to include remark)
 const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, options = {}) => {
-  const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options
-
-  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria:\n\n`
-
-  // Add custom evaluation criteria
-  prompt += `EVALUATION CRITERIA:\n${userPrompt}\n\n`
-
-  // Add question details if requested
+  const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options;
+  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria:\n\n`;
+  prompt += `EVALUATION CRITERIA:\n${userPrompt}\n\n`;
+  
   if (includeQuestionDetails && question) {
-    prompt += `QUESTION DETAILS:\n`
-    prompt += `Question: ${question.question}\n`
+    prompt += `QUESTION DETAILS:\n`;
+    prompt += `Question: ${question.question}\n`;
     if (question.metadata?.difficultyLevel) {
-      prompt += `Difficulty Level: ${question.metadata.difficultyLevel}\n`
+      prompt += `Difficulty Level: ${question.metadata.difficultyLevel}\n`;
     }
     if (maxMarks || question.metadata?.maximumMarks) {
-      prompt += `Maximum Marks: ${maxMarks || question.metadata.maximumMarks}\n`
+      prompt += `Maximum Marks: ${maxMarks || question.metadata.maximumMarks}\n`;
     }
     if (question.metadata?.keywords && question.metadata.keywords.length > 0) {
-      prompt += `Keywords: ${question.metadata.keywords.join(", ")}\n`
+      prompt += `Keywords: ${question.metadata.keywords.join(", ")}\n`;
     }
-    prompt += "\n"
+    prompt += "\n";
   }
-
-  // Add extracted text if available and requested
+  
   if (includeExtractedText && extractedTexts && extractedTexts.length > 0) {
-    const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n")
-    prompt += `STUDENT'S ANSWER (extracted from images):\n${combinedText}\n\n`
+    const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
+    prompt += `STUDENT'S ANSWER (extracted from images):\n${combinedText}\n\n`;
   }
-
-  // Add response format with remark included
+  
   prompt += `Please provide a detailed evaluation in the following format:
-
 RELEVANT: [Score out of 100 - How relevant is the answer to the question]
 MARKS AWARDED: [Marks out of ${maxMarks || question?.metadata?.maximumMarks || 10}]
 
+ANALYSIS:
+Introduction: [Analyze the introduction quality and provide specific feedback]
+Body: [Evaluate the main content, structure, and presentation]
+Conclusion: [Assess the conclusion effectiveness]
+Strengths: [List 2-3 specific strengths]
+Weaknesses: [List 2-3 areas for improvement]
+Suggestions: [List 2-3 specific recommendations for improvement]
+
 REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
 
-STRENGTHS:
-- [List 2-3 specific strengths based on your evaluation criteria]
-
-WEAKNESSES:
-- [List 2-3 areas for improvement based on your evaluation criteria]
-
-SUGGESTIONS:
-- [List 2-3 specific recommendations for improvement]
-
-DETAILED FEEDBACK:
-[Provide comprehensive feedback based on your custom evaluation criteria]
-
-Please be fair, constructive, and specific in your evaluation according to the provided criteria, focusing on how well the answer addresses the question.`
-
-  return prompt
-}
+Please be fair, constructive, and specific in your evaluation according to the provided criteria, focusing on how well the answer addresses the question.`;
+  
+  return prompt;
+};
 
 module.exports = {
   validateTextRelevanceToQuestion,
@@ -920,4 +1027,5 @@ module.exports = {
   generateMockEvaluation,
   generateCustomEvaluationPrompt,
   getServiceForTask,
-}
+  getEvaluationParameters
+};

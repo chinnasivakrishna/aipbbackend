@@ -25,7 +25,7 @@ const userAnswerSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 1,
-    max: 20
+    max: 5
   },
   answerImages: [{
     imageUrl: {
@@ -141,7 +141,7 @@ const userAnswerSchema = new mongoose.Schema({
     }
   },
   evaluation: {
-    relevant: {  // Changed from accuracy to relevant
+    relevant: {
       type: Number,
       min: 0,
       max: 100,
@@ -171,11 +171,10 @@ const userAnswerSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
-    // NEW: Added remark field for AI-generated concise summary
     remark: {
       type: String,
       trim: true,
-      maxlength: 250 // Limit to ensure it stays concise (1-2 lines)
+      maxlength: 250
     },
     feedbackStatus: {
       type: Boolean,
@@ -187,6 +186,20 @@ const userAnswerSchema = new mongoose.Schema({
         message: '',
         submittedAt: null
       })
+    },
+    analysis: {
+      introduction: [{
+        type: String,
+        trim: true
+      }],
+      body: [{
+        type: String,
+        trim: true
+      }],
+      conclusion: [{
+        type: String,
+        trim: true
+      }]
     }
   },
   annotations: [{
@@ -203,18 +216,18 @@ const userAnswerSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
-    publishStatus: {
+  publishStatus: {
     type: String,
     enum: ['published', 'not_published'],
     default: 'not_published'
   },
-  requestID:{
-    type:String,
-    default:null
+  requestID: {
+    type: String,
+    default: null
   },
-  requestnote:{
-    type:String,
-    default:null 
+  requestnote: {
+    type: String,
+    default: null 
   },
   reviewStatus: {
     type: String,
@@ -240,49 +253,40 @@ const userAnswerSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// PERFORMANCE INDEXES ONLY - No unique constraints
-userAnswerSchema.index({ userId: 1, questionId: 1, attemptNumber: 1 }); // Non-unique compound index
-userAnswerSchema.index({ userId: 1, clientId: 1 }); // Non-unique index
-userAnswerSchema.index({ questionId: 1, clientId: 1 }); // Non-unique index
-userAnswerSchema.index({ submissionStatus: 1 }); // Non-unique index
-userAnswerSchema.index({ userId: 1, questionId: 1 }); // Non-unique index for querying user's attempts
-userAnswerSchema.index({ publishStatus: 1 }); // Index for publishStatus queries
+userAnswerSchema.index({ userId: 1, questionId: 1, attemptNumber: 1 });
+userAnswerSchema.index({ userId: 1, clientId: 1 });
+userAnswerSchema.index({ questionId: 1, clientId: 1 });
+userAnswerSchema.index({ submissionStatus: 1 });
+userAnswerSchema.index({ userId: 1, questionId: 1 });
+userAnswerSchema.index({ publishStatus: 1 });
 
-// Static method to clean up old indexes
 userAnswerSchema.statics.cleanupOldIndexes = async function() {
   try {
     const collection = this.collection;
     const indexes = await collection.indexes();
-    
-    // Remove any indexes that are not the default _id index
     for (const index of indexes) {
       if (index.name !== '_id_') {
         await collection.dropIndex(index.name);
       }
     }
-    
-    // Create the required indexes
     await this.createIndexes();
   } catch (error) {
     console.error('Error cleaning up indexes:', error);
   }
 };
 
-// Static method to check if user can submit more answers
 userAnswerSchema.statics.canUserSubmit = async function(userId, questionId) {
   const count = await this.countDocuments({
     userId: userId,
     questionId: questionId
   });
-  
   return {
-    canSubmit: count < 20,
+    canSubmit: count < 5,
     currentAttempts: count,
-    remainingAttempts: Math.max(0, 20 - count)
+    remainingAttempts: Math.max(0, 5 - count)
   };
 };
 
-// Static method to get user's attempt history for a question
 userAnswerSchema.statics.getUserAttempts = function(userId, questionId) {
   return this.find({
     userId: userId,
@@ -290,7 +294,6 @@ userAnswerSchema.statics.getUserAttempts = function(userId, questionId) {
   }).sort({ attemptNumber: 1 });
 };
 
-// Static method to get user's latest attempt for a question
 userAnswerSchema.statics.getUserLatestAttempt = function(userId, questionId) {
   return this.findOne({
     userId: userId,
@@ -298,7 +301,6 @@ userAnswerSchema.statics.getUserLatestAttempt = function(userId, questionId) {
   }).sort({ attemptNumber: -1 });
 };
 
-// Static method to get published answers
 userAnswerSchema.statics.getPublishedAnswers = function(filter = {}) {
   return this.find({
     publishStatus: 'published',
@@ -306,7 +308,6 @@ userAnswerSchema.statics.getPublishedAnswers = function(filter = {}) {
   }).populate('userId', 'name email').populate('questionId');
 };
 
-// Static method to get not published answers
 userAnswerSchema.statics.getNotPublishedAnswers = function(filter = {}) {
   return this.find({
     publishStatus: 'not_published',
@@ -314,98 +315,68 @@ userAnswerSchema.statics.getNotPublishedAnswers = function(filter = {}) {
   }).populate('userId', 'name email').populate('questionId');
 };
 
-// Method to check if this is the final attempt
 userAnswerSchema.methods.isFinalAttempt = function() {
-  return this.attemptNumber === 20;
+  return this.attemptNumber === 5;
 };
 
-// Method to check if answer is published
 userAnswerSchema.methods.isPublished = function() {
   return this.publishStatus === 'published';
 };
 
-// Method to publish answer
 userAnswerSchema.methods.publish = function() {
   this.publishStatus = 'published';
   return this.save();
 };
 
-// Method to unpublish answer
 userAnswerSchema.methods.unpublish = function() {
   this.publishStatus = 'not_published';
   return this.save();
 };
 
-// NEW: Method to set remark with validation
 userAnswerSchema.methods.setRemark = function(remark) {
   if (!remark || typeof remark !== 'string') {
     throw new Error('Remark must be a non-empty string');
   }
-  
-  // Ensure remark is concise (1-2 lines, max 250 characters)
   const trimmedRemark = remark.trim();
   if (trimmedRemark.length > 250) {
     this.evaluation.remark = trimmedRemark.substring(0, 247) + '...';
   } else {
     this.evaluation.remark = trimmedRemark;
   }
-  
   return this.save();
 };
 
-// NEW: Method to get remark
 userAnswerSchema.methods.getRemark = function() {
   return this.evaluation.remark || '';
 };
 
-// Enhanced create new attempt method with better error handling
 userAnswerSchema.statics.createNewAttempt = async function(answerData) {
   const { userId, questionId } = answerData;
-  
-  console.log(`Creating new attempt for user ${userId} and question ${questionId}`);
-  
-  // Use a transaction to ensure data consistency
   const session = await mongoose.startSession();
-  
   try {
     return await session.withTransaction(async () => {
-      // Check if user has reached maximum attempts
       const existingCount = await this.countDocuments({ userId, questionId }).session(session);
-      if (existingCount >= 20) {
-        const error = new Error('Maximum submission limit (20) reached for this question');
+      if (existingCount >= 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
-      
-      // Find the highest existing attempt number for this user and question
       const latestAttempt = await this.findOne(
         { userId, questionId },
         { attemptNumber: 1 }
       ).sort({ attemptNumber: -1 }).session(session);
-      
-      // Calculate the next attempt number
       const nextAttemptNumber = latestAttempt ? latestAttempt.attemptNumber + 1 : 1;
-      
-      console.log(`Latest attempt number: ${latestAttempt ? latestAttempt.attemptNumber : 'none'}`);
-      console.log(`Next attempt number will be: ${nextAttemptNumber}`);
-      
-      // Validate the next attempt number
-      if (nextAttemptNumber > 20) {
-        const error = new Error('Maximum submission limit (20) reached for this question');
+      if (nextAttemptNumber > 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
-      
-      // Create the new attempt with the calculated attempt number
       const attemptData = {
         ...answerData,
         attemptNumber: nextAttemptNumber
       };
-      
       const userAnswer = new this(attemptData);
       await userAnswer.save({ session });
-      
-      console.log(`Successfully created attempt ${nextAttemptNumber} for user ${userId} and question ${questionId}`);
       return userAnswer;
     });
   } finally {
@@ -413,89 +384,59 @@ userAnswerSchema.statics.createNewAttempt = async function(answerData) {
   }
 };
 
-// Safer alternative method that handles race conditions better
 userAnswerSchema.statics.createNewAttemptSafe = async function(answerData) {
   const { userId, questionId } = answerData;
-  
-  console.log(`Creating new attempt (safe) for user ${userId} and question ${questionId}`);
-  
   const maxRetries = 3;
   let attempt = 0;
-  
   while (attempt < maxRetries) {
     try {
-      // Check current attempt count
       const existingCount = await this.countDocuments({ userId, questionId });
-      if (existingCount >= 20) {
-        const error = new Error('Maximum submission limit (20) reached for this question');
+      if (existingCount >= 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
-      
-      // Get all existing attempts to find the correct next number
       const existingAttempts = await this.find(
         { userId, questionId },
         { attemptNumber: 1 }
       ).sort({ attemptNumber: 1 });
-      
-      // Find the next available attempt number
       let nextAttemptNumber = 1;
       const existingNumbers = existingAttempts.map(a => a.attemptNumber).sort((a, b) => a - b);
-      
-      for (let i = 1; i <= 20; i++) {
+      for (let i = 1; i <= 5; i++) {
         if (!existingNumbers.includes(i)) {
           nextAttemptNumber = i;
           break;
         }
       }
-      
-      if (nextAttemptNumber > 20) {
-        const error = new Error('Maximum submission limit (20) reached for this question');
+      if (nextAttemptNumber > 5) {
+        const error = new Error('Maximum submission limit (5) reached for this question');
         error.code = 'SUBMISSION_LIMIT_EXCEEDED';
         throw error;
       }
-      
-      console.log(`Attempting to create attempt number: ${nextAttemptNumber}`);
-      
-      // Create the new attempt
       const attemptData = {
         ...answerData,
         attemptNumber: nextAttemptNumber
       };
-      
       const userAnswer = new this(attemptData);
       await userAnswer.save();
-      
-      console.log(`Successfully created attempt ${nextAttemptNumber} for user ${userId} and question ${questionId}`);
       return userAnswer;
-      
     } catch (error) {
       attempt++;
-      
       if (error.code === 'SUBMISSION_LIMIT_EXCEEDED') {
         throw error;
       }
-      
-      // If it's a duplicate key error and we haven't exceeded retries, try again
       if ((error.code === 11000 || error.message.includes('E11000')) && attempt < maxRetries) {
-        console.log(`Duplicate key error on attempt ${attempt}, retrying...`);
-        // Wait a bit before retrying
         await new Promise(resolve => setTimeout(resolve, 100 * attempt));
         continue;
       }
-      
-      // If it's the last attempt or a different error, throw it
       throw error;
     }
   }
-  
-  // If we get here, all retries failed
   const error = new Error('Failed to create answer after multiple attempts');
   error.code = 'CREATION_FAILED';
   throw error;
 };
 
-// Static method to check if user has a review request
 userAnswerSchema.statics.hasReviewRequest = async function(userId, clientId) {
   try {
     const response = await axios.get(`${process.env.API_BASE_URL}/api/clients/${clientId}/mobile/review/request`, {
@@ -510,10 +451,6 @@ userAnswerSchema.statics.hasReviewRequest = async function(userId, clientId) {
   }
 };
 
-// Export the model
 const UserAnswer = mongoose.model('UserAnswer', userAnswerSchema);
-
-// Clean up old indexes when the model is loaded
 UserAnswer.cleanupOldIndexes().catch(console.error);
-
 module.exports = UserAnswer;
