@@ -151,25 +151,9 @@ const userAnswerSchema = new mongoose.Schema({
       type: String,
       trim: true
     },
-    strengths: [{
-      type: String,
-      trim: true
-    }],
-    weaknesses: [{
-      type: String,
-      trim: true
-    }],
-    suggestions: [{
-      type: String,
-      trim: true
-    }],
     marks: {
       type: Number,
       min: 0
-    },
-    feedback: {
-      type: String,
-      trim: true
     },
     remark: {
       type: String,
@@ -187,6 +171,11 @@ const userAnswerSchema = new mongoose.Schema({
         submittedAt: null
       })
     },
+    comments: [{
+      type: String,
+      trim: true,
+      maxlength: 800
+    }],
     analysis: {
       introduction: [{
         type: String,
@@ -197,6 +186,22 @@ const userAnswerSchema = new mongoose.Schema({
         trim: true
       }],
       conclusion: [{
+        type: String,
+        trim: true
+      }],
+      strengths: [{
+        type: String,
+        trim: true
+      }],
+      weaknesses: [{
+        type: String,
+        trim: true
+      }],
+      suggestions: [{
+        type: String,
+        trim: true
+      }],
+      feedback: [{
         type: String,
         trim: true
       }]
@@ -348,6 +353,32 @@ userAnswerSchema.methods.setRemark = function(remark) {
 
 userAnswerSchema.methods.getRemark = function() {
   return this.evaluation.remark || '';
+};
+
+userAnswerSchema.methods.addEvaluationComment = function(comment) {
+  if (!comment || typeof comment !== 'string') {
+    throw new Error('Comment must be a non-empty string');
+  }
+  
+  const trimmedComment = comment.trim();
+  if (trimmedComment.length > 800) {
+    throw new Error('Comment is too long. Maximum 800 characters allowed.');
+  }
+  
+  if (!this.evaluation.comments) {
+    this.evaluation.comments = [];
+  }
+  
+  if (this.evaluation.comments.length >= 4) {
+    throw new Error('Maximum 4 comments allowed per evaluation');
+  }
+  
+  this.evaluation.comments.push(trimmedComment);
+  return this.save();
+};
+
+userAnswerSchema.methods.getEvaluationComments = function() {
+  return this.evaluation.comments || [];
 };
 
 userAnswerSchema.statics.createNewAttempt = async function(answerData) {

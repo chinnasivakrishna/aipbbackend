@@ -742,6 +742,8 @@ Weaknesses: [List 3-4 specific weaknesses from the comprehensive weakness parame
 Suggestions: [List 3-4 specific recommendations from the suggestion parameters]
 Feedback: [Provide overall assessment and constructive comments]
 
+COMMENTS: [Provide 3-4 detailed comments (5-12 words each) about the answer's quality, specific observations, and overall impression]
+
 REMARK: [Provide a concise 1-2 line overall assessment from the remark categories]
 
 Use the following evaluation parameters as guidelines:
@@ -787,6 +789,8 @@ const parseEvaluationResponse = (evaluationText, question) => {
     const evaluation = {
       relevant: 75,
       marks: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
+      remark: "",
+      comments: [],
       analysis: {
         introduction: [],
         body: [],
@@ -795,8 +799,7 @@ const parseEvaluationResponse = (evaluationText, question) => {
         weaknesses: [],
         suggestions: [],
         feedback: []
-      },
-      remark: ""
+      }
     };
 
     let currentSection = "";
@@ -832,6 +835,8 @@ const parseEvaluationResponse = (evaluationText, question) => {
         currentAnalysisSection = "suggestions";
       } else if (line.toLowerCase().includes("feedback:")) {
         currentAnalysisSection = "feedback";
+      } else if (line.toLowerCase().includes("comments:")) {
+        currentSection = "comments";
       } else if (line.toLowerCase().includes("remark:")) {
         currentSection = "remark";
         const remarkContent = line.replace(/^remark:/i, "").trim();
@@ -850,6 +855,10 @@ const parseEvaluationResponse = (evaluationText, question) => {
         } else if (line.length > 0) {
           evaluation.analysis[currentAnalysisSection].push(line);
         }
+      } else if (currentSection === "comments") {
+        if (line.length > 50 && line.length < 800) {
+          evaluation.comments.push(line);
+        }
       } else if (currentSection === "remark") {
         if (line.length > 0 && !evaluation.remark) {
           evaluation.remark = line.length > 250 ? line.substring(0, 247) + "..." : line;
@@ -857,45 +866,27 @@ const parseEvaluationResponse = (evaluationText, question) => {
       }
     }
 
-    // Ensure we have default values for all sections
+    if (evaluation.comments.length === 0) {
+      evaluation.comments = generateEvaluationComments(
+        evaluation.analysis,
+        evaluation.relevant,
+        evaluation.marks,
+        question.metadata?.maximumMarks || 10
+      );
+    }
+
     if (!evaluation.remark || evaluation.remark.length === 0) {
-      evaluation.remark = generateDefaultRemark(evaluation.relevant, evaluation.marks, question.metadata?.maximumMarks || 10);
+      evaluation.remark = generateDefaultRemark(
+        evaluation.relevant, 
+        evaluation.marks, 
+        question.metadata?.maximumMarks || 10
+      );
     }
     
-    if (evaluation.analysis.strengths.length === 0) {
-      evaluation.analysis.strengths = [
-        "Answer shows understanding of the topic",
-        "Relevant content provided"
-      ];
-    }
-    
-    if (evaluation.analysis.weaknesses.length === 0) {
-      evaluation.analysis.weaknesses = [
-        "Could provide more detailed explanations",
-        "Some areas need improvement"
-      ];
-    }
-    
-    if (evaluation.analysis.suggestions.length === 0) {
-      evaluation.analysis.suggestions = [
-        "Include more specific examples",
-        "Structure the answer more clearly"
-      ];
-    }
-    
-    if (evaluation.analysis.feedback.length === 0) {
-      evaluation.analysis.feedback = [
-        "Overall, the answer demonstrates a good understanding of the topic but could benefit from more detailed explanations and examples."
-      ];
-    }
+    evaluation.comments = evaluation.comments
+      .slice(0, 4)
+      .map(comment => comment.length > 800 ? comment.substring(0, 797) + "..." : comment);
 
-    // Limit the number of items in each section
-    evaluation.analysis.strengths = evaluation.analysis.strengths.slice(0, 5);
-    evaluation.analysis.weaknesses = evaluation.analysis.weaknesses.slice(0, 5);
-    evaluation.analysis.suggestions = evaluation.analysis.suggestions.slice(0, 5);
-    evaluation.analysis.feedback = evaluation.analysis.feedback.slice(0, 1);
-
-    // Match analysis items with the predefined parameters
     Object.keys(evaluation.analysis).forEach(section => {
       if (evaluationParams.analysis[section]) {
         evaluation.analysis[section] = evaluation.analysis[section].map(item => {
@@ -913,15 +904,54 @@ const parseEvaluationResponse = (evaluationText, question) => {
   }
 };
 
+const generateEvaluationComments = (analysis, relevantScore, marks, maxMarks) => {
+  const comments = [];
+  const percentage = (marks / maxMarks) * 100;
+  
+  if (percentage >= 80) {
+    comments.push("The answer demonstrates a strong understanding of the topic with clear organization and relevant content. The student has effectively addressed the question requirements and provided well-structured arguments.");
+  } else if (percentage >= 60) {
+    comments.push("The answer shows a good grasp of the subject matter but could benefit from more detailed explanations and better organization. Some key points are addressed but not fully developed.");
+  } else if (percentage >= 40) {
+    comments.push("The answer attempts to address the question but lacks depth and clarity in several areas. More focus on the core requirements and better structuring would significantly improve the response.");
+  } else {
+    comments.push("The answer falls short of expectations, with minimal understanding demonstrated. Significant improvements are needed in content relevance, structure, and depth of analysis.");
+  }
+
+  if (analysis.strengths.length > 0) {
+    const strengthComment = `Notable strengths include: ${analysis.strengths.slice(0, 3).join(', ')}. These aspects demonstrate good understanding and application of concepts.`;
+    comments.push(strengthComment);
+  }
+
+  if (analysis.weaknesses.length > 0) {
+    const improvementComment = `Areas needing improvement: ${analysis.weaknesses.slice(0, 3).join(', ')}. Focusing on these aspects would enhance the overall quality of the answer.`;
+    comments.push(improvementComment);
+  }
+
+  if (analysis.suggestions.length > 0) {
+    const suggestionComment = `Recommendations for improvement: ${analysis.suggestions.slice(0, 3).join(', ')}. Implementing these suggestions would help address the identified weaknesses.`;
+    comments.push(suggestionComment);
+  }
+
+  return comments;
+};
+
 const generateMockEvaluation = (question) => {
   const baseRelevant = Math.floor(Math.random() * 30) + 60;
   const maxMarks = question.metadata?.maximumMarks || 10;
   const marks = Math.floor((baseRelevant / 100) * maxMarks);
   const evaluationParams = getEvaluationParameters();
   
-  return {
+  const mockEvaluation = {
     relevant: baseRelevant,
     marks: marks,
+    remark: generateDefaultRemark(baseRelevant, marks, maxMarks),
+    comments: [
+      "The answer demonstrates a reasonable understanding of the topic but could benefit from more detailed explanations and examples.",
+      "Good structure overall, but some sections could be better organized with clearer transitions between ideas.",
+      "The conclusion effectively summarizes the main points but could be strengthened with more specific recommendations.",
+      "Consider adding more current examples and data to support your arguments for a more comprehensive response."
+    ],
     analysis: {
       introduction: [
         evaluationParams.analysis.introduction[2],
@@ -950,9 +980,10 @@ const generateMockEvaluation = (question) => {
       feedback: [
         evaluationParams.analysis.feedback[0]
       ]
-    },
-    remark: generateDefaultRemark(baseRelevant, marks, maxMarks)
+    }
   };
+
+  return mockEvaluation;
 };
 
 const generateDefaultRemark = (relevant, marks, maxMarks) => {
@@ -1010,6 +1041,8 @@ Conclusion: [Assess the conclusion effectiveness]
 Strengths: [List 2-3 specific strengths]
 Weaknesses: [List 2-3 areas for improvement]
 Suggestions: [List 2-3 specific recommendations for improvement]
+
+COMMENTS: [Provide 3-4 detailed comments (5-12 words each) about specific aspects of the answer]
 
 REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
 
