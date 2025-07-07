@@ -39,11 +39,12 @@ const mobileReviewsRoutes = require('./routes/mobileReviews');
 const mobileQRAuthRoutes = require('./routes/mobileQRAuth');
 const courseRoutes = require('./routes/Course')
 const ai = require("./routes/aiServiceConfig");
+const userAnswer1 = require('./routes/userAnswer1')
 
-app.use(cors());
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use(cors())
+app.use(express.json({ limit: "50mb" }))
+app.use(express.urlencoded({ extended: true, limit: "50mb" }))
+app.use("/uploads", express.static(path.join(__dirname, "uploads")))
 
 mongoose
   .connect(process.env.MONGODB_URI)
@@ -91,6 +92,12 @@ app.use('/api/homepage', mainBookstoreRoutes);
 app.use('/api/review', expertReviewRoutes);
 app.use('/api/config', require('./routes/config'));
 app.use('/api/book', courseRoutes);
+app.use("/api/pdf-embedding", require("./routes/pdfEmbedding"))
+app.use("/api/pdf-chat", require("./routes/pdfChat"))
+
+// Enhanced PDF processing routes with clustering and optional auth
+app.use("/api/enhanced-pdf-embedding", require("./routes/pdfEmbedding"))
+app.use("/api/enhanced-pdf-chat", require("./routes/pdfChat"))
 
 
 // Global Evaluation routes (accessible without client-specific middleware)
@@ -157,6 +164,16 @@ app.use(
   userAnswersRoutes,
 )
 
+app.use(
+  "/api/clients/:clientId/mobile/userAnswers",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  userAnswer1,
+)
+
 // Client-specific evaluation routes for mobile users
 app.use(
   "/api/clients/:clientId/mobile/evaluations",
@@ -182,11 +199,11 @@ app.use(
   "/api/clients/:clientId/mobile/review",
   checkClientAccess(),
   (req, res, next) => {
-    req.clientId = req.params.clientId;
-    next();
-  }, 
-  reviewRequestsRoutes
-);
+    req.clientId = req.params.clientId
+    next()
+  },
+  reviewRequestsRoutes,
+)
 
 // Mount subtopics routes
 app.use("/api/books/:bookId/chapters/:chapterId/topics/:topicId/subtopics", subtopicsRoutes)
@@ -204,5 +221,4 @@ app.use((err, req, res, next) => {
 const PORT = process.env.PORT || 5000
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`)
-  
 })

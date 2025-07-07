@@ -866,13 +866,12 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
       }
     }
   );
-  router.put('/questions/:questionId/answers/evaluation-update',
+  router.put('/questions/:questionId/answers/:answerId/evaluation-update',
     [
       param('questionId')
         .isMongoId()
         .withMessage('Question ID must be a valid MongoDB ObjectId'),
-      body('answerId')
-        .optional()
+      param('answerId')
         .isMongoId()
         .withMessage('Answer ID must be a valid MongoDB ObjectId'),
       body('userId')
@@ -925,30 +924,14 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
         .isString()
         .trim()
         .withMessage('Extracted text must be a string'),
-      body('updateAll')
-        .optional()
-        .isBoolean()
-        .withMessage('updateAll must be a boolean'),
-      body('filters')
-        .optional()
-        .isObject()
-        .withMessage('Filters must be an object'),
-      body('filters.submissionStatus')
-        .optional()
-        .isIn(['draft', 'submitted', 'reviewed'])
-        .withMessage('Invalid submission status'),
-      body('filters.clientId')
-        .optional()
-        .isString()
-        .withMessage('Client ID must be a string'),
-      body('filters.attemptNumber')
-        .optional()
-        .isInt({ min: 1, max: 5 })
-        .withMessage('Attempt number must be between 1 and 5'),
-      body('adminKey')
-        .optional()
-        .isString()
-        .withMessage('Admin key must be a string')
+      body('analysis').optional().isObject().withMessage('Analysis must be an object'),
+      body('analysis.introduction').optional().isArray().withMessage('Introduction must be an array'),
+      body('analysis.body').optional().isArray().withMessage('Body must be an array'),
+      body('analysis.conclusion').optional().isArray().withMessage('Conclusion must be an array'),
+      body('analysis.strengths').optional().isArray().withMessage('Strengths must be an array'),
+      body('analysis.weaknesses').optional().isArray().withMessage('Weaknesses must be an array'),
+      body('analysis.suggestions').optional().isArray().withMessage('Suggestions must be an array'),
+      body('analysis.feedback').optional().isString().withMessage('Feedback must be a string')
     ],
     async (req, res) => {
       try {
@@ -963,62 +946,37 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
             }
           });
         }
-        const { questionId } = req.params;
-        const { 
-          answerId,
+        const { questionId, answerId } = req.params;
+        const {
           userId,
-          accuracy, 
-          marks, 
-          strengths, 
-          weaknesses, 
-          suggestions, 
-          feedback, 
+          accuracy,
+          marks,
+          strengths,
+          weaknesses,
+          suggestions,
+          feedback,
           extractedText,
-          updateAll = false,
-          filters = {}
+          analysis
         } = req.body;
-        let queryFilter = { questionId: questionId };
-        if (answerId && userId) {
-          queryFilter._id = answerId;
+        // Always filter by both questionId and answerId
+        let queryFilter = { questionId: questionId, _id: answerId };
+        if (userId) {
           queryFilter.userId = userId;
-        } else if (answerId) {
-          queryFilter._id = answerId;
-        } else if (userId) {
-          queryFilter.userId = userId;
-        } else if (updateAll) {
-          if (filters.submissionStatus) {
-            queryFilter.submissionStatus = filters.submissionStatus;
-          }
-          if (filters.clientId) {
-            queryFilter.clientId = filters.clientId;
-          }
-          if (filters.attemptNumber) {
-            queryFilter.attemptNumber = filters.attemptNumber;
-          }
-        } else {
-          return res.status(400).json({
-            success: false,
-            message: "Missing required parameters",
-            error: {
-              code: "MISSING_PARAMETERS",
-              details: "Provide answerId, userId, or set updateAll to true"
-            }
-          });
         }
-        const matchingAnswers = await UserAnswer.find(queryFilter)
+        const answer = await UserAnswer.findOne(queryFilter)
           .populate('questionId', 'question metadata')
           .populate('userId', 'name email');
-        if (matchingAnswers.length === 0) {
+        if (!answer) {
           return res.status(404).json({
             success: false,
-            message: "No answers found",
+            message: "No answer found",
             error: {
-              code: "ANSWERS_NOT_FOUND",
-              details: "No answers match the specified criteria"
+              code: "ANSWER_NOT_FOUND",
+              details: "No answer matches the specified criteria"
             }
           });
         }
-        const questionData = matchingAnswers[0].questionId;
+        const questionData = answer.questionId;
         const maxMarks = questionData.metadata?.maximumMarks || 10;
         if (marks !== undefined && marks > maxMarks) {
           return res.status(400).json({
@@ -1038,53 +996,32 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
         if (strengths !== undefined) evaluationUpdate.strengths = strengths;
         if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
         if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
-        const updateOperations = [];
-        const updateResults = [];
-        for (const answer of matchingAnswers) {
-          const currentEvaluation = answer.evaluation || {};
-          const updatedEvaluation = {
-            ...currentEvaluation,
-            ...evaluationUpdate
-          };
-          updateOperations.push({
-            updateOne: {
-              filter: { _id: answer._id },
-              update: {
-                evaluation: updatedEvaluation,
-                evaluatedAt: new Date(),
-                submissionStatus: 'reviewed',
-                reviewedAt: new Date()
-              }
-            }
-          });
-          updateResults.push({
+        if (analysis !== undefined) evaluationUpdate.analysis = analysis;
+        const currentEvaluation = answer.evaluation || {};
+        const updatedEvaluation = {
+          ...currentEvaluation,
+          ...evaluationUpdate
+        };
+        answer.evaluation = updatedEvaluation;
+        answer.evaluatedAt = new Date();
+        answer.submissionStatus = 'evaluated';
+        answer.reviewedAt = new Date();
+        await answer.save();
+        res.status(200).json({
+          success: true,
+          message: `Evaluation updated for answer`,
+          data: {
             answerId: answer._id,
             userId: answer.userId._id,
             userName: answer.userId.name || 'Unknown',
             attemptNumber: answer.attemptNumber,
             previousEvaluation: currentEvaluation,
-            updatedEvaluation: updatedEvaluation
-          });
-        }
-        const bulkResult = await UserAnswer.bulkWrite(updateOperations);
-        res.status(200).json({
-          success: true,
-          message: `Admin evaluation update completed for ${matchingAnswers.length} answer(s)`,
-          data: {
-            totalUpdated: bulkResult.modifiedCount,
-            totalMatched: bulkResult.matchedCount,
-            fieldsUpdated: Object.keys(evaluationUpdate),
-            evaluatedAt: new Date(),
+            updatedEvaluation: updatedEvaluation,
+            evaluatedAt: answer.evaluatedAt,
             question: {
               id: questionData._id,
               question: questionData.question,
               maximumMarks: questionData.metadata?.maximumMarks
-            },
-            updatedAnswers: updateResults,
-            bulkWriteResult: {
-              matchedCount: bulkResult.matchedCount,
-              modifiedCount: bulkResult.modifiedCount,
-              upsertedCount: bulkResult.upsertedCount
             }
           }
         });

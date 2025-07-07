@@ -3681,6 +3681,7 @@ router.post('/publishwithannotation', async (req,res) => {
     });
 
     userAnswer.publishStatus = 'published';
+    userAnswer.submissionStatus = 'evaluated'
 
     await userAnswer.save();
 
