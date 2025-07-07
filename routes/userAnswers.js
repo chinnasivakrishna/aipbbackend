@@ -603,7 +603,7 @@ router.post(
           userAnswerData.reviewStatus = null;
         } else {
           userAnswerData.submissionStatus = "submitted";
-          userAnswerData.reviewStatus = "review_pending";
+          userAnswerData.reviewStatus = null;
         }
       }
 
