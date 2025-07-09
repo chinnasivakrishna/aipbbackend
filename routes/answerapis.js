@@ -429,31 +429,56 @@ router.put('/answers/:answerId/evaluate', [
     .optional()
     .isObject()
     .withMessage('Evaluation must be an object'),
-  body('evaluation.relevant')
+  body('evaluation.relevancy')
     .optional()
     .isInt({ min: 0, max: 100 })
-    .withMessage('Relevant must be between 0 and 100'),
-  body('evaluation.marks')
+    .withMessage('Relevancy must be between 0 and 100'),
+  body('evaluation.score')
     .optional()
     .isInt({ min: 0 })
-    .withMessage('Marks must be a positive integer'),
-  body('evaluation.strengths')
-    .optional()
-    .isArray()
-    .withMessage('Strengths must be an array'),
-  body('evaluation.weaknesses')
-    .optional()
-    .isArray()
-    .withMessage('Weaknesses must be an array'),
-  body('evaluation.suggestions')
-    .optional()
-    .isArray()
-    .withMessage('Suggestions must be an array'),
-  body('evaluation.feedback')
+    .withMessage('Score must be a positive integer'),
+  body('evaluation.remark')
     .optional()
     .isString()
     .trim()
-    .withMessage('Feedback must be a string'),
+    .isLength({ max: 2250 })
+    .withMessage('Remark must be a string up to 2250 chars'),
+  body('evaluation.comments')
+    .optional()
+    .isArray()
+    .withMessage('Comments must be an array'),
+  body('evaluation.analysis')
+    .optional()
+    .isObject()
+    .withMessage('Analysis must be an object'),
+  body('evaluation.analysis.introduction')
+    .optional()
+    .isArray()
+    .withMessage('Introduction must be an array'),
+  body('evaluation.analysis.body')
+    .optional()
+    .isArray()
+    .withMessage('Body must be an array'),
+  body('evaluation.analysis.conclusion')
+    .optional()
+    .isArray()
+    .withMessage('Conclusion must be an array'),
+  body('evaluation.analysis.strengths')
+    .optional()
+    .isArray()
+    .withMessage('Strengths must be an array'),
+  body('evaluation.analysis.weaknesses')
+    .optional()
+    .isArray()
+    .withMessage('Weaknesses must be an array'),
+  body('evaluation.analysis.suggestions')
+    .optional()
+    .isArray()
+    .withMessage('Suggestions must be an array'),
+  body('evaluation.analysis.feedback')
+    .optional()
+    .isArray()
+    .withMessage('Feedback must be an array'),
   body('publish')
     .optional()
     .isBoolean()
@@ -510,7 +535,11 @@ router.put('/answers/:answerId/evaluate', [
     if (evaluation) {
       updateData.evaluation = {
         ...answer.evaluation,
-        ...evaluation
+        ...evaluation,
+        analysis: {
+          ...((answer.evaluation && answer.evaluation.analysis) || {}),
+          ...(evaluation.analysis || {})
+        }
       };
     }
 
@@ -1684,31 +1713,56 @@ router.put('/answers/:answerId/update', [
     .optional()
     .isObject()
     .withMessage('Evaluation must be an object'),
-  body('evaluation.relevant')
+  body('evaluation.relevancy')
     .optional()
     .isInt({ min: 0, max: 100 })
-    .withMessage('Relevant must be between 0 and 100'),
-  body('evaluation.marks')
+    .withMessage('Relevancy must be between 0 and 100'),
+  body('evaluation.score')
     .optional()
     .isInt({ min: 0 })
-    .withMessage('Marks must be a positive integer'),
-  body('evaluation.strengths')
-    .optional()
-    .isArray()
-    .withMessage('Strengths must be an array'),
-  body('evaluation.weaknesses')
-    .optional()
-    .isArray()
-    .withMessage('Weaknesses must be an array'),
-  body('evaluation.suggestions')
-    .optional()
-    .isArray()
-    .withMessage('Suggestions must be an array'),
-  body('evaluation.feedback')
+    .withMessage('Score must be a positive integer'),
+  body('evaluation.remark')
     .optional()
     .isString()
     .trim()
-    .withMessage('Feedback must be a string'),
+    .isLength({ max: 2250 })
+    .withMessage('Remark must be a string up to 2250 chars'),
+  body('evaluation.comments')
+    .optional()
+    .isArray()
+    .withMessage('Comments must be an array'),
+  body('evaluation.analysis')
+    .optional()
+    .isObject()
+    .withMessage('Analysis must be an object'),
+  body('evaluation.analysis.introduction')
+    .optional()
+    .isArray()
+    .withMessage('Introduction must be an array'),
+  body('evaluation.analysis.body')
+    .optional()
+    .isArray()
+    .withMessage('Body must be an array'),
+  body('evaluation.analysis.conclusion')
+    .optional()
+    .isArray()
+    .withMessage('Conclusion must be an array'),
+  body('evaluation.analysis.strengths')
+    .optional()
+    .isArray()
+    .withMessage('Strengths must be an array'),
+  body('evaluation.analysis.weaknesses')
+    .optional()
+    .isArray()
+    .withMessage('Weaknesses must be an array'),
+  body('evaluation.analysis.suggestions')
+    .optional()
+    .isArray()
+    .withMessage('Suggestions must be an array'),
+  body('evaluation.analysis.feedback')
+    .optional()
+    .isArray()
+    .withMessage('Feedback must be an array'),
   body('publishStatus')
     .optional()
     .isIn(['published', 'not_published'])
@@ -1765,9 +1819,12 @@ router.put('/answers/:answerId/update', [
     if (evaluation) {
       updateData.evaluation = {
         ...answer.evaluation,
-        ...evaluation
+        ...evaluation,
+        analysis: {
+          ...((answer.evaluation && answer.evaluation.analysis) || {}),
+          ...(evaluation.analysis || {})
+        }
       };
-      
       // Ensure the answer is marked as evaluated if evaluation is provided
       updateData.submissionStatus = 'evaluated';
       updateData.evaluatedAt = new Date();

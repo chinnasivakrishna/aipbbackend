@@ -114,17 +114,25 @@ router.get('/', async (req, res) => {
       
       // Basic feedback/evaluation info (without detailed content)
       isEvaluated: answer.submissionStatus === 'evaluated',
-      hasEvaluation: Boolean(answer.evaluation?.accuracy !== undefined || answer.evaluation?.marks !== undefined),
+      hasEvaluation: Boolean(answer.evaluation?.relevancy !== undefined || answer.evaluation?.score !== undefined),
       hasFeedback: Boolean(answer.feedback?.score !== undefined || answer.feedback?.comments),
       hasExpertReview: Boolean(answer.feedback?.expertReview?.score !== undefined || answer.feedback?.expertReview?.remarks),
       
-      // Summary stats
+      // Summary stats (updated to match new evaluation structure)
       evaluationSummary: answer.evaluation ? {
-        accuracy: answer.evaluation.accuracy,
-        marks: answer.evaluation.marks,
-        hasStrengths: Boolean(answer.evaluation.strengths?.length),
-        hasWeaknesses: Boolean(answer.evaluation.weaknesses?.length),
-        hasSuggestions: Boolean(answer.evaluation.suggestions?.length)
+        relevancy: answer.evaluation.relevancy,
+        score: answer.evaluation.score,
+        remark: answer.evaluation.remark,
+        hasComments: Boolean(answer.evaluation.comments?.length),
+        hasAnalysis: Boolean(answer.evaluation.analysis && (
+          answer.evaluation.analysis.introduction?.length ||
+          answer.evaluation.analysis.body?.length ||
+          answer.evaluation.analysis.conclusion?.length ||
+          answer.evaluation.analysis.strengths?.length ||
+          answer.evaluation.analysis.weaknesses?.length ||
+          answer.evaluation.analysis.suggestions?.length ||
+          answer.evaluation.analysis.feedback?.length
+        ))
       } : null,
       
       feedbackSummary: answer.feedback ? {
@@ -214,8 +222,8 @@ router.get('/:answerId', async (req, res) => {
 
     // Check if evaluation/analysis is available
     const hasEvaluation = Boolean(
-      userAnswer.evaluation?.accuracy !== undefined || 
-      userAnswer.evaluation?.marks !== undefined ||
+      userAnswer.evaluation?.relevancy !== undefined || 
+      userAnswer.evaluation?.score !== undefined ||
       userAnswer.feedback?.score !== undefined ||
       userAnswer.feedback?.expertReview?.score !== undefined
     );
@@ -280,15 +288,32 @@ router.get('/:answerId', async (req, res) => {
           sourceType: userAnswer.metadata?.sourceType || 'qr_scan'
         },
         
-        // AI Evaluation (if available)
+        // AI/Manual Evaluation (updated to match new structure)
         evaluation: userAnswer.evaluation ? {
-          accuracy: userAnswer.evaluation.accuracy,
-          marks: userAnswer.evaluation.marks,
+          relevancy: userAnswer.evaluation.relevancy,
+          score: userAnswer.evaluation.score,
+          remark: userAnswer.evaluation.remark,
           extractedText: userAnswer.evaluation.extractedText,
-          strengths: userAnswer.evaluation.strengths || [],
-          weaknesses: userAnswer.evaluation.weaknesses || [],
-          suggestions: userAnswer.evaluation.suggestions || [],
-          feedback: userAnswer.evaluation.feedback
+          feedbackStatus: userAnswer.evaluation.feedbackStatus,
+          userFeedback: userAnswer.evaluation.userFeedback,
+          comments: userAnswer.evaluation.comments || [],
+          analysis: userAnswer.evaluation.analysis ? {
+            introduction: userAnswer.evaluation.analysis.introduction || [],
+            body: userAnswer.evaluation.analysis.body || [],
+            conclusion: userAnswer.evaluation.analysis.conclusion || [],
+            strengths: userAnswer.evaluation.analysis.strengths || [],
+            weaknesses: userAnswer.evaluation.analysis.weaknesses || [],
+            suggestions: userAnswer.evaluation.analysis.suggestions || [],
+            feedback: userAnswer.evaluation.analysis.feedback || []
+          } : {
+            introduction: [],
+            body: [],
+            conclusion: [],
+            strengths: [],
+            weaknesses: [],
+            suggestions: [],
+            feedback: []
+          }
         } : null,
         
         // Manual Review Feedback (if available)
