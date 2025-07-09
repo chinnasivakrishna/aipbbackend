@@ -7,11 +7,12 @@ const modelSchema = new mongoose.Schema({
   modelname: { type: String, required: true },
   description: { type: String },
   status:{ type: String },
+  isExpired: { type: Boolean, default: false }
 });
 
 const configSchema = new mongoose.Schema(
   {
-    clientId: { type: mongoose.Schema.Types.ObjectId, ref: 'Client', required: true, index: true },
+    clientId: { type: String , ref: 'Client', required: true, index: true },
     sourcetype: {
       type: String,
       enum: ['LLM', 'SST', 'TTS'],

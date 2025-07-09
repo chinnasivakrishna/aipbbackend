@@ -8,9 +8,12 @@ const auth = require('../middleware/auth');
 router.get('/clients/:id', configController.getConfigs);
 
 // Check if config is expired
-router.get('/clients/:id/config/:sourcetype/expire', configController.checkIsExpired);
+router.get('/clients/:id/config/:sourcetype/expire/:modelId', configController.checkIsExpired);
 // Set config expired flag
-router.put('/clients/:id/config/:sourcetype/expire', configController.setIsExpired);
+router.put('/clients/:id/config/:sourcetype/expire/:modelId', configController.setIsExpired);
+
+// Get all expired models for a config section
+router.get('/clients/:id/config/:sourcetype/expired-models', configController.getExpiredModels);
 
 router.use(auth.verifyAdminToken)
 

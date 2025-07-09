@@ -243,7 +243,11 @@ router.get('/answers/evaluated', [
   query('evaluationMode')
     .optional()
     .isIn(['auto', 'manual'])
-    .withMessage('Invalid evaluation mode filter')
+    .withMessage('Invalid evaluation mode filter'),
+  query('evaluatorId')
+    .optional()
+    .isMongoId()
+    .withMessage('Evaluator ID must be a valid MongoDB ObjectId')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -265,8 +269,15 @@ router.get('/answers/evaluated', [
     // Build filter for evaluated answers
     const filter = {
       submissionStatus: 'evaluated',
+      publishStatus:'published',
       evaluatedAt: { $exists: true, $ne: null }
     };
+
+    // Add evaluatorId filter if provided
+    if (req.query.evaluatorId) {
+      filter.reviewedByEvaluator = require('mongoose').Types.ObjectId(req.query.evaluatorId);
+    }
+    console.log(req.query.evaluatorId)
 
     const pipeline = [
       { $match: filter },
@@ -1189,7 +1200,199 @@ router.get('/answers/:answerId', [
   }
 });
 
+// GET /crud/answers/evaluator/accepted - Get accepted answers for the authenticated evaluator
+router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
+  query('page')
+    .optional()
+    .isInt({ min: 1 })
+    .withMessage('Page must be a positive integer'),
+  query('limit')
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .withMessage('Limit must be between 1 and 100'),
+  query('search')
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Search term must be less than 100 characters'),
 
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid query parameters",
+        error: {
+          code: "INVALID_QUERY",
+          details: errors.array()
+        }
+      });
+    }
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const skip = (page - 1) * limit;
+
+    // Get evaluator ID from authenticated request
+    const evaluatorId = req.evaluator._id;
+    console.log(evaluatorId)
+    // Build filter for accepted answers by this evaluator
+    const filter = {
+      submissionStatus: 'evaluated',
+      publishStatus:'published',
+      reviewedByEvaluator: evaluatorId
+    };
+
+
+    // Build aggregation pipeline for accepted answers by this evaluator
+    const pipeline = [
+      { $match: filter },
+      {
+        $lookup: {
+          from: 'aiswbquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'question'
+        }
+      },
+      {
+        $lookup: {
+          from: 'mobileusers',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      {
+        $lookup: {
+          from: 'aiswbsets',
+          localField: 'setId',
+          foreignField: '_id',
+          as: 'set'
+        }
+      },
+      {
+        $unwind: {
+          path: '$question',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$user',
+          preserveNullAndEmptyArrays: false
+        }
+      },
+      {
+        $unwind: {
+          path: '$set',
+          preserveNullAndEmptyArrays: true
+        }
+      }
+    ];
+
+    // Add search functionality
+    if (req.query.search) {
+      const searchRegex = new RegExp(req.query.search, 'i');
+      pipeline.push({
+        $match: {
+          $or: [
+            { 'question.question': searchRegex },
+            { 'user.name': searchRegex },
+            { 'user.email': searchRegex },
+            { textAnswer: searchRegex }
+          ]
+        }
+      });
+    }
+
+    // Add projection to select only needed fields
+    pipeline.push({
+      $project: {
+        _id: 1,
+        userId: 1,
+        questionId: 1,
+        setId: 1,
+        attemptNumber: 1,
+        answerImages: 1,
+        textAnswer: 1,
+        submissionStatus: 1,
+        reviewStatus: 1,
+        publishStatus: 1,
+        popularityStatus: 1,
+        submittedAt: 1,
+        reviewedAt: 1,
+        evaluatedAt: 1,
+        evaluation: 1,
+        feedback: 1,
+        extractedTexts: 1,
+        metadata: 1,
+        annotations: 1,
+        'question._id': 1,
+        'question.question': 1,
+        'question.evaluationMode': 1,
+        'question.evaluationType': 1,
+        'question.metadata.difficultyLevel': 1,
+        'question.metadata.maximumMarks': 1,
+        'question.metadata.estimatedTime': 1,
+        'user._id': 1,
+        'user.name': 1,
+        'user.email': 1,
+        'user.phoneNumber': 1,
+        'set._id': 1,
+        'set.name': 1,
+        'set.itemType': 1
+      }
+    });
+
+    // Add sorting by review date (most recent first)
+    pipeline.push({
+      $sort: { reviewedAt: -1 }
+    });
+
+    // Get total count for pagination
+    const countPipeline = [...pipeline];
+    countPipeline.push({ $count: "total" });
+    
+    const [countResult] = await UserAnswer.aggregate(countPipeline);
+    const totalCount = countResult ? countResult.total : 0;
+
+    // Add pagination
+    pipeline.push({ $skip: skip });
+    pipeline.push({ $limit: limit });
+
+    const evaluatedAnswers = await UserAnswer.aggregate(pipeline);
+
+    res.status(200).json({
+      success: true,
+      message: "Your evaluated answers retrieved successfully",
+      data: {
+        answers: evaluatedAnswers,
+        pagination: {
+          currentPage: page,
+          totalPages: Math.ceil(totalCount / limit),
+          totalCount: totalCount,
+          limit: limit,
+          hasNextPage: page < Math.ceil(totalCount / limit),
+          hasPrevPage: page > 1
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('Error fetching evaluator accepted answers:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+});
 
 // GET /crud/answers/evaluator/accepted - Get accepted answers for the authenticated evaluator
 router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
@@ -1311,7 +1514,6 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
         _id: 1,
         userId: 1,
         questionId: 1,
-        reviewedByEvaluator:1,
         setId: 1,
         attemptNumber: 1,
         answerImages: 1,

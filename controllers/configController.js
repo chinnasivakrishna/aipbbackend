@@ -83,10 +83,12 @@ exports.deleteModel = async (req, res) => {
 // Check if config is expired
 exports.checkIsExpired = async (req, res) => {
   try {
-    const { id: clientId, sourcetype } = req.params;
+    const { id: clientId, sourcetype, modelId } = req.params;
     const config = await Config.findOne({ clientId, sourcetype });
     if (!config) return res.status(404).json({ message: 'Config not found' });
-    res.json({ isExpired: config.isExpired });
+    const model = config.models.id(modelId);
+    if (!model) return res.status(404).json({ message: 'Model not found' });
+    res.json({ isExpired: model.isExpired });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
@@ -95,13 +97,28 @@ exports.checkIsExpired = async (req, res) => {
 // Set config expired flag
 exports.setIsExpired = async (req, res) => {
   try {
-    const { id: clientId, sourcetype } = req.params;
+    const { id: clientId, sourcetype, modelId } = req.params;
     const { isExpired } = req.body;
     const config = await Config.findOne({ clientId, sourcetype });
     if (!config) return res.status(404).json({ message: 'Config not found' });
-    config.isExpired = !!isExpired;
+    const model = config.models.id(modelId);
+    if (!model) return res.status(404).json({ message: 'Model not found' });
+    model.isExpired = !!isExpired;
     await config.save();
     res.json(config);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+// Get all expired models for a config section
+exports.getExpiredModels = async (req, res) => {
+  try {
+    const { id: clientId, sourcetype } = req.params;
+    const config = await Config.findOne({ clientId, sourcetype });
+    if (!config) return res.status(404).json({ message: 'Config not found' });
+    const expiredModels = config.models.filter(m => m.isExpired);
+    res.json({ expiredModels });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }

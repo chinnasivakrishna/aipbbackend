@@ -261,163 +261,142 @@ router.delete('/:id', async (req, res) => {
 });
 
 
-// APPROVE EVALUATOR BY MOBILE OR EMAIL
-router.post('/addexistinguserasevaluator', async (req, res) => {
-  try {
-    const { mobile, name, email } = req.body;
+// // APPROVE EVALUATOR BY MOBILE OR EMAIL
+// router.post('/addexistinguserasevaluator', async (req, res) => {
+//   try {
+//     const { mobile, email } = req.body;
 
-    // Log incoming request data
-    console.log('Received request data:', { mobile, name, email });
+//     // Log incoming request data
+//     console.log('Received request data:', { mobile, email });
 
-    // Validate that either mobile or email is provided
-    if (!mobile && !email) {
-      console.log('Validation failed: No mobile or email provided');
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide either mobile number or email'
-      });
-    }
+//     // Validate that either mobile or email is provided
+//     if (!mobile && !email) {
+//       console.log('Validation failed: No mobile or email provided');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Please provide either mobile number or email'
+//       });
+//     }
 
-    // Validate mobile format if provided
-    if (mobile && !/^\d{10}$/.test(mobile)) {
-      console.log('Validation failed: Invalid mobile format');
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid 10-digit mobile number'
-      });
-    }
+//     // Validate mobile format if provided
+//     if (mobile && !/^\d{10}$/.test(mobile)) {
+//       console.log('Validation failed: Invalid mobile format');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Please provide a valid 10-digit mobile number'
+//       });
+//     }
 
-    // Validate email format if provided
-    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-      console.log('Validation failed: Invalid email format');
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide a valid email address'
-      });
-    }
+//     // Validate email format if provided
+//     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+//       console.log('Validation failed: Invalid email format');
+//       return res.status(400).json({
+//         success: false,
+//         message: 'Please provide a valid email address'
+//       });
+//     }
 
-    if (!name || name.trim().length === 0) {
-      console.log('Validation failed: No name provided');
-      return res.status(400).json({
-        success: false,
-        message: 'Please provide the user\'s name'
-      });
-    }
+//     let user = null;
+//     let userProfile = null;
 
-    let user = null;
-    let userProfile = null;
+//     // Case 1: Email - Match with User model
+//     if (email) {
+//       console.log('Searching for user with email:', email);
+//       user = await User.findOne({ email: email.toLowerCase() });
 
-    // Case 1: Email + Name - Match with User model
-    if (email) {
-      console.log('Searching for user with email:', email);
-      user = await User.findOne({ 
-        email: email.toLowerCase(),
-        name: { $regex: new RegExp(`^${name.trim()}$`, 'i') } // Case-insensitive exact match
-      });
+//       if (!user) {
+//         console.log('User not found with email:', email);
+//         return res.status(400).json({
+//           success: false,
+//           message: 'User not found with provided email'
+//         });
+//       }
 
-      if (!user) {
-        console.log('User not found with email:', email);
-        return res.status(400).json({
-          success: false,
-          message: 'User not found with provided email and name'
-        });
-      }
+//       console.log('Found user:', user._id);
 
-      console.log('Found user:', user._id);
+//       // Check if user is already an evaluator
+//       if (user.isEvaluator) {
+//         console.log('User is already an evaluator');
+//         return res.status(400).json({
+//           success: false,
+//           message: 'User is already registered as an evaluator'
+//         });
+//       }
 
-      // Check if user is already an evaluator
-      if (user.isEvaluator) {
-        console.log('User is already an evaluator');
-        return res.status(400).json({
-          success: false,
-          message: 'User is already registered as an evaluator'
-        });
-      }
+//       // Update user
+//       user.isEvaluator = true;
+//       await user.save();
+//       console.log('Updated user as evaluator');
 
-      // Update user
-      user.isEvaluator = true;
-      await user.save();
-      console.log('Updated user as evaluator');
+//       return res.json({
+//         success: true,
+//         message: 'User approved as evaluator successfully'
+//       });
+//     }
+//     // Case 2: Mobile - Match with MobileUser and UserProfile models
+//     else if (mobile) {
+//       console.log('Searching for mobile user:', mobile);
+//       // First find the mobile user
+//       const mobileUser = await MobileUser.findOne({ mobile });
+//       if (!mobileUser) {
+//         console.log('Mobile user not found');
+//         return res.status(400).json({
+//           success: false,
+//           message: 'User not found with provided mobile number'
+//         });
+//       }
 
-      return res.json({
-        success: true,
-        message: 'User approved as evaluator successfully'
-      });
-    }
-    // Case 2: Mobile + Name - Match with MobileUser and UserProfile models
-    else if (mobile) {
-      console.log('Searching for mobile user:', mobile);
-      // First find the mobile user
-      const mobileUser = await MobileUser.findOne({ mobile });
-      if (!mobileUser) {
-        console.log('Mobile user not found');
-        return res.status(400).json({
-          success: false,
-          message: 'User not found with provided mobile number'
-        });
-      }
+//       console.log('Found mobile user:', mobileUser._id);
 
-      console.log('Found mobile user:', mobileUser._id);
+//       // Find the associated user profile (first one found)
+//       userProfile = await UserProfile.findOne({ userId: mobileUser._id });
 
-      // Then find the associated user profile with matching name
-      const searchName = name.trim();
-      console.log('Searching for user profile with name:', searchName);
-      
-      // First get all user profiles for this userId to debug
-      const allProfiles = await UserProfile.find({ userId: mobileUser._id });
-      console.log('All profiles for this user:', allProfiles.map(p => ({ id: p._id, name: p.name })));
+//       if (!userProfile) {
+//         console.log('User profile not found for mobile user.');
+//         return res.status(400).json({
+//           success: false,
+//           message: 'User profile not found for this mobile number'
+//         });
+//       }
 
-      userProfile = await UserProfile.findOne({ 
-        userId: mobileUser._id,
-        name: { $regex: new RegExp(`^${searchName}$`, 'i') } // Case-insensitive exact match
-      });
+//       console.log('Found user profile:', userProfile._id, 'with name:', userProfile.name);
 
-      if (!userProfile) {
-        console.log('User profile not found for mobile user. Searched name:', searchName);
-        return res.status(400).json({
-          success: false,
-          message: 'User profile not found with provided name for this mobile number'
-        });
-      }
+//       // Check if user profile is already an evaluator
+//       if (userProfile.isEvaluator) {
+//         console.log('User profile is already an evaluator');
+//         return res.status(400).json({
+//           success: false,
+//           message: 'User is already registered as an evaluator'
+//         });
+//       }
 
-      console.log('Found user profile:', userProfile._id, 'with name:', userProfile.name);
+//       // Update user profile
+//       userProfile.isEvaluator = true;
+//       await userProfile.save();
+//       console.log('Updated user profile as evaluator');
 
-      // Check if user profile is already an evaluator
-      if (userProfile.isEvaluator) {
-        console.log('User profile is already an evaluator');
-        return res.status(400).json({
-          success: false,
-          message: 'User is already registered as an evaluator'
-        });
-      }
+//       // Also update the associated user if it exists
+//       user = await User.findById(mobileUser.userId);
+//       if (user) {
+//         user.isEvaluator = true;
+//         await user.save();
+//         console.log('Updated associated user as evaluator');
+//       }
 
-      // Update user profile
-      userProfile.isEvaluator = true;
-      await userProfile.save();
-      console.log('Updated user profile as evaluator');
+//       return res.json({
+//         success: true,
+//         message: 'User approved as evaluator successfully'
+//       });
+//     }
 
-      // Also update the associated user if it exists
-      user = await User.findById(mobileUser.userId);
-      if (user) {
-        user.isEvaluator = true;
-        await user.save();
-        console.log('Updated associated user as evaluator');
-      }
-
-      return res.json({
-        success: true,
-        message: 'User approved as evaluator successfully'
-      });
-    }
-
-  } catch (error) {
-    console.error('Approve evaluator error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Internal server error'
-    });
-  }
-});
+//   } catch (error) {
+//     console.error('Approve evaluator error:', error);
+//     res.status(500).json({
+//       success: false,
+//       message: error.message || 'Internal server error'
+//     });
+//   }
+// });
 
 // 6. VERIFY/UNVERIFY EVALUATOR
 router.post('/:id/verify', async (req, res) => {

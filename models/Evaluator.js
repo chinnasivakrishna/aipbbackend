@@ -59,7 +59,7 @@ const evaluatorSchema = new mongoose.Schema({
   },
   grade: {
     type: String,
-    required: [true, 'Grade is required'],
+    // required: [true, 'Grade is required'],
     enum: {
       values: ['1st grade', '2nd grade', '3rd grade'],
       message: 'Grade must be one of: 1st grade, 2nd grade, 3rd grade'
