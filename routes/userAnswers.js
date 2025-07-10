@@ -20,6 +20,7 @@ const {
   generateMockEvaluation,
   generateCustomEvaluationPrompt,
   getServiceForTask,
+  cleanExtractedTexts,
 } = require("../services/aiServices");
 
 router.use("/crud", crud);
@@ -122,6 +123,7 @@ router.post(
         try {
           const imageUrls = userAnswer.answerImages.map((img) => img.imageUrl);
           extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+          extractedTexts = cleanExtractedTexts(extractedTexts);
           userAnswer.extractedTexts = extractedTexts;
           await userAnswer.save();
         } catch (extractionError) {
@@ -129,6 +131,8 @@ router.post(
           extractedTexts = [`Text extraction failed: ${extractionError.message}`];
         }
       }
+      // Clean extractedTexts before evaluation
+      extractedTexts = cleanExtractedTexts(extractedTexts);
 
       let evaluation = null;
 
@@ -418,6 +422,7 @@ router.post(
         try {
           const imageUrls = answerImages.map((img) => img.imageUrl);
           extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+          extractedTexts = cleanExtractedTexts(extractedTexts);
 
           const relevanceValidation = await validateTextRelevanceToQuestion(question, extractedTexts);
 

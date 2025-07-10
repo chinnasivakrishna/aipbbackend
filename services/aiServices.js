@@ -704,78 +704,117 @@ const getEvaluationParameters = () => {
   };
 };
 
+const EVAL_SECTION_HEADERS = [
+  'Introduction',
+  'Body',
+  'Conclusion',
+  'Strengths',
+  'Weaknesses',
+  'Suggestions',
+  'Feedback',
+  'Comments',
+  'Remark'
+];
+
+const EVAL_HEADER_REGEX = {
+  introduction: /^(introduction|intro)[:\-\s]*/i,
+  body: /^(body|body section|main body)[:\-\s]*/i,
+  conclusion: /^(conclusion|conclusion section)[:\-\s]*/i,
+  strengths: /^(strengths?)[:\-\s]*/i,
+  weaknesses: /^(weaknesses?|areas for improvement)[:\-\s]*/i,
+  suggestions: /^(suggestions?|recommendations?)[:\-\s]*/i,
+  feedback: /^(feedback)[:\-\s]*/i,
+  comments: /^(comments?)[:\-\s]*/i,
+  remark: /^(remark|overall remark|summary)[:\-\s]*/i
+};
+
+function getEvaluationFrameworkText() {
+  return `EVALUATION FRAMEWORK:
+
+Introduction
+Relevant introduction, as defined, about
+Relevant Introduction Supported by Data like
+Your introduction is well presented with factual information
+Your introduction is valid but concise it and mention some keywords like
+Your introduction is general, you may start introduction like
+Your introduction can be enriched by adding keywords like
+Your introduction is relevant but too long — it needs to be concise, within 20–30 words.
+
+Body:
+Frame the heading to reflect the core demand of the question, such as:
+Well-Formatted Main Heading in a Box
+Write Main Heading in a Box
+You missed a part of demand of question ---
+
+Rough-Paragraph-Not effective
+Your presentation is rough; avoid paragraph format. However, some of your content lines are relevant.
+Your points are not very effective; please present them in a more structured and impactful manner.
+Relevant-Valid
+Your points are relevant, but they need to be substantiated with examples to strengthen your argument.
+Valid point with substantiation
+Your points are valid as per the implicit demand of the question but add some points like
+Your points are valid as per the explicit demand of the question but add some points like
+Your points are valid and substantiated with evidence.
+Your points are valid and supported by relevant examples.
+
+Heading-Core Demand
+Try to use heading and subheadings for better presentation
+Try to understand core demand of question
+Points are valid but use sub-headings for better presentation
+Try to use sub-headings for better presentation
+
+Your points can be enriched by elaborate properly like
+Underline specific keywords for better presentation like
+You should work on presentation
+Your points can be enriched by adding examples or substantiate them like
+Enrich your points by adding examples or substantiate
+Your points are less effective and can be enriched in effective manner like
+
+Good use of diagram and relevant content
+Good use of map but the map can be drawn better.
+Lack of legibility-Please work on it.
+Your points are valid but need supporting data, facts, and reports.
+
+Conclusion
+Your conclusion is based on balanced answer
+Relevant conclusion, as it reflects a futuristic vision
+Your conclusion is relevant as it outlines in suggestive manner
+
+Less effective conclusion- you may conclude in effective manner like
+Relevant conclusion but you may add—
+Relevant conclusion but you may conclude in effective manner like
+Your conclusion is relevant as it outlines steps---but it may be concluded as—
+Your conclusion is relevant but too long — it needs to be concise, within 20–30 words.`;
+}
+
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
-  const evaluationParams = getEvaluationParameters();
-  
-  return `Please evaluate this student's answer to the given question using comprehensive analysis parameters.
+  return `Please evaluate this student's answer to the given question using the following evaluation framework.\n\n${getEvaluationFrameworkText()}\n\nQUESTION:\n${question.question}\n\nMAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}\n\nSTUDENT'S ANSWER (extracted from images):\n${combinedText}\n\nPlease use the exact section headers as shown below, and do not change their names or order.\n\nRELEVANCY: [Score out of 100 - How relevant is the answer to the question]\nSCORE: [Score out of ${question.metadata?.maximumMarks || 10}]\n\nIntroduction:\n[Your analysis of the introduction]\n\nBody:\n[Your analysis of the body]\n\nConclusion:\n[Your analysis of the conclusion]\n\nStrengths:\n[List 2-3 strengths]\n\nWeaknesses:\n[List 2-3 weaknesses]\n\nSuggestions:\n[List 2-3 suggestions]\n\nFeedback:\n[Overall feedback]\n\nComments:\n[3-4 detailed comments (5-12 words each)]\n\nRemark:\n[1-2 line summary of the overall answer quality]\n`;
+};
 
-QUESTION:
-${question.question}
-
-MAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}
-
-STUDENT'S ANSWER (extracted from images):
-${combinedText}
-
-EVALUATION FRAMEWORK:
-Analyze the answer based on comprehensive evaluation parameters covering:
-1. INTRODUCTION - Relevance, clarity, context, and keyword usage
-2. BODY - Content structure, presentation, substantiation, core demand fulfillment, and organization
-3. CONCLUSION - Effectiveness, relevance, synthesis, and closure
-4. STRENGTHS - Positive aspects and commendable features
-5. WEAKNESSES - Areas of concern and deficiencies
-6. SUGGESTIONS - Specific recommendations for improvement
-7. FEEDBACK - Overall assessment and constructive comments
-
-Please provide a detailed evaluation in the following format:
-
-RELEVANCY: [Score out of 100 - How relevant is the answer to the question]
-SCORE: [Score out of ${question.metadata?.maximumMarks || 10}]
-
-ANALYSIS:
-Introduction: [Analyze the introduction quality and provide specific feedback using evaluation parameters]
-Body: [Evaluate the main content, structure, and presentation using detailed parameters]
-Conclusion: [Assess the conclusion effectiveness and closure]
-Strengths: [List 3-4 specific strengths from the comprehensive strength parameters]
-Weaknesses: [List 3-4 specific weaknesses from the comprehensive weakness parameters]
-Suggestions: [List 3-4 specific recommendations from the suggestion parameters]
-Feedback: [Provide overall assessment and constructive comments]
-
-COMMENTS: [Provide 3-4 detailed comments (5-12 words each) about the answer's quality, specific observations, and overall impression]
-
-REMARK: [Provide a concise 1-2 line overall assessment from the remark categories]
-
-Use the following evaluation parameters as guidelines:
-
-INTRODUCTION ANALYSIS:
-${evaluationParams.analysis.introduction.map(item => `- ${item}`).join('\n')}
-
-BODY ANALYSIS:
-${evaluationParams.analysis.body.map(item => `- ${item}`).join('\n')}
-
-CONCLUSION ANALYSIS:
-${evaluationParams.analysis.conclusion.map(item => `- ${item}`).join('\n')}
-
-STRENGTHS OPTIONS:
-${evaluationParams.analysis.strengths.map(item => `- ${item}`).join('\n')}
-
-WEAKNESSES OPTIONS:
-${evaluationParams.analysis.weaknesses.map(item => `- ${item}`).join('\n')}
-
-SUGGESTIONS OPTIONS:
-${evaluationParams.analysis.suggestions.map(item => `- ${item}`).join('\n')}
-
-FEEDBACK OPTIONS:
-${evaluationParams.analysis.feedback.map(item => `- ${item}`).join('\n')}
-
-REMARK CATEGORIES:
-Excellent: ${evaluationParams.remark.excellent.join(' | ')}
-Good: ${evaluationParams.remark.good.join(' | ')}
-Satisfactory: ${evaluationParams.remark.satisfactory.join(' | ')}
-Average: ${evaluationParams.remark.average.join(' | ')}
-Below Average: ${evaluationParams.remark.below_average.join(' | ')}
-Poor: ${evaluationParams.remark.poor.join(' | ')}`;
+const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, options = {}) => {
+  const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options;
+  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria.\n\nEVALUATION CRITERIA:\n${userPrompt}\n\n${getEvaluationFrameworkText()}\n`;
+  if (includeQuestionDetails && question) {
+    prompt += `QUESTION DETAILS:\n`;
+    prompt += `Question: ${question.question}\n`;
+    if (question.metadata?.difficultyLevel) {
+      prompt += `Difficulty Level: ${question.metadata.difficultyLevel}\n`;
+    }
+    if (maxMarks || question.metadata?.maximumMarks) {
+      prompt += `Maximum Marks: ${maxMarks || question.metadata.maximumMarks}\n`;
+    }
+    if (question.metadata?.keywords && question.metadata.keywords.length > 0) {
+      prompt += `Keywords: ${question.metadata.keywords.join(", ")}\n`;
+    }
+    prompt += "\n";
+  }
+  if (includeExtractedText && extractedTexts && extractedTexts.length > 0) {
+    const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
+    prompt += `STUDENT'S ANSWER (extracted from images):\n${combinedText}\n\n`;
+  }
+  prompt += `Please use the exact section headers as shown below, and do not change their names or order.\n\nRELEVANCY: [Score out of 100 - How relevant is the answer to the question]\nSCORE: [Score out of ${maxMarks || question?.metadata?.maximumMarks || 10}]\n\nIntroduction:\n[Your analysis of the introduction]\n\nBody:\n[Your analysis of the body]\n\nConclusion:\n[Your analysis of the conclusion]\n\nStrengths:\n[List 2-3 strengths]\n\nWeaknesses:\n[List 2-3 weaknesses]\n\nSuggestions:\n[List 2-3 suggestions]\n\nFeedback:\n[Overall feedback]\n\nComments:\n[3-4 detailed comments (5-12 words each)]\n\nRemark:\n[1-2 line summary of the overall answer quality]\n`;
+  return prompt;
 };
 
 const parseEvaluationResponse = (evaluationText, question) => {
@@ -784,8 +823,6 @@ const parseEvaluationResponse = (evaluationText, question) => {
       .split("\n")
       .map((line) => line.trim())
       .filter((line) => line.length > 0);
-    
-    const evaluationParams = getEvaluationParameters();
     const evaluation = {
       relevancy: 75,
       score: Math.floor((question.metadata?.maximumMarks || 10) * 0.75),
@@ -801,102 +838,68 @@ const parseEvaluationResponse = (evaluationText, question) => {
         feedback: []
       }
     };
-
     let currentSection = "";
-    let currentAnalysisSection = "";
-
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
-      if (line.toLowerCase().includes("relevancy:") || line.toLowerCase().startsWith("relevancy:")) {
+      if (/relevancy[:\-\s]/i.test(line)) {
         const match = line.match(/(\d+)/);
-        if (match) {
-          evaluation.relevancy = Math.min(100, Math.max(0, Number.parseInt(match[1])));
-        }
+        if (match) evaluation.relevancy = Math.min(100, Math.max(0, Number.parseInt(match[1])));
         currentSection = "";
-      } else if (line.toLowerCase().includes("score:") || line.toLowerCase().includes("score awarded:")) {
+      } else if (/score[:\-\s]/i.test(line)) {
         const match = line.match(/(\d+)/);
-        if (match) {
-          evaluation.score = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])));
-        }
+        if (match) evaluation.score = Math.min(question.metadata?.maximumMarks || 10, Math.max(0, Number.parseInt(match[1])));
         currentSection = "";
-      } else if (line.toLowerCase().includes("analysis:")) {
-        currentSection = "analysis";
-      } else if (line.toLowerCase().includes("introduction:")) {
-        currentAnalysisSection = "introduction";
-      } else if (line.toLowerCase().includes("body:")) {
-        currentAnalysisSection = "body";
-      } else if (line.toLowerCase().includes("conclusion:")) {
-        currentAnalysisSection = "conclusion";
-      } else if (line.toLowerCase().includes("strengths:")) {
-        currentAnalysisSection = "strengths";
-      } else if (line.toLowerCase().includes("weaknesses:")) {
-        currentAnalysisSection = "weaknesses";
-      } else if (line.toLowerCase().includes("suggestions:")) {
-        currentAnalysisSection = "suggestions";
-      } else if (line.toLowerCase().includes("feedback:")) {
-        currentAnalysisSection = "feedback";
-      } else if (line.toLowerCase().includes("comments:")) {
-        currentSection = "comments";
-      } else if (line.toLowerCase().includes("remark:")) {
-        currentSection = "remark";
-        const remarkContent = line.replace(/^remark:/i, "").trim();
-        if (remarkContent) {
-          evaluation.remark = remarkContent.length > 250 ? remarkContent.substring(0, 247) + "..." : remarkContent;
-        }
-      } else if (currentSection === "analysis" && currentAnalysisSection) {
-        if (line.startsWith("- ") || line.startsWith("• ") || line.match(/^\d+\./)) {
-          const content = line
-            .replace(/^[-•]\s*/, "")
-            .replace(/^\d+\.\s*/, "")
-            .trim();
-          if (content) {
-            evaluation.analysis[currentAnalysisSection].push(content);
+      } else {
+        // Section header detection (robust)
+        for (const [section, regex] of Object.entries(EVAL_HEADER_REGEX)) {
+          if (regex.test(line)) {
+            currentSection = section;
+            // If the header line has content after the colon, treat as first item
+            const afterColon = line.replace(regex, '').trim();
+            if (afterColon) {
+              if (section === 'remark') {
+                evaluation.remark = afterColon;
+              } else if (section === 'comments') {
+                evaluation.comments.push(afterColon);
+              } else if (section === 'feedback') {
+                evaluation.analysis.feedback.push(afterColon);
+              } else {
+                evaluation.analysis[section].push(afterColon);
+              }
+            }
+            break;
           }
-        } else if (line.length > 0) {
-          evaluation.analysis[currentAnalysisSection].push(line);
         }
-      } else if (currentSection === "comments") {
-        if (line.length > 50 && line.length < 800) {
-          evaluation.comments.push(line);
-        }
-      } else if (currentSection === "remark") {
-        if (line.length > 0 && !evaluation.remark) {
-          evaluation.remark = line.length > 250 ? line.substring(0, 247) + "..." : line;
+        // If inside a section, add lines
+        if (currentSection) {
+          if (currentSection === 'remark') {
+            if (line && !EVAL_HEADER_REGEX.remark.test(line)) evaluation.remark += (evaluation.remark ? ' ' : '') + line;
+          } else if (currentSection === 'comments') {
+            if (line && !EVAL_HEADER_REGEX.comments.test(line)) evaluation.comments.push(line);
+          } else if (currentSection === 'feedback') {
+            if (line && !EVAL_HEADER_REGEX.feedback.test(line)) evaluation.analysis.feedback.push(line);
+          } else if (evaluation.analysis[currentSection] && !EVAL_HEADER_REGEX[currentSection].test(line)) {
+            evaluation.analysis[currentSection].push(line);
+          }
         }
       }
     }
-
-    if (evaluation.comments.length === 0) {
-      evaluation.comments = generateEvaluationComments(
-        evaluation.analysis,
-        evaluation.relevancy,
-        evaluation.score,
-        question.metadata?.maximumMarks || 10
-      );
-    }
-
-    if (!evaluation.remark || evaluation.remark.length === 0) {
-      evaluation.remark = generateDefaultRemark(
-        evaluation.relevancy, 
-        evaluation.score, 
-        question.metadata?.maximumMarks || 10
-      );
-    }
-    
-    evaluation.comments = evaluation.comments
-      .slice(0, 4)
-      .map(comment => comment.length > 800 ? comment.substring(0, 797) + "..." : comment);
-
+    // Clean up: remove header lines, deduplicate, and set defaults if empty
     Object.keys(evaluation.analysis).forEach(section => {
-      if (evaluationParams.analysis[section]) {
-        evaluation.analysis[section] = evaluation.analysis[section].map(item => {
-          const matchedParam = evaluationParams.analysis[section].find(param => 
-            item.toLowerCase().includes(param.toLowerCase().substring(0, 20)));
-          return matchedParam || item;
-        }).filter(item => item);
+      evaluation.analysis[section] = evaluation.analysis[section]
+        .filter(item => item && !EVAL_HEADER_REGEX[section].test(item))
+        .map(item => item.trim())
+        .filter((item, idx, arr) => item && arr.indexOf(item) === idx);
+      if (evaluation.analysis[section].length === 0) {
+        evaluation.analysis[section] = ['No content provided by AI.'];
       }
     });
-
+    if (evaluation.comments.length === 0) {
+      evaluation.comments = ['No comments provided by AI.'];
+    }
+    if (!evaluation.remark || evaluation.remark.length === 0) {
+      evaluation.remark = 'No remark provided by AI.';
+    }
     return evaluation;
   } catch (error) {
     console.error("Error parsing evaluation:", error);
@@ -1005,51 +1008,28 @@ const generateDefaultRemark = (relevancy, score, maxMarks) => {
   }
 };
 
-const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, options = {}) => {
-  const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options;
-  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria:\n\n`;
-  prompt += `EVALUATION CRITERIA:\n${userPrompt}\n\n`;
-  
-  if (includeQuestionDetails && question) {
-    prompt += `QUESTION DETAILS:\n`;
-    prompt += `Question: ${question.question}\n`;
-    if (question.metadata?.difficultyLevel) {
-      prompt += `Difficulty Level: ${question.metadata.difficultyLevel}\n`;
-    }
-    if (maxMarks || question.metadata?.maximumMarks) {
-      prompt += `Maximum Marks: ${maxMarks || question.metadata.maximumMarks}\n`;
-    }
-    if (question.metadata?.keywords && question.metadata.keywords.length > 0) {
-      prompt += `Keywords: ${question.metadata.keywords.join(", ")}\n`;
-    }
-    prompt += "\n";
-  }
-  
-  if (includeExtractedText && extractedTexts && extractedTexts.length > 0) {
-    const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
-    prompt += `STUDENT'S ANSWER (extracted from images):\n${combinedText}\n\n`;
-  }
-  
-  prompt += `Please provide a detailed evaluation in the following format:
-RELEVANCY: [Score out of 100 - How relevant is the answer to the question]
-SCORE: [Score out of ${maxMarks || question?.metadata?.maximumMarks || 10}]
-
-ANALYSIS:
-Introduction: [Analyze the introduction quality and provide specific feedback]
-Body: [Evaluate the main content, structure, and presentation]
-Conclusion: [Assess the conclusion effectiveness]
-Strengths: [List 2-3 specific strengths]
-Weaknesses: [List 2-3 areas for improvement]
-Suggestions: [List 2-3 specific recommendations for improvement]
-
-COMMENTS: [Provide 3-4 detailed comments (5-12 words each) about specific aspects of the answer]
-
-REMARK: [Provide a concise 1-2 line summary of the overall answer quality and performance]
-
-Please be fair, constructive, and specific in your evaluation according to the provided criteria, focusing on how well the answer addresses the question.`;
-  
-  return prompt;
-};
+// Utility to clean extracted texts from OCR/Agentic
+function cleanExtractedTexts(extractedTexts) {
+  if (!Array.isArray(extractedTexts)) return [];
+  return extractedTexts.map(text => {
+    if (!text || typeof text !== 'string') return '';
+    // Remove lines that are only symbols, numbers, or repeated characters
+    return text
+      .split('\n')
+      .map(line => line.trim())
+      .filter(line => {
+        if (!line) return false;
+        if (line.length < 3) return false;
+        if (/^(No readable text found|Failed to extract text|Text extraction failed)/i.test(line)) return false;
+        if (/^[\d\s\-+*/=().,:;]+$/.test(line)) return false;
+        if (/^(.)\1{5,}$/.test(line)) return false;
+        if (/^[^a-zA-Z0-9]+$/.test(line)) return false;
+        if (line.length > 0 && line.replace(/[^a-zA-Z0-9]/g, '').length < 2) return false;
+        return true;
+      })
+      .join('\n');
+  }).filter(Boolean);
+}
 
 module.exports = {
   validateTextRelevanceToQuestion,
@@ -1060,5 +1040,6 @@ module.exports = {
   generateMockEvaluation,
   generateCustomEvaluationPrompt,
   getServiceForTask,
-  getEvaluationParameters
+  getEvaluationParameters,
+  cleanExtractedTexts
 };
