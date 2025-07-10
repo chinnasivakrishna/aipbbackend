@@ -72,7 +72,7 @@ const evaluatorSchema = new mongoose.Schema({
   },
   enabled: {
     type: Boolean,
-    default: true
+    default: false
   },
   verifiedAt: {
     type: Date
