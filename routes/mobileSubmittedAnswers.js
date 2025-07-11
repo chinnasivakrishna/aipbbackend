@@ -204,9 +204,6 @@ router.get('/:answerId', async (req, res) => {
     }).populate({
       path: 'questionId',
       select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode'
-    }).populate({
-      path: 'reviewedBy',
-      select: 'name email'
     });
 
     if (!userAnswer) {

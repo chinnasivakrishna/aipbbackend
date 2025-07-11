@@ -81,6 +81,9 @@ const userAnswerSchema = new mongoose.Schema({
   reviewcompletedAt: {
     type: Date
   },
+  reviewedBy:{
+    type:String
+  },
   reviewedByEvaluator: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Evaluator',
