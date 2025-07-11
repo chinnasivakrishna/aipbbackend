@@ -258,12 +258,13 @@ router.get('/:answerId', async (req, res) => {
         publishStatus: userAnswer.publishStatus,
         popularityStatus: userAnswer.popularityStatus,
         submittedAt: userAnswer.submittedAt,
-        reviewedAt: userAnswer.reviewedAt,
+        acceptedAt: userAnswer.acceptedAt,
         evaluatedAt: userAnswer.evaluatedAt,
         requestID: userAnswer.requestID,
         requestnote: userAnswer.requestnote,
         analysisAvailable: true,
         annotations:userAnswer.annotations,
+
         
         // Question details
         question: {
@@ -335,7 +336,11 @@ router.get('/:answerId', async (req, res) => {
         } : null,
 
         // Add this line to include top-level annotations in the detail response
-        annotations: userAnswer.annotations || []
+        annotations: userAnswer.annotations || [],
+        reviewRequestedAt:userAnswer.reviewRequestedAt,
+        reviewAcceptedAt:userAnswer.reviewAssignedAt,
+        reviewCompletedAt:userAnswer.reviewCompletedAt,
+
       }
     };
 
