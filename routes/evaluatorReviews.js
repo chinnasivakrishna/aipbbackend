@@ -2260,13 +2260,15 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
       attemptNumber: review.attemptNumber,
       answerImages: review.answerImages,
       textAnswer: review.textAnswer,
-      submittedAt: review.submittedAt,
       reviewStatus: review.reviewStatus,
       requestId:review.requestID,
       requestnote:review.requestnote,
       evaluation: review.evaluation,
       metadata: review.metadata,
-      annotations:review.annotations || []
+      annotations:review.annotations || [],
+      reviewRequestedAt: review.reviewRequestedAt,
+      reviewAssignedAt: review.reviewAssignedAt,
+      reviewCompletedAt: review.reviewCompletedAt,
     }));
 
     res.json({
@@ -2347,7 +2349,10 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
       requestnote: review.requestnote,
       evaluation: review.evaluation,
       metadata: review.metadata,
-      annotations:review.annotations || []
+      annotations:review.annotations || [],
+      reviewRequestedAt: review.reviewRequestedAt,
+      reviewAssignedAt: review.reviewAssignedAt,
+      reviewCompletedAt: review.reviewCompletedAt,
     }));
 
     res.json({
@@ -2429,7 +2434,10 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
       evaluation: review.evaluation,
       metadata: review.metadata,
       feedback: review.feedback,
-      annotations:review.annotations
+      annotations:review.annotations,
+      reviewRequestedAt: review.reviewRequestedAt,
+      reviewAssignedAt: review.reviewAssignedAt,
+      reviewCompletedAt: review.reviewCompletedAt,
     }));
 
     res.json({
@@ -2497,6 +2505,7 @@ router.post('/:requestId/accept', verifyTokenforevaluator, async (req, res) => {
     const answer = await UserAnswer.findById(request.answerId);
     if (answer) {
       answer.reviewStatus = 'review_accepted';
+      answer.reviewAssignedAt = request.assignedAt;
       await answer.save();
     }
 
@@ -2593,6 +2602,7 @@ router.post('/publishwithannotation', async (req,res) => {
 
     userAnswer.publishStatus = 'published';
     userAnswer.submissionStatus = 'evaluated'
+    userAnswer.evaluatedAt = new Date()
 
     await userAnswer.save();
 

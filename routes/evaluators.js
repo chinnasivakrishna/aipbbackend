@@ -4,7 +4,7 @@ const router = express.Router();
 const Evaluator = require('../models/Evaluator');
 const UserProfile = require('../models/UserProfile');
 const MobileUser = require('../models/MobileUser');
-const { verifyAdminToken } = require('../middleware/auth');
+const { verifyAdminToken, verifyTokenforevaluator } = require('../middleware/auth');
 const User = require('../models/User');
 const ReviewRequest = require('../models/ReviewRequest');
 const { registerEvaluator, loginEvaluator} = require('../controllers/evaluatorController');
@@ -12,36 +12,13 @@ const { registerEvaluator, loginEvaluator} = require('../controllers/evaluatorCo
 // Public routes (no authentication required)
 router.post('/register', registerEvaluator);
 router.post('/login', loginEvaluator);
-
-
-// Apply admin authentication to all other routes
-router.use(verifyAdminToken);
-
-// 1. GET ALL EVALUATORS
-router.get('/', async (req, res) => {
-  try {
-    const evaluators = await Evaluator.find().sort({ createdAt: -1 });
-    
-    res.json({
-      success: true,
-      evaluators
-    });
-  } catch (error) {
-    console.error('Get all evaluators error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
-});
-
 // 2. GET SINGLE EVALUATOR
-router.get('/:id', async (req, res) => {
+router.get('/:id',verifyTokenforevaluator, async (req, res) => {
   try {
     const { id } = req.params;
     
     const evaluator = await Evaluator.findById(id);
-    
+    console.log(evaluator)
     if (!evaluator) {
       return res.status(404).json({
         success: false,
@@ -70,6 +47,29 @@ router.get('/:id', async (req, res) => {
     });
   }
 });
+
+// Apply admin authentication to all other routes
+router.use(verifyAdminToken);
+
+// 1. GET ALL EVALUATORS
+router.get('/', async (req, res) => {
+  try {
+    const evaluators = await Evaluator.find().sort({ createdAt: -1 });
+    
+    res.json({
+      success: true,
+      evaluators
+    });
+  } catch (error) {
+    console.error('Get all evaluators error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Internal server error'
+    });
+  }
+});
+
+
 
 // 3. CREATE EVALUATOR
 router.post('/', async (req, res) => {

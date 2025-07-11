@@ -87,6 +87,7 @@ router.post('/:requestId/accept', async (req, res) => {
     const answer = await UserAnswer.findById(request.answerId);
     if (answer) {
       answer.reviewStatus = 'review_accepted';
+      answer.reviewAssignedAt = request.assignedAt;
       await answer.save();
     }
 
@@ -183,6 +184,7 @@ router.post('/:requestId/submit', async (req, res) => {
     // Update answer with review data
     console.log('[Review Submit] Updating answer with review data...');
     answer.reviewStatus = 'review_completed';
+    answer.reviewCompletedAt = new Date();
     
     // Preserve existing feedback structure
     const existingFeedback = answer.feedback || {};

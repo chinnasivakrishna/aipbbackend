@@ -597,11 +597,11 @@ router.post(
           appVersion: appVersion || "",
           sourceType: sourceType || "qr_scan",
         },
+        submittedAt: new Date(),
       };
 
       if (evaluation) {
         userAnswerData.evaluation = evaluation;
-        userAnswerData.evaluatedAt = new Date();
         if (!isManualEvaluation) {
           userAnswerData.submissionStatus = "evaluated";
           userAnswerData.publishStatus = "published";
@@ -665,7 +665,6 @@ router.post(
 
       if (evaluation) {
         responseData.evaluation = evaluation;
-        responseData.evaluatedAt = userAnswer.evaluatedAt;
       }
       if (extractedTexts.length > 0) {
         responseData.extractedTexts = extractedTexts;

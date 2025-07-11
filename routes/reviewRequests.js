@@ -69,8 +69,9 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
     // Update answer status to indicate review requested
     answer.reviewStatus = 'review_pending';
     answer.requestID = reviewRequest._id;
-    answer.requestnote=reviewRequest.notes;
-    
+    answer.requestnote = reviewRequest.notes;
+    // Set reviewRequestedAt
+    answer.reviewRequestedAt = reviewRequest.requestedAt;
     await answer.save();
 
     res.status(200).json({

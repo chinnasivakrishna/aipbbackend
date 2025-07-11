@@ -98,10 +98,10 @@ exports.loginEvaluator = async (req, res) => {
     }
 
     // Check if evaluator is enabled
-    if (!evaluator.enabled) {
+    if (!evaluator.enabled || evaluator.status==="NOT_VERIFIED" || evaluator.status==="PENDING" ) {
       return res.status(401).json({
         success: false,
-        message: 'Your account has been disabled. Please contact support.'
+        message: 'Your account has been disabled or not verified yet. Please contact support.'
       });
     }
 

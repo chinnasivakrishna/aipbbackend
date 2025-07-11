@@ -97,6 +97,7 @@ router.post('/:requestId/accept', async (req, res) => {
     const answer = await UserAnswer.findById(request.answerId);
     if (answer) {
       answer.reviewStatus = 'review_accepted';
+      answer.reviewAssignedAt = request.assignedAt;
       await answer.save();
     }
 
@@ -246,13 +247,19 @@ router.post('/:requestId/submit', async (req, res) => {
     await request.save();
 
     // Update the original answer with expert review
-    await UserAnswer.findByIdAndUpdate(request.answerId, {
-      reviewStatus: 'review_completed',
-      'evaluation.expertReview': {
-        ...reviewData,
-        reviewedAt: new Date()
-      }
-    });
+    const answerToUpdate = await UserAnswer.findById(request.answerId);
+    if (answerToUpdate) {
+      answerToUpdate.reviewStatus = 'review_completed';
+      answerToUpdate.reviewCompletedAt = request.completedAt;
+      answerToUpdate.evaluation = {
+        ...answerToUpdate.evaluation,
+        expertReview: {
+          ...reviewData,
+          reviewedAt: new Date()
+        }
+      };
+      await answerToUpdate.save();
+    }
 
     res.json({
       success: true,

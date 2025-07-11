@@ -55,14 +55,31 @@ const userAnswerSchema = new mongoose.Schema({
   },
   submittedAt: {
     type: Date,
-    default: Date.now
   },
-  reviewedAt: {
+  // Add review timestamps
+  reviewRequestedAt: {
+    type: Date,
+  },
+  reviewAssignedAt: {
+    type: Date,
+  },
+  reviewCompletedAt: {
+    type: Date,
+  },
+  acceptedAt: {
+    type: Date,
+  },
+  evaluatedAt: {
     type: Date
   },
-  reviewedBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User'
+  reviewrequestedAt: {
+    type: Date
+  },
+  reviewassignedAt: {
+    type: Date
+  },
+  reviewcompletedAt: {
+    type: Date
   },
   reviewedByEvaluator: {
     type: mongoose.Schema.Types.ObjectId,
@@ -253,9 +270,7 @@ const userAnswerSchema = new mongoose.Schema({
     type: String,
     trim: true
   }],
-  evaluatedAt: {
-    type: Date
-  },
+  
   updatedAt: {
     type: Date
   }

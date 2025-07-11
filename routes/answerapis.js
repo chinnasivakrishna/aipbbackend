@@ -528,7 +528,6 @@ router.put('/answers/:answerId/evaluate', [
     // Prepare update data
     const updateData = {
       submissionStatus: 'evaluated',
-      evaluatedAt: new Date()
     };
 
     // Update evaluation if provided
@@ -714,8 +713,7 @@ router.get('/answers/accepted', [
         publishStatus: 1,
         popularityStatus: 1,
         submittedAt: 1,
-        reviewedAt: 1,
-        evaluatedAt: 1,
+        acceptedAt: 1,
         evaluation: 1,
         feedback: 1,
         extractedTexts: 1,
@@ -744,7 +742,7 @@ router.get('/answers/accepted', [
 
     // Add sorting by review date (most recent first)
     pipeline.push({
-      $sort: { reviewedAt: -1 }
+      $sort: { acceptedAt: -1 }
     });
 
     // Get total count for pagination
@@ -839,7 +837,7 @@ router.put('/answers/:answerId/accept', verifyTokenforevaluator, [
       answerId,
       {
         submissionStatus: 'accepted',
-        reviewedAt: new Date(),
+        acceptedAt: new Date(),
         reviewedByEvaluator: evaluatorId
       },
       { new: true, runValidators: true }
@@ -869,6 +867,7 @@ router.put('/answers/:answerId/accept', verifyTokenforevaluator, [
         answer: updatedAnswer
       }
     });
+    console.log(res)
 
   } catch (error) {
     console.error('Error accepting answer:', error);
@@ -1552,8 +1551,7 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
         publishStatus: 1,
         popularityStatus: 1,
         submittedAt: 1,
-        reviewedAt: 1,
-        evaluatedAt: 1,
+        acceptedAt: 1,
         evaluation: 1,
         feedback: 1,
         extractedTexts: 1,
@@ -1578,7 +1576,7 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
 
     // Add sorting by review date (most recent first)
     pipeline.push({
-      $sort: { reviewedAt: -1 }
+      $sort: { acceptedAt: -1 }
     });
 
     // Get total count for pagination

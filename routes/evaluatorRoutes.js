@@ -11,7 +11,7 @@ const {
   reactivateEvaluator,
   toggleEvaluatorStatus
 } = require('../controllers/evaluatorController');
-const { protect, authorize } = require('../middleware/auth');
+const { protect, authorize, verifyTokenforevaluator } = require('../middleware/auth');
 
 // Protect all routes
 router.use(protect);
@@ -25,6 +25,9 @@ router.route('/:id')
   .get(authorize('admin'), getEvaluator)
   .put(authorize('admin'), updateEvaluator)
   .delete(authorize('admin'), deleteEvaluator);
+
+// Route for evaluator to get their own data
+router.get('/:id', verifyTokenforevaluator, getEvaluator);
 
 // Status management routes
 router.put('/:id/verify', authorize('admin'), verifyEvaluator);
