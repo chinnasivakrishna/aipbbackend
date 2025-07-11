@@ -72,9 +72,9 @@ router.get('/', async (req, res) => {
       })
       .select(`
         questionId attemptNumber answerImages textAnswer submissionStatus 
-        submittedAt reviewedAt feedback evaluation publishStatus reviewStatus 
+        submittedAt acceptedAt feedback evaluation publishStatus reviewStatus 
         popularityStatus metadata.timeSpent metadata.sourceType evaluatedAt
-        requestID requestnote  annotations
+        requestID requestnote  annotations reviewRequestedAt reviewAssignedAt reviewCompletedAt
       `)
       .sort(sort)
       .skip(skip)
