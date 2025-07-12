@@ -16,12 +16,10 @@ const UserProfileSchema = new mongoose.Schema({
   },
   age: {
     type: String,
-    required: true,
     enum: ['<15', '15-18', '19-25', '26-31', '32-40', '40+']
   },
   gender: {
     type: String,
-    required: true,
     enum: ['Male', 'Female', 'Other']
   },
   exams: [{
@@ -30,7 +28,6 @@ const UserProfileSchema = new mongoose.Schema({
   }],
   nativeLanguage: {
     type: String,
-    required: true,
     enum: ['Hindi', 'English', 'Bengali', 'Telugu', 'Marathi', 'Tamil', 'Gujarati', 'Urdu', 'Kannada', 'Odia', 'Malayalam', 'Punjabi', 'Assamese', 'Other']
   },
   clientId: { // Changed from 'client' to 'clientId'
