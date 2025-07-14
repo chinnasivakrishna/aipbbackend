@@ -53,6 +53,10 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
         message: `Review can only be requested for evaluated answers. Current status: ${answer.submissionStatus}`
       });
     }
+    // Assign to the previous evaluator if available
+    let assignedEvaluator = answer.reviewedByEvaluator || null;
+    let requestStatus = assignedEvaluator ? 'assigned' : 'pending';
+
     // Create new review request
     const reviewRequest = new ReviewRequest({
       userId,
@@ -61,7 +65,8 @@ router.post('/request/:answerId', authenticateMobileUser, ensureUserBelongsToCli
       clientId,
       notes,
       priority,
-      requestStatus: 'pending'
+      requestStatus,
+      assignedEvaluator
     });
 
     await reviewRequest.save();
