@@ -1269,8 +1269,9 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
     // Build filter for accepted answers by this evaluator
     const filter = {
       submissionStatus: 'evaluated',
-      publishStatus:'published',
-      reviewedByEvaluator: evaluatorId
+      publishStatus: 'published',
+      reviewedByEvaluator: evaluatorId,
+      reviewStatus: { $ne: 'review_completed' } // Exclude completed reviews
     };
 
 

@@ -949,24 +949,24 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
         const { questionId, answerId } = req.params;
         const {
           userId,
-          accuracy,
-          marks,
           strengths,
           weaknesses,
           suggestions,
           feedback,
           extractedText,
-          analysis
+          analysis,
+          marks, // alias for score
+          accuracy // alias for relevancy
         } = req.body;
-        // Always filter by both questionId and answerId
         let queryFilter = { questionId: questionId, _id: answerId };
         if (userId) {
           queryFilter.userId = userId;
         }
-        const answer = await UserAnswer.findOne(queryFilter)
+        // Fetch the current evaluation for response
+        const answerBefore = await UserAnswer.findOne(queryFilter)
           .populate('questionId', 'question metadata')
           .populate('userId', 'name email');
-        if (!answer) {
+        if (!answerBefore) {
           return res.status(404).json({
             success: false,
             message: "No answer found",
@@ -976,7 +976,7 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
             }
           });
         }
-        const questionData = answer.questionId;
+        const questionData = answerBefore.questionId;
         const maxMarks = questionData.metadata?.maximumMarks || 10;
         if (marks !== undefined && marks > maxMarks) {
           return res.status(400).json({
@@ -989,35 +989,37 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
           });
         }
         const evaluationUpdate = {};
-        if (accuracy !== undefined) evaluationUpdate.accuracy = accuracy;
-        if (marks !== undefined) evaluationUpdate.marks = marks;
+        if (accuracy !== undefined) evaluationUpdate.relevancy = accuracy;
+        if (marks !== undefined) evaluationUpdate.score = marks;
         if (extractedText !== undefined) evaluationUpdate.extractedText = extractedText;
         if (feedback !== undefined) evaluationUpdate.feedback = feedback;
         if (strengths !== undefined) evaluationUpdate.strengths = strengths;
         if (weaknesses !== undefined) evaluationUpdate.weaknesses = weaknesses;
         if (suggestions !== undefined) evaluationUpdate.suggestions = suggestions;
         if (analysis !== undefined) evaluationUpdate.analysis = analysis;
-        const currentEvaluation = answer.evaluation || {};
+        const currentEvaluation = answerBefore.evaluation || {};
         const updatedEvaluation = {
           ...currentEvaluation,
           ...evaluationUpdate
         };
-        answer.evaluation = updatedEvaluation;
-        answer.evaluatedAt = new Date();
-        answer.submissionStatus = 'evaluated';
-        answer.reviewedAt = new Date();
-        await answer.save();
+        // Use findOneAndUpdate to update only the evaluation field
+        const updatedAnswer = await UserAnswer.findOneAndUpdate(
+          queryFilter,
+          { $set: { evaluation: updatedEvaluation } },
+          { new: true }
+        )
+          .populate('questionId', 'question metadata')
+          .populate('userId', 'name email');
         res.status(200).json({
           success: true,
           message: `Evaluation updated for answer`,
           data: {
-            answerId: answer._id,
-            userId: answer.userId._id,
-            userName: answer.userId.name || 'Unknown',
-            attemptNumber: answer.attemptNumber,
+            answerId: updatedAnswer._id,
+            userId: updatedAnswer.userId._id,
+            userName: updatedAnswer.userId.name || 'Unknown',
+            attemptNumber: updatedAnswer.attemptNumber,
             previousEvaluation: currentEvaluation,
             updatedEvaluation: updatedEvaluation,
-            evaluatedAt: answer.evaluatedAt,
             question: {
               id: questionData._id,
               question: questionData.question,
@@ -1026,6 +1028,7 @@ router.get('/questions/:questionId/answers/:answerId/evaluation',
           }
         });
       } catch (error) {
+        console.log(error)
         res.status(500).json({
           success: false,
           message: "Internal server error",
