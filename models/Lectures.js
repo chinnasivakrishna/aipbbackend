@@ -26,6 +26,15 @@ const lectureSchema = new mongoose.Schema({
             type: String,
             required: true,
         },
+        transcriptKey: {
+            type: String,
+            required: false
+        },
+        transcriptUrl: {
+            type: String,
+            required: false,
+            default:""
+        }
     }],
     lectureDescription: {
         type: String,

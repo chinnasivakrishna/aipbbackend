@@ -520,6 +520,8 @@ exports.updateBook = async (req, res) => {
     }
 
     // Handle cover image update if new image is provided
+    let newCoverImageUrl = book.coverImageUrl;
+    let newCoverImageKey = book.coverImage;
     if (coverImageKey && coverImageKey !== book.coverImage) {
       // Delete old cover image if it exists
       if (book.coverImage) {
@@ -534,9 +536,9 @@ exports.updateBook = async (req, res) => {
 
       // Generate new presigned URL for the new image
       try {
-        const coverImageUrl = await generateGetPresignedUrl(coverImageKey, 604800);
-        book.coverImage = coverImageKey;
-        book.coverImageUrl = coverImageUrl;
+        newCoverImageUrl = await generateGetPresignedUrl(coverImageKey, 604800);
+        newCoverImageKey = coverImageKey;
+        console.log("current", newCoverImageUrl)
       } catch (error) {
         console.error('Error generating presigned URL for new cover image:', error);
         return res.status(500).json({ 
@@ -587,7 +589,12 @@ exports.updateBook = async (req, res) => {
       tags: parsedTags.length > 0 ? parsedTags : book.tags,
       conversations: parsedConversations.length > 0 ? parsedConversations : book.conversations,
       users: parsedUsers.length > 0 ? parsedUsers : book.users,
-      summary: summary ? summary.trim() : book.summary
+      summary: summary ? summary.trim() : book.summary,
+      // Add these if a new image was provided
+      ...(coverImageKey && coverImageKey !== book.coverImage ? {
+        coverImage: newCoverImageKey,
+        coverImageUrl: newCoverImageUrl
+      } : {})
     };
 
     // Handle optional fields

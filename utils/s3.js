@@ -43,7 +43,7 @@ const generatePresignedUrl = async (key, contentType) => {
 
     // Generate presigned URL with 1 hour expiration
     const url = await getSignedUrl(s3Client, command, { 
-      expiresIn: 604800 // 1 hour
+      expiresIn: 604800 
     });
 
     console.log('Successfully generated presigned URL');
@@ -180,6 +180,17 @@ const refreshAnnotatedImageUrls = async (userAnswer) => {
   return userAnswer;
 };
 
+const uploadFileToS3 = async (buffer, key, contentType) => {
+  const command = new PutObjectCommand({
+    Bucket: process.env.AWS_BUCKET_NAME,
+    Key: key,
+    Body: buffer,
+    ContentType: contentType,
+  });
+  await s3Client.send(command);
+  return key;
+};
+
 module.exports = {
   s3Client,
   generatePresignedUrl,
@@ -187,4 +198,5 @@ module.exports = {
   generateAnnotatedImageUrl,
   refreshAnnotatedImageUrls,
   deleteObject,
+  uploadFileToS3,
 };
