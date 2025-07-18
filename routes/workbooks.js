@@ -3,12 +3,14 @@ const express = require('express');
 const router = express.Router();
 const { verifyToken } = require('../middleware/auth');
 const { 
-  getWorkbooks, 
-  getWorkbook, 
-  createWorkbook, 
-  updateWorkbook, 
+  getCoverImageUploadUrl,
+  getCoverImageDownloadUrl,
+  getWorkbooks,
+  createWorkbook,
+  getWorkbook,
+  updateWorkbook,
   deleteWorkbook,
-  uploadCoverImage
+  getWorkbooksformobile
 } = require('../controllers/workbookController');
 const { 
   getChapters, 
@@ -32,14 +34,26 @@ const {
   deleteSubTopic
 } = require('../controllers/workbookSubtopicController');
 
-// Workbook routes
+// Get presigned URL for cover image upload
+router.post('/cover-upload-url', verifyToken, getCoverImageUploadUrl);
+
+// Get presigned URL for cover image
+router.post('/cover-get-url', verifyToken, getCoverImageDownloadUrl);
+
+// Main book routes
 router.route('/')
   .get(verifyToken, getWorkbooks)
-  .post(verifyToken, uploadCoverImage, createWorkbook);
+  .post(verifyToken, createWorkbook);
 
-router.route('/:workbookId')
-  .get(verifyToken, getWorkbook)
+router.route('/getworkbooks').get(getWorkbooksformobile);
+
+router.route('/:id')
+  .get(verifyToken, getWorkbook);
+
+router.route('/:id')
   .put(verifyToken, updateWorkbook)
+
+router.route('/:id')
   .delete(verifyToken, deleteWorkbook);
 
 // Chapter routes within workbooks

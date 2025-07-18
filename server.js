@@ -127,6 +127,16 @@ app.use(
 )
 
 app.use(
+  "/api/clients/:clientId/workbooks",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  workbookRoutes,
+)
+
+app.use(
   "/api/clients/:clientId",
   checkClientAccess(),
   (req, res, next) => {

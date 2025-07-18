@@ -1,288 +1,513 @@
 const Workbook = require('../models/Workbook');
-const Chapter = require('../models/Chapter');
-const Topic = require('../models/Topic');
-const SubTopic = require('../models/SubTopic');
+const User = require('../models/User');
+const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require('../utils/s3');
 const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
 
-// Configure multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const uploadDir = 'uploads/workbook-covers';
-    
-    // Create directory if it doesn't exist
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
+// Helper function to format workbook with user info and S3 URLs
+const formatWorkbookWithUserInfo = async (workbook) => {
+  const formattedWorkbook = {
+    ...workbook.toObject(),
+    createdBy: workbook.user ? {
+      id: workbook.user._id,
+      name: workbook.user.name,
+      email: workbook.user.email,
+      userId: workbook.user.userId || workbook.user._id.toString()
+    } : null,
+    highlightedByUser: workbook.highlightedBy ? {
+      id: workbook.highlightedBy._id,
+      name: workbook.highlightedBy.name,
+      email: workbook.highlightedBy.email,
+      userId: workbook.highlightedBy.userId || workbook.highlightedBy._id.toString()
+    } : null,
+    trendingByUser: workbook.trendingBy ? {
+      id: workbook.trendingBy._id,
+      name: workbook.trendingBy.name,
+      email: workbook.trendingBy.email,
+      userId: workbook.trendingBy.userId || workbook.trendingBy._id.toString()
+    } : null,
+    categoryOrderByUser: workbook.categoryOrderBy ? {
+      id: workbook.categoryOrderBy._id,
+      name: workbook.categoryOrderBy.name,
+      email: workbook.categoryOrderBy.email,
+      userId: workbook.categoryOrderBy.userId || workbook.categoryOrderBy._id.toString()
+    } : null
+  };
+
+  // Always try to generate a new presigned URL if we have a cover image
+  if (workbook.coverImageKey) {
+    try {
+      const coverImageUrl = await generateGetPresignedUrl(workbook.coverImageKey, 31536000);
+      formattedWorkbook.coverImageUrl = coverImageUrl;
+      if (workbook.coverImageUrl !== coverImageUrl) {
+        await Workbook.findByIdAndUpdate(workbook._id, { coverImageUrl });
+      }
+    } catch (error) {
+      console.error('Error generating presigned URL for cover image:', error);
+      formattedWorkbook.coverImageUrl = null;
     }
-    
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // Create unique filename with timestamp and original extension
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, `workbook-cover-${uniqueSuffix}${ext}`);
   }
-});
 
-// File filter
-const fileFilter = (req, file, cb) => {
-  // Accept only image files
-  if (file.mimetype.startsWith('image/')) {
-    cb(null, true);
-  } else {
-    cb(new Error('Not an image! Please upload only images.'), false);
+  return formattedWorkbook;
+};
+
+// Helper function to get client ID
+const getClientId = (user) => {
+  return user.role === 'client' && user.userId ? user.userId : user._id.toString();
+};
+
+// Get presigned URL for cover image upload
+exports.getCoverImageUploadUrl = async (req, res) => {
+  try {
+    const user = req.user
+    const { fileName, contentType } = req.body;
+    if (!fileName || !contentType) {
+      return res.status(400).json({ success: false, message: 'File name and content type are required' });
+    }
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(fileName);
+    const key = `${user.businessName}/workbook-covers/cover-${uniqueSuffix}${ext}`;
+    const uploadUrl = await generatePresignedUrl(key, contentType);
+    return res.status(200).json({ success: true, uploadUrl, key });
+  } catch (error) {
+    console.error('Get cover image upload URL error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// Initialize upload
-const upload = multer({
-  storage: storage,
-  limits: {
-    fileSize: 5 * 1024 * 1024 // 5MB max size
-  },
-  fileFilter: fileFilter
-});
+// Get presigned URL for cover image download
+exports.getCoverImageDownloadUrl = async (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key) {
+      return res.status(400).json({ success: false, message: 'Image key is required' });
+    }
+    const url = await generateGetPresignedUrl(key, 31536000);
+    return res.status(200).json({ success: true, url });
+  } catch (error) {
+    console.error('Get cover image URL error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
 
-// Multer upload middleware
-exports.uploadCoverImage = upload.single('coverImage');
+// Create workbook with S3 cover image
+exports.createWorkbook = async (req, res) => {
+  try {
+    const {
+      title, description, author, publisher, language, mainCategory, subCategory,
+      customSubCategory, exam, paper, subject, tags, clientId, isPublic, categoryOrder,
+      coverImageKey, rating, ratingCount, conversations, users, summary
+    } = req.body;
 
-// @desc    Get all workbooks
-// @route   GET /api/workbooks
-// @access  Private
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    // Validate rating
+    if (rating && (isNaN(rating) || rating < 0 || rating > 5)) {
+      return res.status(400).json({ success: false, message: 'Rating must be a number between 0 and 5' });
+    }
+    if (ratingCount && (isNaN(ratingCount) || ratingCount < 0)) {
+      return res.status(400).json({ success: false, message: 'Rating count must be a non-negative number' });
+    }
+
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {
+        parsedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      }
+    }
+    let parsedConversations = [];
+    if (conversations) {
+      try {
+        parsedConversations = typeof conversations === 'string' ? JSON.parse(conversations) : conversations;
+      } catch (e) {
+        parsedConversations = conversations.split(',').map(conv => conv.trim()).filter(conv => conv.length > 0);
+      }
+    }
+    let parsedUsers = [];
+    if (users) {
+      try {
+        parsedUsers = typeof users === 'string' ? JSON.parse(users) : users;
+      } catch (e) {
+        parsedUsers = users.split(',').map(user => user.trim()).filter(user => user.length > 0);
+      }
+    }
+    const effectiveClientId = clientId?.trim() || getClientId(currentUser);
+    const workbookData = {
+      title: title.trim(),
+      description: description.trim(),
+      author: author.trim(),
+      publisher: publisher.trim(),
+      language: language || 'English',
+      mainCategory: mainCategory || 'Other',
+      subCategory: subCategory || 'Other',
+      clientId: effectiveClientId,
+      user: req.user.id,
+      userType: 'User',
+      isPublic: isPublic === 'true' || isPublic === true || false,
+      tags: parsedTags,
+      categoryOrder: categoryOrder ? parseInt(categoryOrder) : 0,
+      categoryOrderBy: req.user.id,
+      categoryOrderByType: 'User',
+      categoryOrderedAt: new Date(),
+      rating: rating ? parseFloat(rating) : 0,
+      ratingCount: ratingCount ? parseInt(ratingCount) : 0,
+      conversations: parsedConversations,
+      users: parsedUsers,
+      summary: summary ? summary.trim() : ''
+    };
+    if (exam && exam.trim()) workbookData.exam = exam.trim();
+    if (paper && paper.trim()) workbookData.paper = paper.trim();
+    if (subject && subject.trim()) workbookData.subject = subject.trim();
+    if (customSubCategory && customSubCategory.trim()) workbookData.customSubCategory = customSubCategory.trim();
+    if (coverImageKey) {
+      workbookData.coverImageKey = coverImageKey;
+      try {
+        const coverImageUrl = await generateGetPresignedUrl(coverImageKey, 604800);
+        if (!coverImageUrl) throw new Error('Failed to generate presigned URL');
+        workbookData.coverImageUrl = coverImageUrl;
+      } catch (error) {
+        return res.status(500).json({ success: false, message: `Failed to generate image URL: ${error.message}` });
+      }
+    }
+    const workbook = await Workbook.create(workbookData);
+    await workbook.populate('user', 'name email userId');
+    if (!workbook.coverImageUrl && workbook.coverImageKey) {
+      try {
+        const coverImageUrl = await generateGetPresignedUrl(workbook.coverImageKey, 604800);
+        if (!coverImageUrl) throw new Error('Failed to generate presigned URL after creation');
+        await Workbook.findByIdAndUpdate(workbook._id, { coverImageUrl });
+        workbook.coverImageUrl = coverImageUrl;
+      } catch (error) {
+        return res.status(500).json({ success: false, message: `Failed to generate image URL after creation: ${error.message}` });
+      }
+    }
+    const formattedWorkbook = await formatWorkbookWithUserInfo(workbook);
+    return res.status(201).json({ success: true, message: 'Workbook created successfully', workbook: formattedWorkbook });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message || 'Failed to create workbook' });
+  }
+};
+
+// Get workbooks with S3 URLs
 exports.getWorkbooks = async (req, res) => {
   try {
-    // Get all workbooks that belong to the requesting user
-    const workbooks = await Workbook.find({ user: req.user.id });
-    
+    console.log("getting workbooks")
+    const currentUser = await User.findById(req.user.id);
+    console.log(currentUser)
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const clientId = getClientId(currentUser);
+    const { category, subcategory, trending, highlighted, search, limit, page = 1 } = req.query;
+    let filter = { clientId };
+    if (category) filter.mainCategory = category;
+    if (subcategory) filter.subCategory = subcategory;
+    if (trending === 'true') {
+      filter.isTrending = true;
+      filter.trendingStartDate = { $lte: new Date() };
+      filter.$or = [
+        { trendingEndDate: { $gte: new Date() } },
+        { trendingEndDate: null }
+      ];
+    }
+    if (highlighted === 'true') filter.isHighlighted = true;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { author: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } }
+      ];
+    }
+    let query = Workbook.find({ user: req.user.id })
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
+    if (trending === 'true') {
+      query = query.sort({ trendingScore: -1, viewCount: -1 });
+    } else if (highlighted === 'true') {
+      query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
+    } else {
+      query = query.sort({ categoryOrder: 1, createdAt: -1 });
+    }
+    if (limit) {
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      query = query.skip(skip).limit(parseInt(limit));
+    }
+    const workbooks = await query;
+    const total = await Workbook.countDocuments(filter);
+    const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
+    const categoryOrders = {};
+    workbooks.forEach(workbook => {
+      if (!categoryOrders[workbook.mainCategory] || workbook.categoryOrder > categoryOrders[workbook.mainCategory]) {
+        categoryOrders[workbook.mainCategory] = workbook.categoryOrder || 0;
+      }
+    });
     return res.status(200).json({
       success: true,
       count: workbooks.length,
-      workbooks
+      total,
+      workbooks: workbooksWithUserInfo,
+      categoryOrders,
+      currentUser: {
+        id: currentUser._id,
+        name: currentUser.name,
+        email: currentUser.email,
+        role: currentUser.role,
+        userId: currentUser.userId || currentUser._id.toString()
+      }
     });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// @desc    Get single workbook
-// @route   GET /api/workbooks/:id
-// @access  Private
+// Get workbooks with S3 URLs
+exports.getWorkbooksformobile = async (req, res) => {
+  try {
+    console.log("getting workbooks")
+    const user = req.clientInfo.id.toString();
+    console.log(user)
+    const { category, subcategory, trending, highlighted, search, limit, page = 1 } = req.query;
+    let filter = { user };
+    if (category) filter.mainCategory = category;
+    if (subcategory) filter.subCategory = subcategory;
+    if (trending === 'true') {
+      filter.isTrending = true;
+      filter.trendingStartDate = { $lte: new Date() };
+      filter.$or = [
+        { trendingEndDate: { $gte: new Date() } },
+        { trendingEndDate: null }
+      ];
+    }
+    if (highlighted === 'true') filter.isHighlighted = true;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { author: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } }
+      ];
+    }
+    let query = Workbook.find(filter)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
+    if (trending === 'true') {
+      query = query.sort({ trendingScore: -1, viewCount: -1 });
+    } else if (highlighted === 'true') {
+      query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
+    } else {
+      query = query.sort({ categoryOrder: 1, createdAt: -1 });
+    }
+    if (limit) {
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      query = query.skip(skip).limit(parseInt(limit));
+    }
+    const workbooks = await query;
+    const total = await Workbook.countDocuments(filter);
+    const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
+    const categoryOrders = {};
+    workbooks.forEach(workbook => {
+      if (!categoryOrders[workbook.mainCategory] || workbook.categoryOrder > categoryOrders[workbook.mainCategory]) {
+        categoryOrders[workbook.mainCategory] = workbook.categoryOrder || 0;
+      }
+    });
+    return res.status(200).json({
+      success: true,
+      count: workbooks.length,
+      total,
+      workbooks: workbooksWithUserInfo,
+      categoryOrders,
+     
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Get single workbook with S3 URL
 exports.getWorkbook = async (req, res) => {
   try {
-    const workbook = await Workbook.findById(req.params.workbookId);
-    
+    const workbook = await Workbook.findById(req.params.id)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
     if (!workbook) {
-      return res.status(404).json({
-        success: false,
-        message: 'Workbook not found'
-      });
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    console.log("user",req.user.id);
+    console.log("workbook",workbook.user._id)
+    console.log("workbook",workbook.user)
+
+
+    const currentUser = await User.findById(req.user.id);
+
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
     
-    // Check if workbook belongs to user
-    if (workbook.user.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to access this workbook'
-      });
+    // const clientId = getClientId(currentUser);
+    let hasAccess = workbook.user.toString() === req.user.id || workbook.user._id.toString() === req.user.id;
+    console.log(hasAccess)
+    if (!hasAccess && workbook.isPublic) {
+      hasAccess = true;
     }
-    
-    return res.status(200).json({
-      success: true,
-      workbook
-    });
+    if (!hasAccess) {
+      return res.status(403).json({ success: false, message: 'Not authorized to access this workbook' });
+    }
+    // await workbook.incrementView();
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+
+    return res.status(200).json({ success: true, workbook: workbookWithUserInfo });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    console.log(error)
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// @desc    Create new workbook
-// @route   POST /api/workbooks
-// @access  Private
-exports.createWorkbook = async (req, res) => {
-  try {
-    const { title, description } = req.body;
-    
-    // Prepare workbook data
-    const workbookData = {
-      title,
-      description,
-      user: req.user.id
-    };
-    
-    // If a file was uploaded, add the path to workbookData
-    if (req.file) {
-      workbookData.coverImage = req.file.path;
-    }
-    
-    // Create workbook
-    const workbook = await Workbook.create(workbookData);
-    
-    return res.status(201).json({
-      success: true,
-      workbook
-    });
-  } catch (error) {
-    // If there was an error and a file was uploaded, remove it
-    if (req.file) {
-      fs.unlink(req.file.path, err => {
-        if (err) console.error('Error deleting file:', err);
-      });
-    }
-    
-    console.error(error);
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({
-        success: false,
-        message: messages
-      });
-    } else {
-      return res.status(500).json({
-        success: false,
-        message: 'Server Error'
-      });
-    }
-  }
-};
-
-// @desc    Update workbook
-// @route   PUT /api/workbooks/:id
-// @access  Private
+// Update workbook with S3 cover image handling
 exports.updateWorkbook = async (req, res) => {
   try {
-    let workbook = await Workbook.findById(req.params.workbookId);
-    
+    const {
+      title, description, author, publisher, language, mainCategory, subCategory,
+      customSubCategory, exam, paper, subject, tags, isPublic, categoryOrder,
+      coverImageKey, rating, ratingCount, conversations, users, summary
+    } = req.body;
+    const workbook = await Workbook.findById(req.params.id);
     if (!workbook) {
-      return res.status(404).json({
-        success: false,
-        message: 'Workbook not found'
-      });
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
     }
-    
-    // Check if workbook belongs to user
-    if (workbook.user.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to update this workbook'
-      });
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
-    // Prepare update data
-    const updateData = { ...req.body };
-    
-    // If a new cover image was uploaded
-    if (req.file) {
-      // Delete the old image if it exists
-      if (workbook.coverImage && fs.existsSync(workbook.coverImage)) {
-        fs.unlinkSync(workbook.coverImage);
+    const clientId = getClientId(currentUser);
+    if (workbook.clientId !== clientId && workbook.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized to update this workbook' });
+    }
+    let newCoverImageUrl = workbook.coverImageUrl;
+    let newCoverImageKey = workbook.coverImageKey;
+    if (coverImageKey && coverImageKey !== workbook.coverImageKey) {
+      if (workbook.coverImageKey) {
+        try {
+          await deleteObject(workbook.coverImageKey);
+        } catch (error) {
+          // Continue with update even if old image deletion fails
+        }
       }
-      
-      // Add new image path
-      updateData.coverImage = req.file.path;
+      try {
+        newCoverImageUrl = await generateGetPresignedUrl(coverImageKey, 604800);
+        newCoverImageKey = coverImageKey;
+      } catch (error) {
+        return res.status(500).json({ success: false, message: 'Failed to generate image URL' });
+      }
     }
-    
-    // Update fields
-    workbook = await Workbook.findByIdAndUpdate(req.params.workbookId, updateData, {
-      new: true,
-      runValidators: true
-    });
-    
-    return res.status(200).json({
-      success: true,
-      workbook
-    });
+    let parsedTags = [];
+    if (tags) {
+      try {
+        parsedTags = typeof tags === 'string' ? JSON.parse(tags) : tags;
+      } catch (e) {
+        parsedTags = tags.split(',').map(tag => tag.trim()).filter(tag => tag.length > 0);
+      }
+    }
+    let parsedConversations = [];
+    if (conversations) {
+      try {
+        parsedConversations = typeof conversations === 'string' ? JSON.parse(conversations) : conversations;
+      } catch (e) {
+        parsedConversations = conversations.split(',').map(conv => conv.trim()).filter(conv => conv.length > 0);
+      }
+    }
+    let parsedUsers = [];
+    if (users) {
+      try {
+        parsedUsers = typeof users === 'string' ? JSON.parse(users) : users;
+      } catch (e) {
+        parsedUsers = users.split(',').map(user => user.trim()).filter(user => user.length > 0);
+      }
+    }
+    const updateData = {
+      title: title ? title.trim() : workbook.title,
+      description: description ? description.trim() : workbook.description,
+      author: author ? author.trim() : workbook.author,
+      publisher: publisher ? publisher.trim() : workbook.publisher,
+      language: language || workbook.language,
+      mainCategory: mainCategory || workbook.mainCategory,
+      subCategory: subCategory || workbook.subCategory,
+      isPublic: isPublic === 'true' || isPublic === true || workbook.isPublic,
+      tags: parsedTags.length > 0 ? parsedTags : workbook.tags,
+      conversations: parsedConversations.length > 0 ? parsedConversations : workbook.conversations,
+      users: parsedUsers.length > 0 ? parsedUsers : workbook.users,
+      summary: summary ? summary.trim() : workbook.summary,
+      ...(coverImageKey && coverImageKey !== workbook.coverImageKey ? {
+        coverImageKey: newCoverImageKey,
+        coverImageUrl: newCoverImageUrl
+      } : {})
+    };
+    if (exam) updateData.exam = exam.trim();
+    if (paper) updateData.paper = paper.trim();
+    if (subject) updateData.subject = subject.trim();
+    if (customSubCategory) updateData.customSubCategory = customSubCategory.trim();
+    if (categoryOrder) updateData.categoryOrder = parseInt(categoryOrder);
+    if (rating !== undefined) {
+      const ratingNum = parseFloat(rating);
+      if (isNaN(ratingNum) || ratingNum < 0 || ratingNum > 5) {
+        return res.status(400).json({ success: false, message: 'Rating must be a number between 0 and 5' });
+      }
+      updateData.rating = ratingNum;
+    }
+    if (ratingCount !== undefined) {
+      const countNum = parseInt(ratingCount);
+      if (isNaN(countNum) || countNum < 0) {
+        return res.status(400).json({ success: false, message: 'Rating count must be a non-negative number' });
+      }
+      updateData.ratingCount = countNum;
+    }
+    const updatedWorkbook = await Workbook.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).populate('user', 'name email userId');
+    const formattedWorkbook = await formatWorkbookWithUserInfo(updatedWorkbook);
+    return res.status(200).json({ success: true, message: 'Workbook updated successfully', workbook: formattedWorkbook });
   } catch (error) {
-    // If there was an error and a file was uploaded, remove it
-    if (req.file) {
-      fs.unlink(req.file.path, err => {
-        if (err) console.error('Error deleting file:', err);
-      });
-    }
-    
-    console.error(error);
-    if (error.name === 'ValidationError') {
-      const messages = Object.values(error.errors).map(val => val.message);
-      return res.status(400).json({
-        success: false,
-        message: messages
-      });
-    } else {
-      return res.status(500).json({
-        success: false,
-        message: 'Server Error'
-      });
-    }
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
-// @desc    Delete workbook
-// @route   DELETE /api/workbooks/:id
-// @access  Private
+// Delete workbook and its S3 cover image
 exports.deleteWorkbook = async (req, res) => {
   try {
-    const workbook = await Workbook.findById(req.params.workbookId);
-    
+    const workbook = await Workbook.findById(req.params.id);
     if (!workbook) {
-      return res.status(404).json({
-        success: false,
-        message: 'Workbook not found'
-      });
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
     }
-    
-    // Check if workbook belongs to user
-    if (workbook.user.toString() !== req.user.id) {
-      return res.status(403).json({
-        success: false,
-        message: 'Not authorized to delete this workbook'
-      });
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
     }
-    
-    // Delete the cover image if it exists
-    if (workbook.coverImage && fs.existsSync(workbook.coverImage)) {
-      fs.unlinkSync(workbook.coverImage);
+    const clientId = getClientId(currentUser);
+    if (workbook.clientId !== clientId && workbook.user.toString() !== req.user.id) {
+      return res.status(403).json({ success: false, message: 'Not authorized to delete this workbook' });
     }
-    
-    // Find all chapters to delete associated topics/subtopics
-    const chapters = await Chapter.find({ workbook: workbook._id });
-    
-    // Delete all chapters, topics, and subtopics in this workbook
-    for (const chapter of chapters) {
-      // Find and delete all topics in this chapter
-      const topics = await Topic.find({ chapter: chapter._id });
-      
-      for (const topic of topics) {
-        // Delete all subtopics in this topic
-        await SubTopic.deleteMany({ topic: topic._id });
-        // Delete the topic
-        await Topic.deleteOne({ _id: topic._id });
+    if (workbook.coverImageKey) {
+      try {
+        await deleteObject(workbook.coverImageKey);
+      } catch (error) {
+        // Continue with workbook deletion even if image deletion fails
       }
-      
-      // Delete the chapter
-      await Chapter.deleteOne({ _id: chapter._id });
     }
-    
-    // Delete the workbook
-    await Workbook.deleteOne({ _id: workbook._id });
-    
-    return res.status(200).json({
-      success: true,
-      message: 'Workbook deleted successfully'
-    });
+    await workbook.deleteOne();
+    return res.status(200).json({ success: true, message: 'Workbook deleted successfully' });
   } catch (error) {
-    console.error(error);
-    return res.status(500).json({
-      success: false,
-      message: 'Server Error'
-    });
+    return res.status(500).json({ success: false, message: 'Server Error' });
   }
 }; 
