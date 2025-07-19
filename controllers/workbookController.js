@@ -523,6 +523,130 @@ exports.getWorkbooksformobile = async (req, res) => {
   }
 };
 
+// Add workbook to highlights
+exports.addWorkbookToHighlights = async (req, res) => {
+  try {
+    const { note, order } = req.body;
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const clientId = getClientId(currentUser);
+    const canHighlight = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    if (!canHighlight) {
+      return res.status(403).json({ success: false, message: 'Not authorized to highlight this workbook' });
+    }
+    if (workbook.isHighlighted) {
+      return res.status(400).json({ success: false, message: 'Workbook is already highlighted' });
+    }
+    await workbook.toggleHighlight(currentUser._id, 'User', note || '', order || 0);
+    await workbook.save();
+    await workbook.populate('highlightedBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook added to highlights successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Add workbook to highlights error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Remove workbook from highlights
+exports.removeWorkbookFromHighlights = async (req, res) => {
+  try {
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const clientId = getClientId(currentUser);
+    const canRemoveHighlight = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    if (!canRemoveHighlight) {
+      return res.status(403).json({ success: false, message: 'Not authorized to remove highlight from this workbook' });
+    }
+    if (!workbook.isHighlighted) {
+      return res.status(400).json({ success: false, message: 'Workbook is not highlighted' });
+    }
+    await workbook.toggleHighlight(currentUser._id, 'User');
+    await workbook.save();
+    await workbook.populate('highlightedBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook removed from highlights successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Remove workbook from highlights error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Add workbook to trending
+exports.addWorkbookToTrending = async (req, res) => {
+  try {
+    const { score, endDate } = req.body;
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const clientId = getClientId(currentUser);
+    const canMakeTrending = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    if (!canMakeTrending) {
+      return res.status(403).json({ success: false, message: 'Not authorized to make this workbook trending' });
+    }
+    if (workbook.isTrending) {
+      return res.status(400).json({ success: false, message: 'Workbook is already trending' });
+    }
+    const parsedScore = score ? parseInt(score) : 0;
+    const parsedEndDate = endDate ? new Date(endDate) : null;
+    await workbook.toggleTrending(currentUser._id, 'User', parsedScore, parsedEndDate);
+    await workbook.save();
+    await workbook.populate('trendingBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook added to trending successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Add workbook to trending error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Remove workbook from trending
+exports.removeWorkbookFromTrending = async (req, res) => {
+  try {
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    const clientId = getClientId(currentUser);
+    const canRemoveTrending = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    if (!canRemoveTrending) {
+      return res.status(403).json({ success: false, message: 'Not authorized to remove trending from this workbook' });
+    }
+    if (!workbook.isTrending) {
+      return res.status(400).json({ success: false, message: 'Workbook is not trending' });
+    }
+    await workbook.toggleTrending(currentUser._id, 'User');
+    await workbook.save();
+    await workbook.populate('trendingBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook removed from trending successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Remove workbook from trending error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
 // Get all sets for a specific workbook (with details)
 exports.getWorkbookSets = async (req, res) => {
   try {
@@ -585,37 +709,26 @@ exports.getWorkbookSets = async (req, res) => {
   }
 };
 
-// Get all questions for a specific set of a workbook
-exports.getAllWorkbookQuestions = async (req, res) => {
+
+
+// Get questions for a specific set in a workbook
+exports.getQuestionsForSetInWorkbook = async (req, res) => {
   try {
-    const { id } = req.params; // workbook ID
-
-    // Find all chapters, topics, subtopics for this workbook
-    const chapters = await Chapter.find({ workbook: id });
-    const chapterIds = chapters.map(ch => ch._id);
-
-    const topics = await Topic.find({ chapter: { $in: chapterIds } });
-    const topicIds = topics.map(tp => tp._id);
-
-    const subtopics = await SubTopic.find({ topic: { $in: topicIds } });
-    const subtopicIds = subtopics.map(st => st._id);
-
-    // Find all sets for this workbook, its chapters, topics, and subtopics
-    const sets = await AISWBSet.find({
-      $or: [
-        { itemType: 'book', itemId: id },
-        { itemType: 'chapter', itemId: { $in: chapterIds } },
-        { itemType: 'topic', itemId: { $in: topicIds } },
-        { itemType: 'subtopic', itemId: { $in: subtopicIds } }
-      ]
-    });
-
-    const setIds = sets.map(set => set._id);
-
-    // Fetch all AiswbQuestions
-    const aiswbQuestions = await AiswbQuestion.find({ setId: { $in: setIds } });
-
-    const filteredQuestions = aiswbQuestions.map(q => ({
+    const { id, setId } = req.params;
+    // Validate workbook exists
+    const workbook = await Workbook.findById(id);
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    // Validate set exists and belongs to this workbook (directly or via chapter/topic/subtopic)
+    const set = await AISWBSet.findById(setId);
+    if (!set) {
+      return res.status(404).json({ success: false, message: 'Set not found' });
+    }
+    // Optionally, check set.itemId matches workbook or its chapters/topics/subtopics
+    // Fetch questions in this set
+    const questions = await AiswbQuestion.find({ setId });
+    const formattedQuestions = questions.map(q => ({
       _id: q._id,
       question: q.question,
       setId: q.setId,
@@ -626,13 +739,9 @@ exports.getAllWorkbookQuestions = async (req, res) => {
         wordLimit: q.metadata.wordLimit,
       }
     }));
-
-    return res.status(200).json({
-      success: true,
-      Questions : filteredQuestions,
-    });
+    return res.status(200).json({ success: true, questions: formattedQuestions });
   } catch (error) {
-    console.error('Error fetching all workbook questions:', error);
+    console.error('Error fetching questions for set in workbook:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 }; 

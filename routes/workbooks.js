@@ -12,7 +12,12 @@ const {
   deleteWorkbook,
   getWorkbooksformobile,
   getWorkbookSets,
-  getAllWorkbookQuestions
+  getAllWorkbookQuestions,
+  addWorkbookToHighlights,
+  removeWorkbookFromHighlights,
+  addWorkbookToTrending,
+  removeWorkbookFromTrending,
+  getQuestionsForSetInWorkbook
 } = require("../controllers/workbookController");
 const {
   getChapters,
@@ -54,13 +59,19 @@ router.get('/getworkbooks',authenticateMobileUser, ensureUserBelongsToClient, ge
 router.get('/:id/sets',authenticateMobileUser, ensureUserBelongsToClient, getWorkbookSets);
 
 // Get all questions for a specific set of a workbook
-router.get('/:id/sets/:setId/questions',authenticateMobileUser, ensureUserBelongsToClient, getAllWorkbookQuestions);
+router.get('/:id/sets/:setId/questions',authenticateMobileUser, ensureUserBelongsToClient, getQuestionsForSetInWorkbook);
 
 router.route("/:id").get(verifyToken, getWorkbook);
 
 router.route("/:id").put(verifyToken, updateWorkbook);
 
 router.route("/:id").delete(verifyToken, deleteWorkbook);
+
+// Highlight and Trending routes
+router.post('/:id/highlight', verifyToken, addWorkbookToHighlights);
+router.delete('/:id/highlight', verifyToken, removeWorkbookFromHighlights);
+router.post('/:id/trending', verifyToken, addWorkbookToTrending);
+router.delete('/:id/trending', verifyToken, removeWorkbookFromTrending);
 
 // Chapter routes within workbooks
 router
