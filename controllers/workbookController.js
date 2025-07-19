@@ -558,13 +558,24 @@ exports.getWorkbookSets = async (req, res) => {
         { itemType: 'subtopic', itemId: { $in: subtopicIds } }
       ]
     })
-      .populate('questions')
       .sort({ createdAt: -1 });
+
+    // Add question count to each set and calculate global total
+    let totalQuestionsCount = 0;
+    const setsWithCounts = sets.map(set => {
+      const questionCount = set.questions ? set.questions.length : 0;
+      totalQuestionsCount += questionCount;
+      return {
+        ...set.toObject(),
+        questionCount
+      };
+    });
 
     return res.status(200).json({
       success: true,
+      totalQuestionsCount,
       workbook: await formatWorkbookWithUserInfo(workbook),
-      sets
+      sets: setsWithCounts,
     });
   } catch (error) {
     console.error('Error fetching workbook sets:', error);
@@ -573,8 +584,6 @@ exports.getWorkbookSets = async (req, res) => {
 };
 
 // Get all questions for a specific set of a workbook
-
-
 exports.getAllWorkbookQuestions = async (req, res) => {
   try {
     const { id } = req.params; // workbook ID
