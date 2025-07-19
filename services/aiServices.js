@@ -729,12 +729,10 @@ const EVAL_HEADER_REGEX = {
 };
 
 function getEvaluationFrameworkText() {
-  return `EVALUATION FRAMEWORK:
-
-Introduction
-Relevant introduction, as defined, about
+  return `Introduction
+Relevant introduction, as defined, about 
 Relevant Introduction Supported by Data like
-Your introduction is well presented with factual information
+Your introduction is well presented with factual information 
 Your introduction is valid but concise it and mention some keywords like
 Your introduction is general, you may start introduction like
 Your introduction can be enriched by adding keywords like
@@ -761,14 +759,14 @@ Heading-Core Demand
 Try to use heading and subheadings for better presentation
 Try to understand core demand of question
 Points are valid but use sub-headings for better presentation
-Try to use sub-headings for better presentation
+Try to use sub-headings for better presentation 
 
-Your points can be enriched by elaborate properly like
+Your points can be enriched by elaborate properly like 
 Underline specific keywords for better presentation like
 You should work on presentation
-Your points can be enriched by adding examples or substantiate them like
+Your points can be enriched by adding examples or substantiate them like 
 Enrich your points by adding examples or substantiate
-Your points are less effective and can be enriched in effective manner like
+Your points are less effective and can be enriched in effective manner like 
 
 Good use of diagram and relevant content
 Good use of map but the map can be drawn better.
@@ -782,19 +780,27 @@ Your conclusion is relevant as it outlines in suggestive manner
 
 Less effective conclusion- you may conclude in effective manner like
 Relevant conclusion but you may add—
-Relevant conclusion but you may conclude in effective manner like
+Relevant conclusion but you may conclude in effective manner like 
 Your conclusion is relevant as it outlines steps---but it may be concluded as—
 Your conclusion is relevant but too long — it needs to be concise, within 20–30 words.`;
 }
 
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
-  return `Please evaluate this student's answer to the given question using the following evaluation framework.\n\n${getEvaluationFrameworkText()}\n\nQUESTION:\n${question.question}\n\nMAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}\n\nSTUDENT'S ANSWER (extracted from images):\n${combinedText}\n\nPlease use the exact section headers as shown below, and do not change their names or order.\n\nRELEVANCY: [Score out of 100 - How relevant is the answer to the question]\nSCORE: [Score out of ${question.metadata?.maximumMarks || 10}]\n\nIntroduction:\n[Your analysis of the introduction]\n\nBody:\n[Your analysis of the body]\n\nConclusion:\n[Your analysis of the conclusion]\n\nStrengths:\n[List 2-3 strengths]\n\nWeaknesses:\n[List 2-3 weaknesses]\n\nSuggestions:\n[List 2-3 suggestions]\n\nFeedback:\n[Overall feedback]\n\nComments:\n[3-4 detailed comments (5-12 words each)]\n\nRemark:\n[1-2 line summary of the overall answer quality]\n`;
+  
+  // Use the stored evaluation guideline (will always have a value - either custom or default)
+  const evaluationFramework = question.evaluationGuideline || getEvaluationFrameworkText();
+  
+  return `Please evaluate this student's answer to the given question using the following evaluation framework.\n\n${evaluationFramework}\n\nQUESTION:\n${question.question}\n\nMAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}\n\nSTUDENT'S ANSWER (extracted from images):\n${combinedText}\n\nPlease use the exact section headers as shown below, and do not change their names or order.\n\nRELEVANCY: [Score out of 100 - How relevant is the answer to the question]\nSCORE: [Score out of ${question.metadata?.maximumMarks || 10}]\n\nIntroduction:\n[Your analysis of the introduction]\n\nBody:\n[Your analysis of the body]\n\nConclusion:\n[Your analysis of the conclusion]\n\nStrengths:\n[List 2-3 strengths]\n\nWeaknesses:\n[List 2-3 weaknesses]\n\nSuggestions:\n[List 2-3 suggestions]\n\nFeedback:\n[Overall feedback]\n\nComments:\n[3-4 detailed comments (5-12 words each)]\n\nRemark:\n[1-2 line summary of the overall answer quality]\n`;
 };
 
 const generateCustomEvaluationPrompt = (question, extractedTexts, userPrompt, options = {}) => {
   const { includeExtractedText = true, includeQuestionDetails = true, maxMarks } = options;
-  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria.\n\nEVALUATION CRITERIA:\n${userPrompt}\n\n${getEvaluationFrameworkText()}\n`;
+  
+  // Use the stored evaluation guideline (will always have a value - either custom or default)
+  const evaluationFramework = question.evaluationGuideline || getEvaluationFrameworkText();
+  
+  let prompt = `You are an expert evaluator. Please evaluate this student's answer based on the following custom evaluation criteria.\n\nEVALUATION CRITERIA:\n${userPrompt}\n\n${evaluationFramework}\n`;
   if (includeQuestionDetails && question) {
     prompt += `QUESTION DETAILS:\n`;
     prompt += `Question: ${question.question}\n`;
@@ -1041,5 +1047,6 @@ module.exports = {
   generateCustomEvaluationPrompt,
   getServiceForTask,
   getEvaluationParameters,
+  getEvaluationFrameworkText,
   cleanExtractedTexts
 };

@@ -275,17 +275,9 @@ const extractTextFromImagesWithFallback = async (imageUrls) => {
 };
 const generateEvaluationPrompt = (question, extractedTexts) => {
   const combinedText = extractedTexts.join('\n\n--- Next Image ---\n\n');
-  return `Please evaluate this student's answer to the given question.
-
-QUESTION:
-${question.question}
-
-MAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}
-
-STUDENT'S ANSWER (extracted from images):
-${combinedText}
-
-Please provide a detailed evaluation in the following format:
+  
+  // Use the stored evaluation guideline (will always have a value - either custom or default)
+  const evaluationFramework = question.evaluationGuideline || `Please provide a detailed evaluation in the following format:
 
 ACCURACY: [Score out of 100]
 MARKS AWARDED: [Marks out of ${question.metadata?.maximumMarks || 10}]
@@ -303,6 +295,18 @@ DETAILED FEEDBACK:
 [Provide constructive feedback about the answer]
 
 Please be fair, constructive, and specific in your evaluation.`;
+  
+  return `Please evaluate this student's answer to the given question.
+
+QUESTION:
+${question.question}
+
+MAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}
+
+STUDENT'S ANSWER (extracted from images):
+${combinedText}
+
+${evaluationFramework}`;
 };
 const parseEvaluationResponse = (evaluationText, question) => {
   try {
@@ -385,7 +389,7 @@ router.post('/questions/:questionId/answers/:answerId/re-evaluate',
             success: false,
             message: "Invalid input data",
             error: {
-              code: "INVALID_INPUT",  
+              code: "INVALID_INPUT",
               details: errors.array()
             }
           });

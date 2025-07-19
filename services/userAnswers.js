@@ -1,6 +1,7 @@
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
+const { getEvaluationFrameworkText } = require('./aiServices');
 let fetch;
 (async () => {
   fetch = (await import('node-fetch')).default;
@@ -29,7 +30,12 @@ const extractTextFromImagesWithFallback = async (imageUrls) => {
 
 // Evaluation functions
 const generateEvaluationPrompt = (question, extractedTexts) => {
-  // ... (same implementation as original)
+  const combinedText = extractedTexts.join("\n\n--- Next Image ---\n\n");
+  
+  // Use the stored evaluation guideline (will always have a value - either custom or default)
+  const evaluationFramework = question.evaluationGuideline || getEvaluationFrameworkText();
+  
+  return `Please evaluate this student's answer to the given question using the following evaluation framework.\n\n${evaluationFramework}\n\nQUESTION:\n${question.question}\n\nMAXIMUM MARKS: ${question.metadata?.maximumMarks || 10}\n\nSTUDENT'S ANSWER (extracted from images):\n${combinedText}\n\nPlease use the exact section headers as shown below, and do not change their names or order.\n\nRELEVANCY: [Score out of 100 - How relevant is the answer to the question]\nSCORE: [Score out of ${question.metadata?.maximumMarks || 10}]\n\nIntroduction:\n[Your analysis of the introduction]\n\nBody:\n[Your analysis of the body]\n\nConclusion:\n[Your analysis of the conclusion]\n\nStrengths:\n[List 2-3 strengths]\n\nWeaknesses:\n[List 2-3 weaknesses]\n\nSuggestions:\n[List 2-3 suggestions]\n\nFeedback:\n[Overall feedback]\n\nComments:\n[3-4 detailed comments (5-12 words each)]\n\nRemark:\n[1-2 line summary of the overall answer quality]\n`;
 };
 
 const parseEvaluationResponse = (evaluationText, question) => {

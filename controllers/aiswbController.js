@@ -3,6 +3,7 @@ const AISWBSet = require('../models/AISWBSet');
 const { validationResult } = require('express-validator');
 const UserAnswer = require('../models/UserAnswer');
 const UserProfile = require('../models/UserProfile');
+const { getEvaluationFrameworkText } = require('../services/aiServices');
 
 // Question Controllers
 const addQuestion = async (req, res) => {
@@ -37,6 +38,11 @@ const addQuestion = async (req, res) => {
       }
     }
 
+    // Set default evaluation guideline if not provided
+    if (!questionData.evaluationGuideline || questionData.evaluationGuideline.trim() === '') {
+      questionData.evaluationGuideline = getEvaluationFrameworkText();
+    }
+
     const question = new Question({
       ...questionData,
       setId: setId || null
@@ -65,6 +71,7 @@ const addQuestion = async (req, res) => {
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
         evaluationType: question.evaluationType,
+        evaluationGuideline: question.evaluationGuideline,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -112,6 +119,11 @@ const updateQuestion = async (req, res) => {
       });
     }
 
+    // Set default evaluation guideline if not provided
+    if (!questionData.evaluationGuideline || questionData.evaluationGuideline.trim() === '') {
+      questionData.evaluationGuideline = getEvaluationFrameworkText();
+    }
+
     // Update question fields
     Object.assign(question, questionData);
     await question.save();
@@ -129,6 +141,7 @@ const updateQuestion = async (req, res) => {
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
         evaluationType: question.evaluationType,
+        evaluationGuideline: question.evaluationGuideline,
         updatedAt: question.updatedAt.toISOString()
       }
     });
@@ -216,6 +229,7 @@ const getQuestionDetails = async (req, res) => {
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
         evaluationType: question.evaluationType,
+        evaluationGuideline: question.evaluationGuideline,
         createdAt: question.createdAt.toISOString(),
         updatedAt: question.updatedAt.toISOString()
       }
@@ -444,7 +458,8 @@ const getQuestionsInSet = async (req, res) => {
       },
       languageMode: question.languageMode,
       evaluationMode: question.evaluationMode,
-      evaluationType: question.evaluationType
+      evaluationType: question.evaluationType,
+      evaluationGuideline: question.evaluationGuideline
     }));
 
     res.status(200).json({
@@ -501,6 +516,11 @@ const addQuestionToSet = async (req, res) => {
       delete questionData.metadata.qualityParameters.customQualityParameters;
     }
 
+    // Set default evaluation guideline if not provided
+    if (!questionData.evaluationGuideline || questionData.evaluationGuideline.trim() === '') {
+      questionData.evaluationGuideline = getEvaluationFrameworkText();
+    }
+
     const question = new Question({
       ...questionData,
       setId
@@ -531,7 +551,8 @@ const addQuestionToSet = async (req, res) => {
         },
         languageMode: question.languageMode,
         evaluationMode: question.evaluationMode,
-        evaluationType: question.evaluationType
+        evaluationType: question.evaluationType,
+        evaluationGuideline: question.evaluationGuideline
       }
     });
 
@@ -749,6 +770,83 @@ const getQuestionSubmissions = async (req, res) => {
   }
 };
 
+const getDefaultEvaluationFramework = async (req, res) => {
+  try {
+    const defaultFramework = `Introduction
+Relevant introduction, as defined, about 
+Relevant Introduction Supported by Data like
+Your introduction is well presented with factual information 
+Your introduction is valid but concise it and mention some keywords like
+Your introduction is general, you may start introduction like
+Your introduction can be enriched by adding keywords like
+Your introduction is relevant but too long — it needs to be concise, within 20–30 words.
+
+Body:
+Frame the heading to reflect the core demand of the question, such as:
+Well-Formatted Main Heading in a Box
+Write Main Heading in a Box
+You missed a part of demand of question ---
+
+Rough-Paragraph-Not effective
+Your presentation is rough; avoid paragraph format. However, some of your content lines are relevant.
+Your points are not very effective; please present them in a more structured and impactful manner.
+Relevant-Valid
+Your points are relevant, but they need to be substantiated with examples to strengthen your argument.
+Valid point with substantiation
+Your points are valid as per the implicit demand of the question but add some points like
+Your points are valid as per the explicit demand of the question but add some points like
+Your points are valid and substantiated with evidence.
+Your points are valid and supported by relevant examples.
+
+Heading-Core Demand
+Try to use heading and subheadings for better presentation
+Try to understand core demand of question
+Points are valid but use sub-headings for better presentation
+Try to use sub-headings for better presentation 
+
+Your points can be enriched by elaborate properly like 
+Underline specific keywords for better presentation like
+You should work on presentation
+Your points can be enriched by adding examples or substantiate them like 
+Enrich your points by adding examples or substantiate
+Your points are less effective and can be enriched in effective manner like 
+
+Good use of diagram and relevant content
+Good use of map but the map can be drawn better.
+Lack of legibility-Please work on it.
+Your points are valid but need supporting data, facts, and reports.
+
+Conclusion
+Your conclusion is based on balanced answer
+Relevant conclusion, as it reflects a futuristic vision
+Your conclusion is relevant as it outlines in suggestive manner
+
+Less effective conclusion- you may conclude in effective manner like
+Relevant conclusion but you may add—
+Relevant conclusion but you may conclude in effective manner like 
+Your conclusion is relevant as it outlines steps---but it may be concluded as—
+Your conclusion is relevant but too long — it needs to be concise, within 20–30 words.`;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        defaultFramework
+      }
+    });
+
+  } catch (error) {
+    console.error('Get default evaluation framework error:', error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: {
+        code: "SERVER_ERROR",
+        details: error.message
+      }
+    });
+  }
+};
+
 module.exports = {
   addQuestion,
   updateQuestion,
@@ -761,5 +859,6 @@ module.exports = {
   getQuestionsInSet,
   addQuestionToSet,
   deleteQuestionFromSet,
-  getQuestionSubmissions
+  getQuestionSubmissions,
+  getDefaultEvaluationFramework
 };

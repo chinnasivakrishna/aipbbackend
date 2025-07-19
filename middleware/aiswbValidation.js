@@ -21,10 +21,15 @@ const validateQuestion = [
     .withMessage('Modal answer must be a string')
     .trim(),
   
-  body('question.answerVideoUrl')
+  body('question.answerVideoUrls')
+    .optional()
+    .isArray()
+    .withMessage('Answer video URLs must be an array'),
+  
+  body('question.answerVideoUrls.*')
     .optional()
     .isString()
-    .withMessage('Answer video URL must be a string')
+    .withMessage('Each answer video URL must be a string')
     .trim()
     .custom((value) => {
       if (!value) return true; // Optional field
@@ -89,6 +94,14 @@ const validateQuestion = [
     .isIn(['with annotation', 'without annotation'])
     .withMessage('Evaluation type must be "with annotation" or "without annotation"'),
   
+  body('question.evaluationGuideline')
+    .optional()
+    .isString()
+    .withMessage('Evaluation guideline must be a string')
+    .trim()
+    .isLength({ min: 5, max: 5000 })
+    .withMessage('Evaluation guideline must be between 5 and 5000 characters'),
+  
   body('setId')
     .optional()
     .isMongoId()
@@ -149,10 +162,15 @@ const validateQuestionToSet = [
     .withMessage('Detailed answer must be a string')
     .trim(),
   
-  body('answerVideoUrl')
+  body('answerVideoUrls')
+    .optional()
+    .isArray()
+    .withMessage('Answer video URLs must be an array'),
+  
+  body('answerVideoUrls.*')
     .optional()
     .isString()
-    .withMessage('Answer video URL must be a string')
+    .withMessage('Each answer video URL must be a string')
     .trim()
     .custom((value) => {
       if (!value) return true; // Optional field
@@ -209,7 +227,15 @@ const validateQuestionToSet = [
     .notEmpty()
     .withMessage('Evaluation type is required for manual evaluation mode')
     .isIn(['with annotation', 'without annotation'])
-    .withMessage('Evaluation type must be "with annotation" or "without annotation"')
+    .withMessage('Evaluation type must be "with annotation" or "without annotation"'),
+  
+  body('evaluationGuideline')
+    .optional()
+    .isString()
+    .withMessage('Evaluation guideline must be a string')
+    .trim()
+    .isLength({ min: 5, max: 5000 })
+    .withMessage('Evaluation guideline must be between 5 and 5000 characters')
 ];
 
 const validateQuestionSubmissionsQuery = [
