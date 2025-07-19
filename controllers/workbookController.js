@@ -276,71 +276,6 @@ exports.getWorkbooks = async (req, res) => {
   }
 };
 
-// Get workbooks with S3 URLs
-exports.getWorkbooksformobile = async (req, res) => {
-  try {
-    console.log("getting workbooks")
-    const user = req.clientInfo.id.toString();
-    console.log(user)
-    const { category, subcategory, trending, highlighted, search, limit, page = 1 } = req.query;
-    let filter = { user };
-    if (category) filter.mainCategory = category;
-    if (subcategory) filter.subCategory = subcategory;
-    if (trending === 'true') {
-      filter.isTrending = true;
-      filter.trendingStartDate = { $lte: new Date() };
-      filter.$or = [
-        { trendingEndDate: { $gte: new Date() } },
-        { trendingEndDate: null }
-      ];
-    }
-    if (highlighted === 'true') filter.isHighlighted = true;
-    if (search) {
-      filter.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { author: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } },
-        { tags: { $regex: search, $options: 'i' } }
-      ];
-    }
-    let query = Workbook.find(filter)
-      .populate('user', 'name email userId')
-      .populate('highlightedBy', 'name email userId')
-      .populate('trendingBy', 'name email userId')
-      .populate('categoryOrderBy', 'name email userId');
-    if (trending === 'true') {
-      query = query.sort({ trendingScore: -1, viewCount: -1 });
-    } else if (highlighted === 'true') {
-      query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
-    } else {
-      query = query.sort({ categoryOrder: 1, createdAt: -1 });
-    }
-    if (limit) {
-      const skip = (parseInt(page) - 1) * parseInt(limit);
-      query = query.skip(skip).limit(parseInt(limit));
-    }
-    const workbooks = await query;
-    const total = await Workbook.countDocuments(filter);
-    const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
-    const categoryOrders = {};
-    workbooks.forEach(workbook => {
-      if (!categoryOrders[workbook.mainCategory] || workbook.categoryOrder > categoryOrders[workbook.mainCategory]) {
-        categoryOrders[workbook.mainCategory] = workbook.categoryOrder || 0;
-      }
-    });
-    return res.status(200).json({
-      success: true,
-      count: workbooks.length,
-      total,
-      workbooks: workbooksWithUserInfo,
-      categoryOrders,
-     
-    });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: 'Server Error' });
-  }
-};
-
 // Get single workbook with S3 URL
 exports.getWorkbook = async (req, res) => {
   try {
@@ -521,6 +456,73 @@ exports.deleteWorkbook = async (req, res) => {
   }
 }; 
 
+// for app
+
+// Get workbooks with S3 URLs
+exports.getWorkbooksformobile = async (req, res) => {
+  try {
+    console.log("getting workbooks")
+    const user = req.clientInfo.id.toString();
+    console.log(user)
+    const { category, subcategory, trending, highlighted, search, limit, page = 1 } = req.query;
+    let filter = { user };
+    if (category) filter.mainCategory = category;
+    if (subcategory) filter.subCategory = subcategory;
+    if (trending === 'true') {
+      filter.isTrending = true;
+      filter.trendingStartDate = { $lte: new Date() };
+      filter.$or = [
+        { trendingEndDate: { $gte: new Date() } },
+        { trendingEndDate: null }
+      ];
+    }
+    if (highlighted === 'true') filter.isHighlighted = true;
+    if (search) {
+      filter.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { author: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+        { tags: { $regex: search, $options: 'i' } }
+      ];
+    }
+    let query = Workbook.find(filter)
+      .populate('user', 'name email userId')
+      .populate('highlightedBy', 'name email userId')
+      .populate('trendingBy', 'name email userId')
+      .populate('categoryOrderBy', 'name email userId');
+    if (trending === 'true') {
+      query = query.sort({ trendingScore: -1, viewCount: -1 });
+    } else if (highlighted === 'true') {
+      query = query.sort({ highlightOrder: 1, highlightedAt: -1 });
+    } else {
+      query = query.sort({ categoryOrder: 1, createdAt: -1 });
+    }
+    if (limit) {
+      const skip = (parseInt(page) - 1) * parseInt(limit);
+      query = query.skip(skip).limit(parseInt(limit));
+    }
+    const workbooks = await query;
+    const total = await Workbook.countDocuments(filter);
+    const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
+    const categoryOrders = {};
+    workbooks.forEach(workbook => {
+      if (!categoryOrders[workbook.mainCategory] || workbook.categoryOrder > categoryOrders[workbook.mainCategory]) {
+        categoryOrders[workbook.mainCategory] = workbook.categoryOrder || 0;
+      }
+    });
+    return res.status(200).json({
+      success: true,
+      count: workbooks.length,
+      total,
+      workbooks: workbooksWithUserInfo,
+      categoryOrders,
+     
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
 // Get all sets for a specific workbook (with details)
 exports.getWorkbookSets = async (req, res) => {
   try {
@@ -613,21 +615,21 @@ exports.getAllWorkbookQuestions = async (req, res) => {
     // Fetch all AiswbQuestions
     const aiswbQuestions = await AiswbQuestion.find({ setId: { $in: setIds } });
 
-    // Fetch all classic Questions (subjective/objective)
-    const classicQuestions = await Question.find({ questionSet: { $in: setIds } });
-
-    // Fetch all ObjectiveQuestions
-    const objectiveQuestions = await ObjectiveQuestion.find({ questionSet: { $in: setIds } });
-
-    // Fetch all SubjectiveQuestions
-    const subjectiveQuestions = await SubjectiveQuestion.find({ questionSet: { $in: setIds } });
+    const filteredQuestions = aiswbQuestions.map(q => ({
+      _id: q._id,
+      question: q.question,
+      setId: q.setId,
+      metadata: {
+        difficultyLevel: q.metadata.difficultyLevel,
+        maximumMarks: q.metadata.maximumMarks,
+        estimatedTime: q.metadata.estimatedTime,
+        wordLimit: q.metadata.wordLimit,
+      }
+    }));
 
     return res.status(200).json({
       success: true,
-      aiswbQuestions,
-      classicQuestions,
-      objectiveQuestions,
-      subjectiveQuestions
+      Questions : filteredQuestions,
     });
   } catch (error) {
     console.error('Error fetching all workbook questions:', error);

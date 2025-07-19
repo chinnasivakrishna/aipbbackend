@@ -11,7 +11,7 @@ const { checkClientAccess, authenticateMobileUser } = require('../middleware/mob
 // Method: GET (to fetch homepage content) or POST (to update homepage content)
 
 // GET Homepage Content
-router.get('/', async (req, res) => {
+router.get('/',authenticateMobileUser, async (req, res) => {
   try {
     // Use req.clientId (set by middleware) or fallback to req.params.clientId
     const clientId = req.clientId || req.params.clientId;
@@ -308,7 +308,7 @@ router.post('/', authenticateMobileUser, async (req, res) => {
 // Endpoint: /api/clients/:clientId/book/details
 // Method: GET
 
-router.get('/book/details', async (req, res) => {
+router.get('/book/details',authenticateMobileUser, async (req, res) => {
   try {
     // FIXED: Use req.clientId (set by middleware) or fallback to req.params.clientId
     const clientId = req.clientId || req.params.clientId;
