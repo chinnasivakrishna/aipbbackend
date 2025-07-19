@@ -1,7 +1,16 @@
 const Workbook = require('../models/Workbook');
 const User = require('../models/User');
+    // Find all chapters for this book
+    const Chapter = require('../models/Chapter');
+    const Topic = require('../models/Topic');
+    const SubTopic = require('../models/SubTopic');
 const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require('../utils/s3');
 const path = require('path');
+const AISWBSet = require('../models/AISWBSet');
+const AiswbQuestion = require('../models/AiswbQuestion');
+const Question = require('../models/Question');
+const ObjectiveQuestion = require('../models/ObjectiveQuestion');
+const SubjectiveQuestion = require('../models/SubjectiveQuestion');
 
 // Helper function to format workbook with user info and S3 URLs
 const formatWorkbookWithUserInfo = async (workbook) => {
@@ -508,6 +517,111 @@ exports.deleteWorkbook = async (req, res) => {
     await workbook.deleteOne();
     return res.status(200).json({ success: true, message: 'Workbook deleted successfully' });
   } catch (error) {
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+}; 
+
+// Get all sets for a specific workbook (with details)
+exports.getWorkbookSets = async (req, res) => {
+  try {
+    const { id } = req.params; // workbook ID
+
+    // Find the workbook
+    const workbook = await Workbook.findById(id)
+      .populate('user', 'name email userId');
+
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+
+    console.log(id)
+
+    const chapters = await Chapter.find({ workbook: id });
+    console.log(chapters)
+    const chapterIds = chapters.map(ch => ch._id);
+
+    // Find all topics for these chapters
+    const topics = await Topic.find({ chapter: { $in: chapterIds } });
+    console.log(topics)
+    const topicIds = topics.map(tp => tp._id);
+
+    // Find all subtopics for these topics
+    const subtopics = await SubTopic.find({ topic: { $in: topicIds } });
+    const subtopicIds = subtopics.map(st => st._id);
+
+    // Find all sets for this workbook, its chapters, topics, and subtopics
+    const sets = await AISWBSet.find({
+      $or: [
+        { itemType: 'book', itemId: id },
+        { itemType: 'chapter', itemId: { $in: chapterIds } },
+        { itemType: 'topic', itemId: { $in: topicIds } },
+        { itemType: 'subtopic', itemId: { $in: subtopicIds } }
+      ]
+    })
+      .populate('questions')
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      workbook: await formatWorkbookWithUserInfo(workbook),
+      sets
+    });
+  } catch (error) {
+    console.error('Error fetching workbook sets:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Get all questions for a specific set of a workbook
+
+
+exports.getAllWorkbookQuestions = async (req, res) => {
+  try {
+    const { id } = req.params; // workbook ID
+
+    // Find all chapters, topics, subtopics for this workbook
+    const chapters = await Chapter.find({ workbook: id });
+    const chapterIds = chapters.map(ch => ch._id);
+
+    const topics = await Topic.find({ chapter: { $in: chapterIds } });
+    const topicIds = topics.map(tp => tp._id);
+
+    const subtopics = await SubTopic.find({ topic: { $in: topicIds } });
+    const subtopicIds = subtopics.map(st => st._id);
+
+    // Find all sets for this workbook, its chapters, topics, and subtopics
+    const sets = await AISWBSet.find({
+      $or: [
+        { itemType: 'book', itemId: id },
+        { itemType: 'chapter', itemId: { $in: chapterIds } },
+        { itemType: 'topic', itemId: { $in: topicIds } },
+        { itemType: 'subtopic', itemId: { $in: subtopicIds } }
+      ]
+    });
+
+    const setIds = sets.map(set => set._id);
+
+    // Fetch all AiswbQuestions
+    const aiswbQuestions = await AiswbQuestion.find({ setId: { $in: setIds } });
+
+    // Fetch all classic Questions (subjective/objective)
+    const classicQuestions = await Question.find({ questionSet: { $in: setIds } });
+
+    // Fetch all ObjectiveQuestions
+    const objectiveQuestions = await ObjectiveQuestion.find({ questionSet: { $in: setIds } });
+
+    // Fetch all SubjectiveQuestions
+    const subjectiveQuestions = await SubjectiveQuestion.find({ questionSet: { $in: setIds } });
+
+    return res.status(200).json({
+      success: true,
+      aiswbQuestions,
+      classicQuestions,
+      objectiveQuestions,
+      subjectiveQuestions
+    });
+  } catch (error) {
+    console.error('Error fetching all workbook questions:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 }; 
