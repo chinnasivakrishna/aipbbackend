@@ -80,4 +80,9 @@ router.get('/questions/:questionId/submissions',
   aiswbController.getQuestionSubmissions
 );
 
+// Get default evaluation framework
+router.get('/default-evaluation-framework', 
+  aiswbController.getDefaultEvaluationFramework
+);
+
 module.exports = router;

@@ -100,6 +100,11 @@ const questionSchema = new mongoose.Schema({
     },
     default:'without annotation'
   },
+  evaluationGuideline: {
+    type: String,
+    trim: true,
+    default: null
+  },
   
   setId: {
     type: mongoose.Schema.Types.ObjectId,
