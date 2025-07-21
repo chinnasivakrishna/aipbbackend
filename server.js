@@ -28,6 +28,7 @@ const evaluationRoutes = require('./routes/evaluations'); // Updated evaluation 
 const { checkClientAccess } = require('./middleware/mobileAuth');
 const adminAnswers = require('./routes/adminAnswers');
 const myBooksRoutes = require('./routes/myBooks');
+const myWorkbooksRoutes = require('./routes/myworkbook')
 const evaluatorsRoutes = require('./routes/evaluators');
 const app = express();
 const mainBookstoreRoutes = require('./routes/mainBookstore');
@@ -154,6 +155,16 @@ app.use(
     next()
   },
   myBooksRoutes,
+)
+
+app.use(
+  "/api/clients/:clientId/mobile/myworkbooks",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  myWorkbooksRoutes,
 )
 
 app.use(
