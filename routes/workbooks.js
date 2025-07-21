@@ -17,7 +17,9 @@ const {
   removeWorkbookFromHighlights,
   addWorkbookToTrending,
   removeWorkbookFromTrending,
-  getQuestionsForSetInWorkbook
+  getQuestionsForSetInWorkbook,
+  getHighlightedWorkbooks,
+  getTrendingWorkbooks
 } = require("../controllers/workbookController");
 const {
   getChapters,
@@ -55,6 +57,8 @@ router
   .post(verifyToken, createWorkbook);
 
 router.get('/getworkbooks',authenticateMobileUser, ensureUserBelongsToClient, getWorkbooksformobile);
+router.get('/highlighted',verifyToken, getHighlightedWorkbooks)
+router.get('/trending',verifyToken, getTrendingWorkbooks)
 
 router.get('/:id/sets',authenticateMobileUser, ensureUserBelongsToClient, getWorkbookSets);
 
@@ -66,6 +70,7 @@ router.route("/:id").get(verifyToken, getWorkbook);
 router.route("/:id").put(verifyToken, updateWorkbook);
 
 router.route("/:id").delete(verifyToken, deleteWorkbook);
+
 
 // Highlight and Trending routes
 router.post('/:id/highlight', verifyToken, addWorkbookToHighlights);

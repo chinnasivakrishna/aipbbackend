@@ -250,6 +250,7 @@ exports.getWorkbooks = async (req, res) => {
     }
     const workbooks = await query;
     const total = await Workbook.countDocuments(filter);
+    
     const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
     const categoryOrders = {};
     workbooks.forEach(workbook => {
@@ -261,6 +262,7 @@ exports.getWorkbooks = async (req, res) => {
       success: true,
       count: workbooks.length,
       total,
+         
       workbooks: workbooksWithUserInfo,
       categoryOrders,
       currentUser: {
@@ -386,6 +388,9 @@ exports.updateWorkbook = async (req, res) => {
       language: language || workbook.language,
       mainCategory: mainCategory || workbook.mainCategory,
       subCategory: subCategory || workbook.subCategory,
+      clientId: clientId,
+      user: req.user.id,
+      userType: 'User',
       isPublic: isPublic === 'true' || isPublic === true || workbook.isPublic,
       tags: parsedTags.length > 0 ? parsedTags : workbook.tags,
       conversations: parsedConversations.length > 0 ? parsedConversations : workbook.conversations,
@@ -501,8 +506,31 @@ exports.getWorkbooksformobile = async (req, res) => {
       const skip = (parseInt(page) - 1) * parseInt(limit);
       query = query.skip(skip).limit(parseInt(limit));
     }
+
+    const highlightedBooks = await Workbook.find({
+      ...filter,
+      isHighlighted: true
+    })
+    .populate('user', 'name email userId')
+    .populate('highlightedBy', 'name email userId')
+    .sort({ highlightOrder: 1, highlightedAt: -1 })
+
+    // Get trending books with pagination
+    const now = new Date();
+    const trendingBooks = await Workbook.find({
+      ...filter,
+      isTrending: true,
+      trendingStartDate: { $lte: now },
+      $or: [
+        { trendingEndDate: { $gte: now } },
+        { trendingEndDate: null }
+      ]
+    })
+    .populate('user', 'name email userId')
+    .populate('trendingBy', 'name email userId')
+    .sort({ trendingScore: -1, viewCount: -1 })
+
     const workbooks = await query;
-    const total = await Workbook.countDocuments(filter);
     const workbooksWithUserInfo = await Promise.all(workbooks.map(formatWorkbookWithUserInfo));
     const categoryOrders = {};
     workbooks.forEach(workbook => {
@@ -513,16 +541,42 @@ exports.getWorkbooksformobile = async (req, res) => {
     return res.status(200).json({
       success: true,
       count: workbooks.length,
-      total,
+      highlighted: highlightedBooks || [],
+      trending: trendingBooks || [], 
       workbooks: workbooksWithUserInfo,
       categoryOrders,
      
     });
   } catch (error) {
+    console.log(error)
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
 
+
+exports.getHighlightedWorkbooks = async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    const { limit } = req.query;
+
+    const highlightedworkbooks = await Workbook.getHighlightedWorkbooks(clientId, limit ? parseInt(limit) : null);
+    const workbooksWithUserInfo = highlightedworkbooks.map(formatWorkbookWithUserInfo);
+    console.log(workbooksWithUserInfo)
+    return res.status(200).json({
+      success: true,
+      count: highlightedworkbooks.length,
+      workbooks: highlightedworkbooks,
+    });
+  } catch (error) {
+    console.error('Get highlighted workbooks error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
 // Add workbook to highlights
 exports.addWorkbookToHighlights = async (req, res) => {
   try {
@@ -535,15 +589,16 @@ exports.addWorkbookToHighlights = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const clientId = getClientId(currentUser);
-    const canHighlight = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    const clientId = req.user.id
+    const canHighlight = workbook.user._id.toString() === clientId 
     if (!canHighlight) {
       return res.status(403).json({ success: false, message: 'Not authorized to highlight this workbook' });
     }
     if (workbook.isHighlighted) {
       return res.status(400).json({ success: false, message: 'Workbook is already highlighted' });
     }
-    await workbook.toggleHighlight(currentUser._id, 'User', note || '', order || 0);
+    const userType = 'User'; // Assuming web users are 'User' type
+    await workbook.toggleHighlight(currentUser._id, userType, note || '', order || 0);
     await workbook.save();
     await workbook.populate('highlightedBy', 'name email userId');
     const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
@@ -565,8 +620,8 @@ exports.removeWorkbookFromHighlights = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const clientId = getClientId(currentUser);
-    const canRemoveHighlight = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    const clientId = req.user.id
+    const canRemoveHighlight = workbook.user._id.toString() === clientId || workbook.user._id.toString() === req.user.id;
     if (!canRemoveHighlight) {
       return res.status(403).json({ success: false, message: 'Not authorized to remove highlight from this workbook' });
     }
@@ -584,6 +639,28 @@ exports.removeWorkbookFromHighlights = async (req, res) => {
   }
 };
 
+exports.getTrendingWorkbooks = async (req, res) => {
+  try {
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+
+    const clientId = getClientId(currentUser);
+    const { limit } = req.query;
+
+    const trendingworkbooks = await Workbook.getTrendingWorkbooks(clientId, limit ? parseInt(limit) : null);
+
+    return res.status(200).json({
+      success: true,
+      count: trendingworkbooks.length,
+      workbooks: trendingworkbooks
+    });
+  } catch (error) {
+    console.error('Get trending books error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
 // Add workbook to trending
 exports.addWorkbookToTrending = async (req, res) => {
   try {
@@ -596,17 +673,18 @@ exports.addWorkbookToTrending = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const clientId = getClientId(currentUser);
-    const canMakeTrending = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
+    const clientId = req.user.id
+    const canMakeTrending = workbook.user._id.toString() === clientId || workbook.user._id.toString() === req.user.id;
     if (!canMakeTrending) {
       return res.status(403).json({ success: false, message: 'Not authorized to make this workbook trending' });
     }
     if (workbook.isTrending) {
       return res.status(400).json({ success: false, message: 'Workbook is already trending' });
     }
+    const userType = 'User';
     const parsedScore = score ? parseInt(score) : 0;
     const parsedEndDate = endDate ? new Date(endDate) : null;
-    await workbook.toggleTrending(currentUser._id, 'User', parsedScore, parsedEndDate);
+    await workbook.toggleTrending(currentUser._id, userType , parsedScore, parsedEndDate);
     await workbook.save();
     await workbook.populate('trendingBy', 'name email userId');
     const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
@@ -708,8 +786,6 @@ exports.getWorkbookSets = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
-
-
 
 // Get questions for a specific set in a workbook
 exports.getQuestionsForSetInWorkbook = async (req, res) => {

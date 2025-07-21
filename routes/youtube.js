@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { spawn } = require('child_process');
 const { createClient } = require('@deepgram/sdk');
+const { error } = require('console');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // Replace with your actual Deepgram API key
@@ -92,6 +93,7 @@ router.post('/transcribe-audio', async (req, res) => {
         });
     } catch (err) {
         console.error('YouTube audio extraction error:', err);
+        console.log(error)
         res.status(500).json({ error: 'Failed to extract audio' });
     }
 });
