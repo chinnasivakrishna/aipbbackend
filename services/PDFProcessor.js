@@ -237,33 +237,46 @@ class EnhancedPDFProcessor {
   }
 
   async answerQuestion(question, fileName = null, userId = null, requireAuth = false, bookId = null) {
-    const startTime = Date.now()
+    const t0 = Date.now();
+    let t1, t2, t3, t4;
     const timingMetrics = {
       retrieval: 0,
       processing: 0,
       generation: 0,
       total: 0,
-    }
+      breakdown: []
+    };
 
     if (!bookId) {
-      throw new Error("Book ID is required for question answering")
+      throw new Error("Book ID is required for question answering");
     }
 
     try {
-      await this.initializeBookDB(bookId)
+      await this.initializeBookDB(bookId);
 
-      const searchFilter = { book_id: bookId }
-      if (fileName) searchFilter.file_name = fileName
-      if (userId && requireAuth) searchFilter.user_id = userId
+      const searchFilter = { book_id: bookId };
+      if (fileName) searchFilter.file_name = fileName;
+      if (userId && requireAuth) searchFilter.user_id = userId;
       if (!requireAuth && !userId) {
-        searchFilter.$or = [{ is_public: true }, { access_level: "public" }]
+        searchFilter.$or = [{ is_public: true }, { access_level: "public" }];
       }
 
-      const retrievalStart = Date.now()
-      const allDocs = await this.collection.find(searchFilter).limit(50).toArray()
-      timingMetrics.retrieval = Date.now() - retrievalStart
+      t1 = Date.now();
+      const allDocs = await this.collection.find(searchFilter).limit(50).toArray();
+      t2 = Date.now();
 
       if (allDocs.length === 0) {
+        timingMetrics.retrieval = t2 - t1;
+        timingMetrics.processing = 0;
+        timingMetrics.generation = 0;
+        timingMetrics.total = t2 - t0;
+        timingMetrics.breakdown = [
+          { step: "retrieval", ms: timingMetrics.retrieval },
+          { step: "processing", ms: 0 },
+          { step: "generation", ms: 0 }
+        ];
+        timingMetrics.sum = timingMetrics.retrieval;
+        timingMetrics.diff = timingMetrics.total - timingMetrics.sum;
         return {
           answer: `No relevant documents found in this book's knowledge base.`,
           confidence: 0,
@@ -271,20 +284,31 @@ class EnhancedPDFProcessor {
           timing: timingMetrics,
           modelUsed: this.chatModelName,
           tokensUsed: 0,
-        }
+        };
       }
 
-      const processingStart = Date.now()
-      const relevantResults = await this.performFastRetrieval(question, allDocs)
-      timingMetrics.processing = Date.now() - processingStart
+      const relevantStart = Date.now();
+      const relevantResults = await this.performFastRetrieval(question, allDocs);
+      t3 = Date.now();
 
-      const generationStart = Date.now()
-      const answerResult = await this.generateUltraFastAnswer(question, relevantResults, bookId)
-      timingMetrics.generation = Date.now() - generationStart
-      timingMetrics.total = Date.now() - startTime
+      const generationStart = Date.now();
+      const answerResult = await this.generateUltraFastAnswer(question, relevantResults, bookId);
+      t4 = Date.now();
 
-      const avgSimilarity = relevantResults.reduce((sum, r) => sum + (r.$similarity || 0.5), 0) / relevantResults.length
-      const confidence = Math.max(Math.round(avgSimilarity * 100), 75)
+      timingMetrics.retrieval = t2 - t1;
+      timingMetrics.processing = t3 - relevantStart;
+      timingMetrics.generation = t4 - generationStart;
+      timingMetrics.total = t4 - t0;
+      timingMetrics.breakdown = [
+        { step: "retrieval", ms: timingMetrics.retrieval },
+        { step: "processing", ms: timingMetrics.processing },
+        { step: "generation", ms: timingMetrics.generation }
+      ];
+      timingMetrics.sum = timingMetrics.retrieval + timingMetrics.processing + timingMetrics.generation;
+      timingMetrics.diff = timingMetrics.total - timingMetrics.sum;
+
+      const avgSimilarity = relevantResults.reduce((sum, r) => sum + (r.$similarity || 0.5), 0) / relevantResults.length;
+      const confidence = Math.max(Math.round(avgSimilarity * 100), 75);
 
       return {
         answer: answerResult.answer,
@@ -295,9 +319,10 @@ class EnhancedPDFProcessor {
         method: "ultra_fast_retrieval",
         modelUsed: this.chatModelName,
         tokensUsed: answerResult.tokensUsed || 0,
-      }
+      };
     } catch (error) {
-      timingMetrics.total = Date.now() - startTime
+      const tError = Date.now();
+      timingMetrics.total = tError - t0;
       return {
         answer: `Error: ${error.message}`,
         confidence: 0,
@@ -305,7 +330,7 @@ class EnhancedPDFProcessor {
         timing: timingMetrics,
         modelUsed: this.chatModelName,
         tokensUsed: 0,
-      }
+      };
     }
   }
 
