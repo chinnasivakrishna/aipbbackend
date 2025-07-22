@@ -284,11 +284,12 @@ class EnhancedPDFProcessor {
           timing: timingMetrics,
           modelUsed: this.chatModelName,
           tokensUsed: 0,
+          similarityTimings: [],
         };
       }
 
       const relevantStart = Date.now();
-      const relevantResults = await this.performFastRetrieval(question, allDocs);
+      const { topDocs: relevantResults, topTimings: similarityTimings } = await this.performFastRetrieval(question, allDocs);
       t3 = Date.now();
 
       const generationStart = Date.now();
@@ -319,6 +320,7 @@ class EnhancedPDFProcessor {
         method: "ultra_fast_retrieval",
         modelUsed: this.chatModelName,
         tokensUsed: answerResult.tokensUsed || 0,
+        similarityTimings,
       };
     } catch (error) {
       const tError = Date.now();
@@ -330,6 +332,7 @@ class EnhancedPDFProcessor {
         timing: timingMetrics,
         modelUsed: this.chatModelName,
         tokensUsed: 0,
+        similarityTimings: [],
       };
     }
   }
@@ -500,17 +503,32 @@ class EnhancedPDFProcessor {
 
   async performFastRetrieval(question, documents) {
     try {
-      const queryEmbedding = await this.generateSingleEmbedding(question.substring(0, 500))
-
-      const scoredDocs = documents.map((doc) => ({
-        ...doc,
-        $similarity: this.calculateSimilarity(queryEmbedding, doc.$vector || []),
-      }))
-
-      return scoredDocs.sort((a, b) => b.$similarity - a.$similarity).slice(0, this.maxContextChunks)
+      const queryEmbedding = await this.generateSingleEmbedding(question.substring(0, 500));
+      const timings = [];
+      const scoredDocs = documents.map((doc, idx) => {
+        const t0 = Date.now();
+        const similarity = this.calculateSimilarity(queryEmbedding, doc.$vector || []);
+        const t1 = Date.now();
+        timings.push({
+          chunkIndex: idx,
+          ms: t1 - t0,
+          similarity,
+          docId: doc._id,
+          preview: doc.text_content ? doc.text_content.slice(0, 50) : ""
+        });
+        return {
+          ...doc,
+          $similarity: similarity,
+        };
+      });
+      // Sort and slice as before
+      const topDocs = scoredDocs.sort((a, b) => b.$similarity - a.$similarity).slice(0, this.maxContextChunks);
+      // Only keep timings for the top N
+      const topTimings = topDocs.map(d => timings.find(t => t.chunkIndex === documents.indexOf(d)));
+      return { topDocs, topTimings };
     } catch (error) {
-      console.error("Error in performFastRetrieval:", error)
-      return documents.slice(0, this.maxContextChunks)
+      console.error("Error in performFastRetrieval:", error);
+      return { topDocs: documents.slice(0, this.maxContextChunks), topTimings: [] };
     }
   }
 
