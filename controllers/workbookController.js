@@ -11,6 +11,7 @@ const AiswbQuestion = require('../models/AiswbQuestion');
 const Question = require('../models/Question');
 const ObjectiveQuestion = require('../models/ObjectiveQuestion');
 const SubjectiveQuestion = require('../models/SubjectiveQuestion');
+const MyWorkbook = require('../models/MyWorkbook'); // Make sure this is at the top if not present
 
 // Helper function to format workbook with user info and S3 URLs
 const formatWorkbookWithUserInfo = async (workbook) => {
@@ -738,15 +739,20 @@ exports.getWorkbookSets = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Workbook not found' });
     }
 
-    console.log(id)
+    // Check if this workbook is in MyWorkbook for the current mobile user
+    let isMyWorkbookAdded = false;
+    console.log(req.user.id);
+    console.log(workbook._id)
+    if (req.user.id && workbook._id) {
+      isMyWorkbookAdded = await MyWorkbook.isWorkbookSavedByUser(req.user.id, workbook._id);
+    }
+    console.log(isMyWorkbookAdded)
 
     const chapters = await Chapter.find({ workbook: id });
-    console.log(chapters)
     const chapterIds = chapters.map(ch => ch._id);
 
     // Find all topics for these chapters
     const topics = await Topic.find({ chapter: { $in: chapterIds } });
-    console.log(topics)
     const topicIds = topics.map(tp => tp._id);
 
     // Find all subtopics for these topics
@@ -775,10 +781,14 @@ exports.getWorkbookSets = async (req, res) => {
       };
     });
 
+    // Format workbook and add isMyWorkbookAdded
+    const formattedWorkbook = await formatWorkbookWithUserInfo(workbook);
+    formattedWorkbook.isMyWorkbookAdded = isMyWorkbookAdded;
+
     return res.status(200).json({
       success: true,
       totalQuestionsCount,
-      workbook: await formatWorkbookWithUserInfo(workbook),
+      workbook: formattedWorkbook,
       sets: setsWithCounts,
     });
   } catch (error) {

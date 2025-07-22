@@ -66,6 +66,8 @@ MyWorkbookSchema.virtual('user', {
 
 // Static methods
 MyWorkbookSchema.statics.isWorkbookSavedByUser = async function(userId, workbookId) {
+  console.log("model",userId, workbookId);
+
   const savedWorkbook = await this.findOne({ userId, workbookId });
   return !!savedWorkbook;
 };
