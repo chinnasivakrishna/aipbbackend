@@ -198,6 +198,7 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
   try {
     const { bookId } = req.params
     const { question } = req.body
+    const userId = req.user?.id
 
     if (!question || question.trim().length === 0) {
       return res.status(400).json({
@@ -207,8 +208,11 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
     }
 
     let book
-    book = await Book.findOne({ _id: bookId })
-      
+    if (userId) {
+      book = await Book.findOne({ _id: bookId })
+    } else {
+      book = await Book.findOne({ _id: bookId, isPublic: true })
+    }
 
     if (!book) {
       return res.status(404).json({
@@ -217,8 +221,17 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
       })
     }
 
+    const embeddingStatus = await processor.checkExistingEmbeddings(null, userId, bookId)
 
-    const result = await processor.answerQuestion(question, null, false, bookId)
+    if (!embeddingStatus.exists) {
+      return res.status(400).json({
+        success: false,
+        message: "No content found in this book's knowledge base.",
+        bookId: bookId,
+      })
+    }
+
+    const result = await processor.answerQuestion(question, null, userId, false, bookId)
     const totalTime = Date.now() - startTime
 
 res.json({
