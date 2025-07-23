@@ -218,7 +218,7 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
     }
 
 
-    const result = await processor.answerQuestion(question, null, userId, false, bookId)
+    const result = await processor.answerQuestion(question, null, false, bookId)
     const totalTime = Date.now() - startTime
 
 res.json({
