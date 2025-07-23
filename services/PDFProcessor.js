@@ -347,7 +347,6 @@ class EnhancedPDFProcessor {
 
       const searchFilter = { book_id: bookId }
       if (fileName) searchFilter.file_name = fileName
-      if (userId && requireAuth) searchFilter.user_id = userId
       if (!requireAuth && !userId) {
         searchFilter.$or = [{ is_public: true }, { access_level: "public" }]
       }
