@@ -11,7 +11,7 @@ const optionalAuth = (req, res, next) => {
     try {
       const jwt = require("jsonwebtoken")
       const decoded = jwt.verify(token, process.env.JWT_SECRET)
-     
+      req.user = decoded
     } catch (error) {
       // Continue without auth
     }
@@ -208,11 +208,8 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
     }
 
     let book
-    if (userId) {
-      book = await Book.findOne({ _id: bookId })
-    } else {
-      book = await Book.findOne({ _id: bookId, isPublic: true })
-    }
+    book = await Book.findOne({ _id: bookId })
+      
 
     if (!book) {
       return res.status(404).json({
