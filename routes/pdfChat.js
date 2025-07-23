@@ -4,6 +4,21 @@ const EnhancedPDFProcessor = require("../services/PDFProcessor")
 const DataStore = require("../models/DatastoreItems")
 const Book = require("../models/Book")
 
+const optionalAuth = (req, res, next) => {
+  const token = req.headers.authorization?.replace("Bearer ", "")
+
+  if (token) {
+    try {
+      const jwt = require("jsonwebtoken")
+      const decoded = jwt.verify(token, process.env.JWT_SECRET)
+     
+    } catch (error) {
+      // Continue without auth
+    }
+  }
+
+  next()
+}
 
 const processor = new EnhancedPDFProcessor({
   chunkrApiKey: process.env.CHUNKR_API_KEY,
@@ -20,7 +35,7 @@ const processor = new EnhancedPDFProcessor({
   maxContextChunks: process.env.MAX_CONTEXT_CHUNKS || "5",
 })
 
-router.get("/chat-health/:itemId",  async (req, res) => {
+router.get("/chat-health/:itemId", optionalAuth, async (req, res) => {
   try {
     const { itemId } = req.params
     const userId = req.user?.id
@@ -81,7 +96,7 @@ router.get("/chat-health/:itemId",  async (req, res) => {
   }
 })
 
-router.post("/chat/:itemId",  async (req, res) => {
+router.post("/chat/:itemId", optionalAuth, async (req, res) => {
   const startTime = Date.now()
 
   try {
@@ -177,7 +192,7 @@ router.post("/chat/:itemId",  async (req, res) => {
   }
 })
 
-router.post("/chat-book-knowledge-base/:bookId",  async (req, res) => {
+router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) => {
   const startTime = Date.now()
 
   try {
