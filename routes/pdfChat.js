@@ -207,12 +207,8 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
       })
     }
 
-    let book
-    if (userId) {
-      book = await Book.findOne({ _id: bookId })
-    } else {
-      book = await Book.findOne({ _id: bookId, isPublic: true })
-    }
+    // Allow everyone to chat with any book's knowledge base
+    let book = await Book.findOne({ _id: bookId })
 
     if (!book) {
       return res.status(404).json({
@@ -221,7 +217,8 @@ router.post("/chat-book-knowledge-base/:bookId", optionalAuth, async (req, res) 
       })
     }
 
-    const embeddingStatus = await processor.checkExistingEmbeddings(null, userId, bookId)
+    // Check for any embeddings for the book, regardless of user
+    const embeddingStatus = await processor.checkExistingEmbeddings(null, null, bookId)
 
     if (!embeddingStatus.exists) {
       return res.status(400).json({
