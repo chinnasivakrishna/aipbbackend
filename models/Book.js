@@ -74,35 +74,35 @@ const BookSchema = new mongoose.Schema({
   mainCategory: {
     type: String,
     required: [true, 'Please select a main category'],
-    enum: ['Civil Services', 'SSC', 'Defense', 'Teacher', 'Law', 'CA', 'CMA', 'CS', 'NCERT', 'Other'],
+    // enum: ['Civil Services', 'SSC', 'Defense', 'Teacher', 'Law', 'CA', 'CMA', 'CS', 'NCERT', 'Other'],
     default: 'Other'
   },
   subCategory: {
     type: String,
     required: [true, 'Please select a subcategory'],
-    enum: [
-      // Civil Services
-      'UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'MPPCS',
-      // SSC
-      'SSC-CGL', 'SSC-CHSL', 'SSC-GD',
-      // Defense
-      'NDA', 'CDS', 'AFCAT',
-      // Teacher
-      'DSSSB', 'CTET', 'UPTET', 'Bihar-TET',
-      // Law
-      'CLAT', 'DU-LLB', 'JUDICIARY',
-      // CA
-      'CA-Foundation', 'CA-Inter', 'CA-Final',
-      // CMA
-      'CMA-Foundation', 'CMA-Inter', 'CMA-Final',
-      // CS
-      'CS-Executive', 'CS-Professional',
-      // NCERT
-      '1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS',
-      '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS',
-      // Other
-      'Other'
-    ],
+    // enum: [
+    //   // Civil Services
+    //   'UPSC(IAS)', 'BPSC', 'UPPCS', 'JPSC', 'RPSC', 'MPPCS',
+    //   // SSC
+    //   'SSC-CGL', 'SSC-CHSL', 'SSC-GD',
+    //   // Defense
+    //   'NDA', 'CDS', 'AFCAT',
+    //   // Teacher
+    //   'DSSSB', 'CTET', 'UPTET', 'Bihar-TET',
+    //   // Law
+    //   'CLAT', 'DU-LLB', 'JUDICIARY',
+    //   // CA
+    //   'CA-Foundation', 'CA-Inter', 'CA-Final',
+    //   // CMA
+    //   'CMA-Foundation', 'CMA-Inter', 'CMA-Final',
+    //   // CS
+    //   'CS-Executive', 'CS-Professional',
+    //   // NCERT
+    //   '1st CLASS', '2nd CLASS', '3rd CLASS', '4th CLASS', '5th CLASS', '6th CLASS',
+    //   '7th CLASS', '8th CLASS', '9th CLASS', '10th CLASS', '11th CLASS', '12th CLASS',
+    //   // Other
+    //   'Other'
+    // ],
     default: 'Other'
   },
   customSubCategory: {

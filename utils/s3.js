@@ -139,7 +139,7 @@ const generateAnnotatedImageUrl = async (key) => {
 
     // Generate URL with 1 year expiration
     const signedUrl = await getSignedUrl(s3Client, command, { 
-      expiresIn: 604800 // 1 year in seconds
+      expiresIn: 604800 
     });
 
     console.log('Successfully generated annotated image URL');

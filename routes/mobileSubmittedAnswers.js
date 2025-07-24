@@ -292,7 +292,7 @@ router.get('/:answerId', async (req, res) => {
         // AI/Manual Evaluation (updated to match new structure)
         evaluation: userAnswer.evaluation ? {
           relevancy: userAnswer.evaluation.relevancy,
-          score: userAnswer.evaluation.score,
+          score: userAnswer.evaluation.score.toString(),
           remark: userAnswer.evaluation.remark,
           extractedText: userAnswer.evaluation.extractedText,
           feedbackStatus: userAnswer.evaluation.feedbackStatus,
