@@ -47,7 +47,7 @@ class EnhancedPDFProcessor {
         const existingDimension = existingCollection.options?.vector?.dimension
         if (existingDimension && existingDimension !== this.vectorDimensions) {
           console.log(
-            `Adjusting vector dimensions from ${this.vectorDimensions} to ${existingDimension} for existing collection`,
+            `Adjusting vector dimensions from ${this.vectorDimensions} to ${existingDimension} for existing collection`
           )
           this.vectorDimensions = existingDimension
         }
@@ -74,7 +74,7 @@ class EnhancedPDFProcessor {
     const dimensionMap = {
       "text-embedding-004": 768,
       "embedding-001": 768,
-      "text-embedding-3-small": 1536, // Fallback for OpenAI models
+      "text-embedding-3-small": 1536,
       "text-embedding-3-large": 3072,
       "text-embedding-ada-002": 1536,
     }
@@ -236,6 +236,99 @@ class EnhancedPDFProcessor {
     }
   }
 
+  async extractTextFromPDFBuffer(pdfBuffer) {
+    try {
+      const pdfData = await pdf(pdfBuffer)
+      const text = pdfData.text
+      return this.chunkText(text)
+    } catch (error) {
+      throw new Error(`Failed to extract text from PDF: ${error.message}`)
+    }
+  }
+
+  chunkText(text) {
+    const words = text.split(/\s+/)
+    const chunks = []
+    let currentChunk = []
+    let currentLength = 0
+
+    for (const word of words) {
+      currentChunk.push(word)
+      currentLength += word.length + 1
+
+      if (currentLength >= this.chunkSize) {
+        chunks.push(currentChunk.join(" "))
+        currentChunk = currentChunk.slice(-this.chunkOverlap)
+        currentLength = currentChunk.join(" ").length
+      }
+    }
+
+    if (currentChunk.length > 0) {
+      chunks.push(currentChunk.join(" "))
+    }
+
+    return chunks
+  }
+
+  async generateEmbeddingsWithRetry(chunks, maxRetries = 3) {
+    let embeddings = []
+    let retryCount = 0
+
+    while (retryCount < maxRetries) {
+      try {
+        const embeddingModel = this.genAI.getGenerativeModel({ model: this.embeddingModelName })
+        const batchSize = 100
+        for (let i = 0; i < chunks.length; i += batchSize) {
+          const batch = chunks.slice(i, i + batchSize)
+          const batchEmbeddings = await Promise.all(
+            batch.map(async (text) => {
+              const result = await embeddingModel.embedContent(text)
+              return result.embedding.values
+            })
+          )
+          embeddings.push(...batchEmbeddings)
+        }
+        return embeddings
+      } catch (error) {
+        retryCount++
+        if (retryCount === maxRetries) {
+          throw new Error(`Failed to generate embeddings after ${maxRetries} attempts: ${error.message}`)
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000 * retryCount))
+      }
+    }
+
+    return embeddings
+  }
+
+  async performFastRetrieval(question, documents) {
+    try {
+      const embeddingModel = this.genAI.getGenerativeModel({ model: this.embeddingModelName })
+      const questionEmbeddingResult = await embeddingModel.embedContent(question)
+      const questionEmbedding = questionEmbeddingResult.embedding.values
+
+      const similarities = documents.map((doc) => {
+        const docEmbedding = doc.$vector
+        const similarity = this.cosineSimilarity(questionEmbedding, docEmbedding)
+        return { ...doc, $similarity: similarity }
+      })
+
+      similarities.sort((a, b) => (b.$similarity || 0) - (a.$similarity || 0))
+      return similarities.slice(0, this.maxContextChunks)
+    } catch (error) {
+      console.error("Retrieval error:", error)
+      return []
+    }
+  }
+
+  cosineSimilarity(vecA, vecB) {
+    if (!vecA || !vecB || vecA.length !== vecB.length) return 0
+    const dotProduct = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0)
+    const magnitudeA = Math.sqrt(vecA.reduce((sum, a) => sum + a * a, 0))
+    const magnitudeB = Math.sqrt(vecB.reduce((sum, b) => sum + b * b, 0))
+    return magnitudeA && magnitudeB ? dotProduct / (magnitudeA * magnitudeB) : 0
+  }
+
   async answerQuestion(question, fileName = null, userId = null, requireAuth = false, bookId = null) {
     const startTime = Date.now()
     const timingMetrics = {
@@ -271,6 +364,8 @@ class EnhancedPDFProcessor {
           timing: timingMetrics,
           modelUsed: this.chatModelName,
           tokensUsed: 0,
+          chunkDetails: [],
+          maxContextChunks: this.maxContextChunks,
         }
       }
 
@@ -294,7 +389,9 @@ class EnhancedPDFProcessor {
         bookId: bookId,
         method: "ultra_fast_retrieval",
         modelUsed: this.chatModelName,
-        tokensUsed: answerResult.tokensUsed || 0,
+        tokensUsed: answerResult.tokensUsed,
+        chunkDetails: answerResult.chunkDetails,
+        maxContextChunks: this.maxContextChunks,
       }
     } catch (error) {
       timingMetrics.total = Date.now() - startTime
@@ -305,28 +402,39 @@ class EnhancedPDFProcessor {
         timing: timingMetrics,
         modelUsed: this.chatModelName,
         tokensUsed: 0,
+        chunkDetails: [],
+        maxContextChunks: this.maxContextChunks,
       }
     }
   }
 
   async generateUltraFastAnswer(question, relevantChunks, bookId) {
     try {
-      const topChunks = relevantChunks.slice(0, 2)
-  
+      const topChunks = relevantChunks.slice(0, this.maxContextChunks)
+      const chunkDetails = []
+
       const context = topChunks
         .map((chunk, index) => {
+          const chunkStart = Date.now()
           const similarity = Math.round((chunk.$similarity || 0) * 100)
-          return `[${index + 1}] ${chunk.text_content.substring(0, 200)}... (${similarity}% match)`
+          const text = chunk.text_content.substring(0, 200)
+          const chunkTime = Date.now() - chunkStart
+          chunkDetails.push({
+            chunkIndex: index + 1,
+            timing: chunkTime,
+            similarity: similarity,
+          })
+          return `[${index + 1}] ${text}... (${similarity}% match)`
         })
         .join("\n\n")
-  
-      // Gemini uses a different message format than OpenAI
+
       const prompt = `Context: ${context}
-  
-  Question: ${question}
-  
-  Answer in 1-2 sentences:`
-  
+
+      Question: ${question}
+
+      Answer in 1-2 sentences:`
+
+      const generationStart = Date.now()
       const result = await this.chatModel.generateContent({
         contents: [
           {
@@ -337,19 +445,26 @@ class EnhancedPDFProcessor {
           }
         ]
       })
-  
+
       const response = await result.response
       const answer = response.text()
-      
+      const generationTime = Date.now() - generationStart
+
+      // Update chunk details with a portion of generation time (approximated)
+      chunkDetails.forEach((detail) => {
+        detail.timing = Math.round(detail.timing + (generationTime / topChunks.length))
+      })
+
       // Estimate tokens based on text length
       const tokensUsed = Math.round((prompt.length + answer.length) / 4)
-  
+
       return {
         answer: answer,
         method: "ultra-fast-gemini",
         contextUsed: topChunks.length,
         bookId: bookId,
         tokensUsed: tokensUsed,
+        chunkDetails: chunkDetails,
       }
     } catch (error) {
       console.error("Gemini API error:", error)
@@ -358,6 +473,7 @@ class EnhancedPDFProcessor {
         method: "error-fallback",
         bookId: bookId,
         tokensUsed: 0,
+        chunkDetails: [],
       }
     }
   }
@@ -432,172 +548,45 @@ class EnhancedPDFProcessor {
         throw new Error("Book ID is required")
       }
 
-      const embeddingStatus = await this.checkExistingEmbeddings(null, userId, bookId)
+      await this.initializeBookDB(bookId)
+
+      const searchFilter = { book_id: bookId }
+      if (userId) searchFilter.user_id = userId
+
+      const existingDocs = await this.collection.find(searchFilter).toArray()
+      const totalEmbeddings = existingDocs.length
+      const uniqueFiles = [...new Set(existingDocs.map((doc) => doc.file_name))]
+      const totalWords = existingDocs.reduce((sum, doc) => sum + (doc.word_count || 0), 0)
+      const tokensUsed = Math.round(totalWords * 1.33)
 
       return {
         success: true,
         bookId: bookId,
-        collectionName: this.getBookCollectionName(bookId),
-        totalEmbeddings: embeddingStatus.count,
-        availableFiles: embeddingStatus.files,
-        hasContent: embeddingStatus.exists,
+        collectionName: this.currentCollectionName,
+        totalEmbeddings: totalEmbeddings,
+        uniqueFiles: uniqueFiles,
+        fileCount: uniqueFiles.length,
+        totalWords: totalWords,
+        tokensUsed: tokensUsed,
+        hasEmbeddings: totalEmbeddings > 0,
+        chatAvailable: totalEmbeddings > 0,
+        vectorSize: this.vectorDimensions,
+        modelUsed: this.embeddingModelName,
       }
     } catch (error) {
       return {
         success: false,
         bookId: bookId,
-        message: "Failed to get book knowledge base status",
         error: error.message,
+        totalEmbeddings: 0,
+        uniqueFiles: [],
+        fileCount: 0,
+        totalWords: 0,
+        tokensUsed: 0,
+        hasEmbeddings: false,
+        chatAvailable: false,
       }
     }
-  }
-
-  calculateSimilarity(queryEmbedding, docEmbedding) {
-    let dotProduct = 0
-    let queryMagnitude = 0
-    let docMagnitude = 0
-
-    for (let i = 0; i < Math.min(queryEmbedding.length, docEmbedding.length); i++) {
-      dotProduct += queryEmbedding[i] * docEmbedding[i]
-      queryMagnitude += queryEmbedding[i] * queryEmbedding[i]
-      docMagnitude += docEmbedding[i] * docEmbedding[i]
-    }
-
-    queryMagnitude = Math.sqrt(queryMagnitude)
-    docMagnitude = Math.sqrt(docMagnitude)
-
-    if (queryMagnitude === 0 || docMagnitude === 0) {
-      return 0
-    }
-
-    return dotProduct / (queryMagnitude * docMagnitude)
-  }
-
-  async performFastRetrieval(question, documents) {
-    try {
-      const queryEmbedding = await this.generateSingleEmbedding(question.substring(0, 500))
-
-      const scoredDocs = documents.map((doc) => ({
-        ...doc,
-        $similarity: this.calculateSimilarity(queryEmbedding, doc.$vector || []),
-      }))
-
-      return scoredDocs.sort((a, b) => b.$similarity - a.$similarity).slice(0, this.maxContextChunks)
-    } catch (error) {
-      console.error("Error in performFastRetrieval:", error)
-      return documents.slice(0, this.maxContextChunks)
-    }
-  }
-
-  async extractTextFromPDFBuffer(pdfBuffer) {
-    try {
-      const data = await pdf(pdfBuffer, {
-        normalizeWhitespace: true,
-        disableCombineTextItems: false,
-      })
-
-      const extractedText = data.text
-      if (extractedText.length < 100) {
-        return ["This PDF contains minimal extractable text."]
-      }
-
-      const chunks = this.createFastChunks(extractedText, this.chunkSize, this.chunkOverlap)
-      return chunks
-    } catch (error) {
-      return ["Error processing PDF document: " + error.message]
-    }
-  }
-
-  preprocessText(text) {
-    return text
-      .replace(/\f/g, "\n")
-      .replace(/\r\n/g, "\n")
-      .replace(/\r/g, "\n")
-      .replace(/\t/g, " ")
-      .replace(/\u00A0/g, " ")
-      .replace(/[^\x20-\x7E\n]/g, " ")
-      .replace(/\s{2,}/g, " ")
-      .replace(/\n{3,}/g, "\n\n")
-      .trim()
-  }
-
-  createFastChunks(text, chunkSize = 200, overlap = 30) {
-    const cleanText = this.preprocessText(text)
-    if (cleanText.length < 100) {
-      return ["Document contains minimal extractable text content."]
-    }
-
-    const chunks = []
-    const words = cleanText.split(/\s+/)
-    const wordsPerChunk = Math.floor(chunkSize / 5)
-
-    for (let i = 0; i < words.length; i += wordsPerChunk - Math.floor(overlap / 5)) {
-      const chunk = words.slice(i, i + wordsPerChunk).join(" ")
-      if (chunk.trim().length > 50) {
-        chunks.push(chunk.trim())
-      }
-    }
-
-    return chunks.length > 0 ? chunks : ["Unable to extract meaningful content from this document."]
-  }
-
-  async generateSingleEmbedding(text) {
-    try {
-      const embeddingModel = this.genAI.getGenerativeModel({ model: this.embeddingModelName })
-      const result = await embeddingModel.embedContent(text.substring(0, 4000))
-      let embedding = result.embedding.values
-
-      // Ensure embedding matches expected dimensions
-      if (embedding.length !== this.vectorDimensions) {
-        console.log(`Adjusting embedding dimension from ${embedding.length} to ${this.vectorDimensions}`)
-
-        if (embedding.length > this.vectorDimensions) {
-          embedding = embedding.slice(0, this.vectorDimensions)
-        } else {
-          const padding = new Array(this.vectorDimensions - embedding.length).fill(0)
-          embedding = [...embedding, ...padding]
-        }
-      }
-
-      return embedding
-    } catch (error) {
-      console.error("Error generating single embedding:", error)
-      return new Array(this.vectorDimensions).fill(0.001)
-    }
-  }
-
-  async generateEmbeddingsWithRetry(texts, maxRetries = 1) {
-    const embeddings = []
-    const batchSize = 5 // Smaller batch size for Gemini
-
-    for (let i = 0; i < texts.length; i += batchSize) {
-      const batch = texts.slice(i, i + batchSize)
-
-      try {
-        const batchEmbeddings = []
-        
-        for (const text of batch) {
-          const embedding = await this.generateSingleEmbedding(text)
-          batchEmbeddings.push(embedding)
-          
-          // Small delay to avoid rate limiting
-          await new Promise((resolve) => setTimeout(resolve, 100))
-        }
-
-        embeddings.push(...batchEmbeddings)
-
-        if (i + batchSize < texts.length) {
-          await new Promise((resolve) => setTimeout(resolve, 200))
-        }
-      } catch (error) {
-        console.error(`Error generating embeddings for batch ${i}:`, error)
-        for (let j = 0; j < batch.length; j++) {
-          embeddings.push(new Array(this.vectorDimensions).fill(0.001))
-        }
-      }
-    }
-
-    return embeddings
   }
 }
 
