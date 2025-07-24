@@ -42,6 +42,7 @@ const courseRoutes = require('./routes/Course')
 const ai = require("./routes/aiServiceConfig");
 const userAnswer1 = require('./routes/userAnswer1')
 const youTubeRoutes = require('./routes/youtube');
+const aiguidelinesRoutes = require('./routes/aiguidelines');
 
 app.use(cors())
 app.use(express.json({ limit: "50mb" }))
@@ -78,6 +79,7 @@ app.use('/api/user', userRoutes);
 app.use('/api/datastores', datastoreRoutes);
 app.use('/api/datastore', datastoreRoute);
 app.use('/api/books', bookRoutes);
+app.use('/api/aiguidelines', aiguidelinesRoutes);
 app.use('/api/subtopics', subtopicsRoutes);
 app.use('/api/assets', assetsRoutes);
 app.use('/api/video-assets', videoAssetsRoutes);

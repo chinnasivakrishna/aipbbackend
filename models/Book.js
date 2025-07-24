@@ -268,6 +268,21 @@ const BookSchema = new mongoose.Schema({
     type:Boolean,
     default:false
   },
+  aiGuidelines: {
+    message: {
+      type: String,
+      default: ''
+    },
+    prompt: {
+      type: String,
+    },
+    FAQs:[{
+      question: {
+        type: String,
+        default: ''
+      }
+    }]
+  },
   createdAt: {
     type: Date,
     default: Date.now
