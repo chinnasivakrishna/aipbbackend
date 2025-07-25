@@ -5,6 +5,7 @@ const AiswbQuestion = require('../models/AiswbQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { verifyTokenforevaluator } = require('../middleware/auth');
+const { generateAnnotatedImageUrl } = require('../utils/s3');
 
 // GET /crud/answers - List all submitted answers with pagination and filters
 router.get('/answers', [
@@ -388,6 +389,23 @@ router.get('/answers/evaluated', [
     pipeline.push({ $limit: limit });
 
     const evaluatedAnswers = await UserAnswer.aggregate(pipeline);
+
+    // Add downloadUrl to each annotation
+   await Promise.all(
+   evaluatedAnswers.map(async (answer) => {
+    if (Array.isArray(answer.annotations)) {
+      console.log(answer.annotations)
+      await Promise.all(
+        answer.annotations.map(async (annotation) => {
+          if (annotation.s3Key) {
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+            console.log(annotation.downloadUrl)
+          }
+        })
+      );
+    }
+  })
+);
 
     const totalPages = Math.ceil(totalCount / limit);
 
@@ -1393,7 +1411,20 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
     pipeline.push({ $limit: limit });
 
     const evaluatedAnswers = await UserAnswer.aggregate(pipeline);
-
+    // Add downloadUrl to each annotation
+    await Promise.all(
+      evaluatedAnswers.map(async (answer) => {
+       if (Array.isArray(answer.annotations)) {
+         await Promise.all(
+           answer.annotations.map(async (annotation) => {
+             if (annotation.s3Key) {
+               annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+             }
+           })
+         );
+       }
+     })
+   );
     res.status(200).json({
       success: true,
       message: "Your evaluated answers retrieved successfully",

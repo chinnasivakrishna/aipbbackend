@@ -1887,6 +1887,15 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
 
     // Get total count for pagination
     const total = await UserAnswer.countDocuments(filter);
+    for (const review of pendingReviews) {
+      if (review.annotations && Array.isArray(review.annotations)) {
+        for (const annotation of review.annotations) {
+          if (annotation.s3Key) {
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+          }
+        }
+      }
+    }
 
     // Format response data
     const formattedReviews = pendingReviews.map(review => ({
@@ -1973,8 +1982,15 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
 
     // Get total count for pagination
     const total = await UserAnswer.countDocuments(filter);
-
-    // Format response data
+    for (const review of acceptedReviews) {
+      if (review.annotations && Array.isArray(review.annotations)) {
+        for (const annotation of review.annotations) {
+          if (annotation.s3Key) {
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+          }
+        }
+      }
+    }
     const formattedReviews = acceptedReviews.map(review => ({
       _id: review._id,
       userId: review.userId,
@@ -2056,7 +2072,20 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
 
     // Get total count for pagination
     const total = await UserAnswer.countDocuments(filter);
-
+    for (const review of completedReviews) {
+      if (review.annotations && Array.isArray(review.annotations)) {
+        for (const annotation of review.annotations) {
+          if (annotation.s3Key) {
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+          }
+        }
+      }
+      if(review.feedback.expertReview.annotatedImages){
+        for(const image of review.feedback.expertReview.annotatedImages){
+          image.downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
+        }
+      }
+    }
     // Format response data
     const formattedReviews = completedReviews.map(review => ({
       _id: review._id,
