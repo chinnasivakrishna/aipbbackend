@@ -371,7 +371,13 @@ router.get('/book/details',authenticateMobileUser, async (req, res) => {
       
       bookIndex.push({
         chapter_name: chapter.title,
-        topics: topics.map(topic => topic.title)
+        chapter_id: chapter._id.toString(),
+        topics: topics.map(topic => {
+          return {
+            topic_name: topic.title,
+            topic_id: topic._id.toString()
+          }
+        })
       });
     }
 
