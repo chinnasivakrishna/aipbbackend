@@ -4,6 +4,7 @@ const router = express.Router();
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
+const { generateAnnotatedImageUrl } = require('../utils/s3');
 
 // Apply authentication middleware to all routes
 router.use(authenticateMobileUser);
@@ -81,6 +82,22 @@ router.get('/', async (req, res) => {
       .limit(parseInt(limit))
       .lean();
 
+    for(const answer of submittedAnswers){
+      if(answer.feedback.expertReview.annotatedImages){
+        for(const image of answer.feedback.expertReview.annotatedImages){
+          if(image.s3Key){
+            image.downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
+          }
+        }
+      }
+      if(answer.annotations){
+        for(const annotation of answer.annotations){
+          if(annotation.s3Key){
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+          }
+        }
+      }
+    }
     // Transform the data for mobile response
     const transformedAnswers = submittedAnswers.map(answer => ({
       _id: answer._id,
@@ -248,6 +265,22 @@ router.get('/:answerId', async (req, res) => {
           }
         }
       });
+    }
+    
+    if(userAnswer.feedback.expertReview.annotatedImages){
+      for(const image of userAnswer.feedback.expertReview.annotatedImages){
+          if(image.s3Key){
+            image.downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
+        }
+      }
+    }
+    if(userAnswer.annotations){
+        for(const annotation of userAnswer.annotations){
+          if(annotation.s3Key){
+            annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
+        }
+      }
+
     }
 
     // Prepare the detailed response with analysis
