@@ -275,13 +275,13 @@ const BookSchema = new mongoose.Schema({
     },
     prompt: {
       type: String,
+      default: ''
     },
-    FAQs:[{
-      question: {
-        type: String,
-        default: ''
+    FAQs: [
+      {
+        question: { type: String, default: '' }
       }
-    }]
+    ]
   },
   createdAt: {
     type: Date,
