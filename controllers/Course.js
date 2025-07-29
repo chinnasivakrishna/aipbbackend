@@ -109,6 +109,20 @@ const getcourses = async (req, res) => {
     
     const course = await Course.find({bookId});
 
+    await Promise.all(course.map(async (course) => {
+      if(course.cover_imageKey){
+        course.cover_imageUrl = await generateGetPresignedUrl(course.cover_imageKey);
+      }
+      if(course.faculty){
+        await Promise.all(course.faculty.map(async (fac) => {
+          if(fac.faculty_imageKey){
+            fac.faculty_imageUrl = await generateGetPresignedUrl(fac.faculty_imageKey);
+          }
+        }));
+      }
+    }));
+
+
     if(course.length === 0)
     {
       return res
