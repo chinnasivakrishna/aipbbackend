@@ -167,7 +167,7 @@ exports.getAllTests = async (req, res) => {
         {
             res.status(400).json({message:"client not found"})
         }
-        const tests = await Test.find({ isActive: true,clientId:clientId}).sort({ createdAt: -1 });
+        const tests = await Test.find({ isActive: true,clientId:clientId});
 
         // Generate fresh presigned URLs for all tests with images
         const testsWithUrls = await Promise.all(
@@ -235,7 +235,7 @@ exports.getAllTestsForMobile = async (req, res) => {
         const allTests = await Test.find({ 
             isActive: true, 
             clientId: clientId 
-        }).sort({ createdAt: -1 });
+        });
 
         // Generate fresh presigned URLs for all tests with images
         const testsWithUrls = await Promise.all(

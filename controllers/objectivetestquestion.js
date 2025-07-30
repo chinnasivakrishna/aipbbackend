@@ -146,7 +146,6 @@ exports.getQuestionsByTest = async (req, res) => {
         // Get questions with pagination
         const questions = await ObjectiveTestQuestion.find(query)
             .populate('test', 'name')
-            .sort({ createdAt: -1 })
             .skip(skip)
             .limit(parseInt(limit));
 
@@ -211,7 +210,6 @@ exports.getQuestionsByTestForMobile = async (req, res) => {
         // Get questions with pagination
         const questions = await ObjectiveTestQuestion.find(query)
             .populate('test', 'name')
-            .sort({ createdAt: -1 })
             .skip(skip)
             .limit(parseInt(limit));
 
