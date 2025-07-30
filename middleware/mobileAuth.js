@@ -21,7 +21,7 @@ const generateToken = (userId, mobile, clientId) => {
 const authenticateMobileUser = async (req, res, next) => {
   try {
     const token = req.header('Authorization')?.replace('Bearer ', '');
-    
+    console.log(token)
     if (!token) {
       return res.status(401).json({
         success: false,
@@ -155,6 +155,7 @@ const checkClientAccess = (allowedClients = []) => {
       }
 
       // Add client info to request
+      req.user = client;
       req.clientId = clientId;
       req.clientInfo = {
         id: client._id,

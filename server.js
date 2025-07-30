@@ -43,6 +43,8 @@ const ai = require("./routes/aiServiceConfig");
 const userAnswer1 = require('./routes/userAnswer1')
 const youTubeRoutes = require('./routes/youtube');
 const aiguidelinesRoutes = require('./routes/aiguidelines');
+const subjectiveTestRoutes = require('./routes/subjectivetest');
+const objectiveTestRoutes = require('./routes/objectivetest');
 
 app.use(cors())
 app.use(express.json({ limit: "50mb" }))
@@ -99,6 +101,8 @@ app.use('/api/book', courseRoutes);
 app.use("/api/pdf-embedding", require("./routes/pdfEmbedding"))
 app.use("/api/pdf-chat", require("./routes/pdfChat"))
 app.use('/api/youtube', youTubeRoutes);
+app.use('/api/subjectivetests', subjectiveTestRoutes);
+app.use('/api/objectivetests', objectiveTestRoutes);
 
 // Enhanced PDF processing routes with clustering and optional auth
 app.use("/api/enhanced-pdf-embedding", require("./routes/pdfEmbedding"))
@@ -117,6 +121,26 @@ app.use(
     next()
   },
   mobileAuthRoutes,
+)
+
+app.use(
+  "/api/subjectivetest/clients/:clientId",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  subjectiveTestRoutes,
+)
+
+app.use(
+  "/api/objectivetest/clients/:clientId",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  objectiveTestRoutes,
 )
 
 app.use(
