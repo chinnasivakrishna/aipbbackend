@@ -45,7 +45,7 @@ exports.uploadImage = async (req, res) => {
 
 exports.createTest = async (req, res) => {
     try {
-      const { name, description,category,subCategory, Estimated_time, imageKey, isTrending, isHighlighted, isActive, instructions } = req.body;
+      const { name, description,category,subcategory, Estimated_time, imageKey, isTrending, isHighlighted, isActive, instructions } = req.body;
       console.log(req.user.userId)
       const clientId = req.user.userId;
       const client = await User.findOne({userId:req.user.userId});
@@ -80,7 +80,7 @@ exports.createTest = async (req, res) => {
         clientId,
         description,
         category,
-        subCategory,
+        subcategory,
         Estimated_time,
         imageKey,
         imageUrl,
