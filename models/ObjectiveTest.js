@@ -4,6 +4,8 @@ const objectiveTestSchema = new mongoose.Schema({
     name: { type: String, required: true, default: "" },
     clientId: { type: String, required: true },
     description: { type: String, default: "" },
+    category: { type: String, default: "" },
+    subcategory: { type: String, default: "" },
     Estimated_time: { type: String, default: "" },
     imageKey: { type: String, default: "" },
     imageUrl: { type: String, default: "" },

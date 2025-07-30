@@ -14,6 +14,14 @@ const subjectiveTestSchema =  new mongoose.Schema({
         type:String,
         default:""
     },
+    category:{
+        type:String,
+        default:""
+    },
+    subcategory:{
+        type:String,
+        default:""
+    },
     Estimated_time:{
         type:String,
         default:""

@@ -45,7 +45,7 @@ exports.uploadImage = async (req, res) => {
 
 exports.createTest = async (req, res) => {
     try {
-      const { name, description, Estimated_time, imageKey, isTrending, isHighlighted, isActive, instructions } = req.body;
+      const { name, description,category,subCategory, Estimated_time, imageKey, isTrending, isHighlighted, isActive, instructions } = req.body;
       console.log(req.user.userId)
       const clientId = req.user.userId;
       const client = await User.findOne({userId:req.user.userId});
@@ -79,6 +79,8 @@ exports.createTest = async (req, res) => {
         name,
         clientId,
         description,
+        category,
+        subCategory,
         Estimated_time,
         imageKey,
         imageUrl,
@@ -198,18 +200,46 @@ exports.getAllTests = async (req, res) => {
 
 exports.getAllTestsForMobile = async (req, res) => {
     try {
-        const clientId = req.clientId;
-        console.log(clientId);
-        const client = await User.findOne({userId:clientId});
-        if(!client)
-        {
-            res.status(400).json({message:"client not found"})
+        // Use req.clientId (set by middleware) or fallback to req.params.clientId
+        const clientId = req.clientId || req.params.clientId;
+        const { 
+            limit = 10, 
+            page = 1,
+            category, 
+            subcategory 
+        } = req.query;
+
+        console.log('Fetching tests for mobile for client:', clientId);
+
+        // Validate client exists
+        const client = await User.findOne({userId: clientId});
+        if (!client) {
+            return res.status(400).json({
+                success: false,
+                message: "Client not found"
+            });
         }
-        const tests = await Test.find({ isActive: true,clientId:clientId}).sort({ createdAt: -1 });
+
+        // Calculate pagination
+        const skip = (parseInt(page) - 1) * parseInt(limit);
+
+        // Build filter for tests
+        const filter = { 
+            isActive: true, 
+            clientId: clientId 
+        };
+        if (category) filter.category = category;
+        if (subcategory) filter.subcategory = subcategory;
+
+        // Get all tests for this client (without pagination for categorization)
+        const allTests = await Test.find({ 
+            isActive: true, 
+            clientId: clientId 
+        }).sort({ createdAt: -1 });
 
         // Generate fresh presigned URLs for all tests with images
         const testsWithUrls = await Promise.all(
-            tests.map(async (test) => {
+            allTests.map(async (test) => {
                 if (test.imageKey) {
                     try {
                         const freshImageUrl = await generateGetPresignedUrl(test.imageKey, 604800);
@@ -222,16 +252,98 @@ exports.getAllTestsForMobile = async (req, res) => {
             })
         );
 
-        res.status(200).json({
-            success: true,
-            tests: testsWithUrls
+        // Format response for mobile
+        const formatTestForMobile = (test) => ({
+            test_id: test._id.toString(),
+            name: test.name,
+            description: test.description,
+            category: test.category || '',
+            subcategory: test.subcategory || '',
+            image: test.imageKey || '',
+            image_url: test.imageUrl || '',
+            estimated_time: test.Estimated_time,
+            instructions: test.instructions,
+            is_trending: test.isTrending,
+            is_highlighted: test.isHighlighted,
+            is_active: test.isActive,
+            created_at: test.createdAt,
+            updated_at: test.updatedAt
         });
+
+        // Group tests by category and subcategory
+        const groupedTests = {};
+        
+        testsWithUrls.forEach(test => {
+            const category = test.category || 'Uncategorized';
+            const subcategory = test.subcategory || 'General';
+            
+            if (!groupedTests[category]) {
+                groupedTests[category] = {
+                    category: category,
+                    subcategories: {}
+                };
+            }
+            
+            if (!groupedTests[category].subcategories[subcategory]) {
+                groupedTests[category].subcategories[subcategory] = [];
+            }
+            
+            groupedTests[category].subcategories[subcategory].push(formatTestForMobile(test));
+        });
+
+        // Convert to array format and apply pagination
+        const categoriesArray = Object.values(groupedTests).map(category => {
+            const subcategoriesArray = Object.entries(category.subcategories).map(([subName, tests]) => ({
+                name: subName,
+                count: tests.length,
+                tests: tests.slice(skip, skip + parseInt(limit))
+            }));
+
+            return {
+                category: category.category,
+                subcategories: subcategoriesArray,
+                total_tests: Object.values(category.subcategories).reduce((sum, tests) => sum + tests.length, 0)
+            };
+        });
+
+        // Calculate pagination metadata
+        const totalTests = testsWithUrls.length;
+        const totalPages = Math.ceil(totalTests / parseInt(limit));
+        const hasNextPage = parseInt(page) < totalPages;
+        const hasPrevPage = parseInt(page) > 1;
+
+        const mobileTestsResponse = {
+            success: true,
+            data: {
+                categories: categoriesArray,
+                totalTests: totalTests,
+                pagination: {
+                    current_page: parseInt(page),
+                    total_pages: totalPages,
+                    total_items: totalTests,
+                    items_per_page: parseInt(limit),
+                    has_next_page: hasNextPage,
+                    has_prev_page: hasPrevPage
+                }
+            },
+            meta: {
+                clientId,
+                timestamp: new Date().toISOString(),
+                filters_applied: { category, subcategory }
+            }
+        };
+
+        res.status(200).json(mobileTestsResponse);
+
     } catch (error) {
-        console.error('Get all tests error:', error);
+        console.error('Get all tests for mobile error:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to get tests',
-            error: error.message
+            error: {
+                code: 'TESTS_FETCH_ERROR',
+                details: error.message
+            }
         });
     }
 }
