@@ -3,11 +3,120 @@ const express = require('express');
 const router = express.Router();
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
+const AISWBSet = require('../models/AISWBSet');
+const ObjectiveQuestion = require('../models/ObjectiveQuestion');
+const SubjectiveQuestion = require('../models/SubjectiveQuestion');
+const Book = require('../models/Book');
+const Chapter = require('../models/Chapter');
+const Topic = require('../models/Topic');
+const SubTopic = require('../models/SubTopic');
+const Workbook = require('../models/Workbook');
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
 const { generateAnnotatedImageUrl } = require('../utils/s3');
 
 // Apply authentication middleware to all routes
 router.use(authenticateMobileUser);
+
+/**
+ * Helper function to get book/workbook information based on question type and set
+ */
+const getBookWorkbookInfo = async (question) => {
+  try {
+    // For AISWB questions
+    if (question.setId) {
+      console.log(question.setId)
+      const aiswbSet = await AISWBSet.findById(question.setId).lean();
+      console.log(aiswbSet.itemType)
+      if (aiswbSet) {
+        let bookInfo = null;
+        let workbookInfo = null;
+        
+        // Get item details based on itemType
+        switch (aiswbSet.itemType) {
+          case 'book':
+            const book = await Book.findById(aiswbSet.itemId).select('title').lean();
+            bookInfo = book ? {
+              id: book._id,
+              title: book.title
+            } : null;
+            break;
+          case 'workbook':
+            const workbook = await Workbook.findById(aiswbSet.itemId).select('title').lean();
+            workbookInfo = workbook ? {
+              id: workbook._id,
+              title: workbook.title
+            } : null;
+            break;
+          case 'chapter':
+            const chapter = await Chapter.findById(aiswbSet.itemId).select('title parentType book workbook').lean();
+            if (chapter.parentType === 'book') {
+              const book = await Book.findById(chapter.book).select('title').lean();
+              bookInfo = book ? {
+                id: book._id,
+                title: book.title
+              } : null;
+            }
+            if (chapter.parentType === 'workbook') {
+              const workbook = await Workbook.findById(chapter.workbook).select('title').lean();
+              workbookInfo = workbook ? {
+                id: workbook._id,
+                title: workbook.title
+              } : null;
+            }
+            break;
+          case 'topic':
+            const topic = await Topic.findById(aiswbSet.itemId).select('title chapter').lean();
+            if (topic?.chapter) {
+              const chapter = await Chapter.findById(topic.chapter);
+            if (chapter.parentType === 'book') {
+              const book = await Book.findById(chapter.book).select('title description coverImageUrl author publisher mainCategory subCategory rating createdAt updatedAt');
+              bookInfo = book;
+            }
+            if (chapter.parentType === 'workbook') {
+              const workbook = await Workbook.findById(chapter.workbook).select('title description coverImageUrl author publisher mainCategory subCategory rating createdAt updatedAt');
+              workbookInfo = workbook;
+            }
+          }
+            break;
+          case 'subtopic':
+            const subtopic = await SubTopic.findById(aiswbSet.itemId).select('title topic').lean();
+            if (subtopic?.topic) {
+              const topic = await Topic.findById(subtopic.topic).select('title chapter').lean();
+              if (topic?.chapter) {
+                const chapter = await Chapter.findById(aiswbSet.itemId).select('title parentType book workbook').lean();
+                if (chapter.parentType === 'book') {
+                  const book = await Book.findById(chapter.book).select('title').lean();
+                  bookInfo = book ? {
+                    id: book._id,
+                    title: book.title
+                  } : null;
+                }
+                if (chapter.parentType === 'workbook') {
+                  const workbook = await Workbook.findById(chapter.workbook).select('title').lean();
+                  workbookInfo = workbook ? {
+                    id: workbook._id,
+                    title: workbook.title
+                  } : null;
+                }
+              }
+            }
+            break;
+        }
+        
+        return {
+          book: bookInfo,
+          workbook: workbookInfo,
+          questionType: 'aiswb'
+        };
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error getting book/workbook information:', error);
+    return null;
+  }
+};
 
 /**
  * GET /api/clients/:clientId/mobile/submitted-answers
@@ -69,7 +178,7 @@ router.get('/', async (req, res) => {
     const submittedAnswers = await UserAnswer.find(filter)
       .populate({
         path: 'questionId',
-        select: 'question metadata.difficultyLevel metadata.maximumMarks metadata.wordLimit metadata.estimatedTime languageMode evaluationMode'
+        select: 'question metadata.difficultyLevel metadata.maximumMarks metadata.wordLimit metadata.estimatedTime languageMode evaluationMode setId book chapter topic subtopic'
       })
       .select(`
         questionId attemptNumber answerImages textAnswer submissionStatus 
@@ -83,7 +192,7 @@ router.get('/', async (req, res) => {
       .lean();
 
     for(const answer of submittedAnswers){
-      if(answer.feedback.expertReview.annotatedImages){
+      if(answer.feedback?.expertReview?.annotatedImages){
         for(const image of answer.feedback.expertReview.annotatedImages){
           if(image.s3Key){
             image.downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
@@ -98,78 +207,87 @@ router.get('/', async (req, res) => {
         }
       }
     }
-    // Transform the data for mobile response
-    const transformedAnswers = submittedAnswers.map(answer => ({
-      _id: answer._id,
-      questionId: answer.questionId?._id,
-      question: {
-        text: answer.questionId?.question,
-        difficultyLevel: answer.questionId?.metadata?.difficultyLevel,
-        maximumMarks: answer.questionId?.metadata?.maximumMarks,
-        wordLimit: answer.questionId?.metadata?.wordLimit,
-        estimatedTime: answer.questionId?.metadata?.estimatedTime,
-        languageMode: answer.questionId?.languageMode,
-        evaluationMode: answer.questionId?.evaluationMode
-      },
-      attemptNumber: answer.attemptNumber,
-      submissionStatus: answer.submissionStatus,
-      reviewStatus: answer.reviewStatus,
-      requestID: answer.requestID,
-      requestnote: answer.requestnote,
-      feedback: answer.feedback,
-      publishStatus: answer.publishStatus,
-      popularityStatus: answer.popularityStatus,
-      submittedAt: answer.submittedAt,
-      acceptedAt: answer.acceptedAt,
-      evaluatedAt: answer.evaluatedAt,
-      reviewRequestedAt: answer.reviewRequestedAt,
-      reviewAcceptedAt: answer.reviewAssignedAt,
-      reviewCompletedAt: answer.reviewCompletedAt,
-      hasImages: answer.answerImages && answer.answerImages.length > 0,
-      hasTextAnswer: Boolean(answer.textAnswer),
-      answerImages: answer.answerImages || [],
-      annotations: answer.annotations || [],
-      timeSpent: answer.metadata?.timeSpent || 0,
-      sourceType: answer.metadata?.sourceType || 'qr_scan',
+
+    // Get book/workbook information for each answer
+    const transformedAnswers = await Promise.all(submittedAnswers.map(async (answer) => {
+      const bookWorkbookInfo = await getBookWorkbookInfo(answer.questionId);
       
-      // Basic feedback/evaluation info (without detailed content)
-      isEvaluated: answer.submissionStatus === 'evaluated',
-      hasEvaluation: Boolean(answer.evaluation?.relevancy !== undefined || answer.evaluation?.score !== undefined),
-      hasFeedback: Boolean(answer.feedback?.score !== undefined || answer.feedback?.comments),
-      hasExpertReview: Boolean(answer.feedback?.expertReview?.score !== undefined || answer.feedback?.expertReview?.remarks),
-      
-      // Summary stats (updated to match new evaluation structure)
-      evaluationSummary: answer.evaluation ? {
-        relevancy: answer.evaluation.relevancy,
-        score: answer.evaluation.score,
-        remark: answer.evaluation.remark,
-        hasComments: Boolean(answer.evaluation.comments?.length),
-        hasAnalysis: Boolean(answer.evaluation.analysis && (
-          answer.evaluation.analysis.introduction?.length ||
-          answer.evaluation.analysis.body?.length ||
-          answer.evaluation.analysis.conclusion?.length ||
-          answer.evaluation.analysis.strengths?.length ||
-          answer.evaluation.analysis.weaknesses?.length ||
-          answer.evaluation.analysis.suggestions?.length ||
-          answer.evaluation.analysis.feedback?.length
-        ))
-      } : null,
-      
-      feedbackSummary: answer.feedback ? {
-        score: answer.feedback.score,
-        hasComments: Boolean(answer.feedback.comments),
-        hasSuggestions: Boolean(answer.feedback.suggestions?.length)
-      } : null,
-      
-      // Expert Review Summary
-      expertReviewSummary: answer.feedback?.expertReview ? {
-        score: answer.feedback.expertReview.score,
-        result: answer.feedback.expertReview.result,
-        hasRemarks: Boolean(answer.feedback.expertReview.remarks),
-        hasAnnotatedImages: Boolean(answer.feedback.expertReview.annotatedImages?.length),
-        reviewedAt: answer.feedback.expertReview.reviewedAt
-      } : null,
-      
+             return {
+        _id: answer._id,
+        questionId: answer.questionId?._id,
+        question: {
+          text: answer.questionId?.question,
+          difficultyLevel: answer.questionId?.metadata?.difficultyLevel,
+          maximumMarks: answer.questionId?.metadata?.maximumMarks,
+          wordLimit: answer.questionId?.metadata?.wordLimit,
+          estimatedTime: answer.questionId?.metadata?.estimatedTime,
+          languageMode: answer.questionId?.languageMode,
+          evaluationMode: answer.questionId?.evaluationMode
+        },
+        
+        // Book/Workbook information
+        bookWorkbookInfo: bookWorkbookInfo,
+        
+        attemptNumber: answer.attemptNumber,
+        submissionStatus: answer.submissionStatus,
+        reviewStatus: answer.reviewStatus,
+        requestID: answer.requestID,
+        requestnote: answer.requestnote,
+        feedback: answer.feedback,
+        publishStatus: answer.publishStatus,
+        popularityStatus: answer.popularityStatus,
+        submittedAt: answer.submittedAt,
+        acceptedAt: answer.acceptedAt,
+        evaluatedAt: answer.evaluatedAt,
+        reviewRequestedAt: answer.reviewRequestedAt,
+        reviewAcceptedAt: answer.reviewAssignedAt,
+        reviewCompletedAt: answer.reviewCompletedAt,
+        hasImages: answer.answerImages && answer.answerImages.length > 0,
+        hasTextAnswer: Boolean(answer.textAnswer),
+        answerImages: answer.answerImages || [],
+        annotations: answer.annotations || [],
+        timeSpent: answer.metadata?.timeSpent || 0,
+        sourceType: answer.metadata?.sourceType || 'qr_scan',
+        
+        // Basic feedback/evaluation info (without detailed content)
+        isEvaluated: answer.submissionStatus === 'evaluated',
+        hasEvaluation: Boolean(answer.evaluation?.relevancy !== undefined || answer.evaluation?.score !== undefined),
+        hasFeedback: Boolean(answer.feedback?.score !== undefined || answer.feedback?.comments),
+        hasExpertReview: Boolean(answer.feedback?.expertReview?.score !== undefined || answer.feedback?.expertReview?.remarks),
+        
+        // Summary stats (updated to match new evaluation structure)
+        evaluationSummary: answer.evaluation ? {
+          relevancy: answer.evaluation.relevancy,
+          score: answer.evaluation.score,
+          remark: answer.evaluation.remark,
+          hasComments: Boolean(answer.evaluation.comments?.length),
+          hasAnalysis: Boolean(answer.evaluation.analysis && (
+            answer.evaluation.analysis.introduction?.length ||
+            answer.evaluation.analysis.body?.length ||
+            answer.evaluation.analysis.conclusion?.length ||
+            answer.evaluation.analysis.strengths?.length ||
+            answer.evaluation.analysis.weaknesses?.length ||
+            answer.evaluation.analysis.suggestions?.length ||
+            answer.evaluation.analysis.feedback?.length
+          ))
+        } : null,
+        
+        feedbackSummary: answer.feedback ? {
+          score: answer.feedback.score,
+          hasComments: Boolean(answer.feedback.comments),
+          hasSuggestions: Boolean(answer.feedback.suggestions?.length)
+        } : null,
+        
+        // Expert Review Summary
+        expertReviewSummary: answer.feedback?.expertReview ? {
+          score: answer.feedback.expertReview.score,
+          result: answer.feedback.expertReview.result,
+          hasRemarks: Boolean(answer.feedback.expertReview.remarks),
+          hasAnnotatedImages: Boolean(answer.feedback.expertReview.annotatedImages?.length),
+          reviewedAt: answer.feedback.expertReview.reviewedAt
+        } : null,
+        
+      };
     }));
     console.log(transformedAnswers)
     res.status(200).json({
@@ -223,7 +341,7 @@ router.get('/:answerId', async (req, res) => {
       clientId: clientId
     }).populate({
       path: 'questionId',
-      select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode'
+      select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode setId book chapter topic subtopic'
     });
 
     if (!userAnswer) {
@@ -283,6 +401,9 @@ router.get('/:answerId', async (req, res) => {
 
     }
 
+    // Get book/workbook information
+    const bookWorkbookInfo = await getBookWorkbookInfo(userAnswer.questionId);
+
     // Prepare the detailed response with analysis
     const responseData = {
       answer: {
@@ -299,7 +420,10 @@ router.get('/:answerId', async (req, res) => {
         requestID: userAnswer.requestID,
         requestnote: userAnswer.requestnote,
         analysisAvailable: true,
-        annotations:userAnswer.annotations,
+        annotations: userAnswer.annotations,
+        
+        // Book/Workbook information
+        bookWorkbookInfo: bookWorkbookInfo,
 
         
         // Question details
