@@ -1,172 +1,141 @@
 const mongoose = require('mongoose');
 
-const SubjectiveQuestionSchema = new mongoose.Schema({
+const questionSchema = new mongoose.Schema({
   question: {
     type: String,
-    required: [true, 'Please add the question text'],
+    required: true,
+    trim: true
   },
-  answer: {
-    type: String
-  },
-  keywords: {
-    type: String
-  },
-  difficulty: {
+  detailedAnswer: {
     type: String,
-    enum: ['L1', 'L2', 'L3'],
-    required: true
+    required: true,
+    trim: true
   },
-  questionSet: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'QuestionSet',
-    required: true
+  modalAnswer: {
+    type: String,
+    trim: true
   },
-  solution: {
-    type: {
+  answerVideoUrls: [{
+    type: String,
+    trim: true
+  }],
+  metadata: {
+    keywords: [{
       type: String,
-      enum: ['text', 'video', 'image'],
-      default: 'text'
-    },
-    text: {
+      trim: true
+    }],
+    difficultyLevel: {
       type: String,
-      default: ""
+      enum: ['level1', 'level2', 'level3'],
+      required: true
     },
-    video: {
-      url: {
-        type: String,
-        default: ""
-      },
-      title: {
-        type: String,
-        default: ""
-      },
-      description: {
-        type: String,
-        default: ""
-      },
-      duration: {
-        type: Number,
-        default: 0
-      }
+    wordLimit: {
+      type: Number,
+      min: 0,
+      required: true
     },
-    image: {
-      url: {
-        type: String,
-        default: ""
+    estimatedTime: {
+      type: Number,
+      min: 0,
+      required: true
+    },
+    maximumMarks: {
+      type: Number,
+      min: 0,
+      required: true
+    },
+    qualityParameters: {
+      intro: {
+        type: Boolean,
+        default: false
       },
-      caption: {
+      body: {
+        enabled: {
+          type: Boolean,
+          default: false
+        },
+        features: {
+          type: Boolean,
+          default: false
+        },
+        examples: {
+          type: Boolean,
+          default: false
+        },
+        facts: {
+          type: Boolean,
+          default: false
+        },
+        diagram: {
+          type: Boolean,
+          default: false
+        }
+      },
+      conclusion: {
+        type: Boolean,
+        default: false
+      },
+      customParams: [{
         type: String,
-        default: ""
-      }
+        trim: true
+      }]
     }
   },
-  createdAt: {
-    type: Date,
-    default: Date.now
+  languageMode: {
+    type: String,
+    enum: ['english', 'hindi'],
+    required: true
   },
-  updatedAt: {
-    type: Date,
-    default: Date.now
+  evaluationMode: {
+    type: String,
+    enum: ['auto', 'manual'],
+    required: true,
+    default: 'auto'
+  },
+  evaluationType: {
+    type: String,
+    enum: ['with annotation', 'without annotation'],
+    required: function() {
+      return this.evaluationMode === 'manual';
+    },
+    default:'without annotation'
+  },
+  evaluationGuideline: {
+    type: String,
+    trim: true,
+    default: null
+  },
+  test:{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubjectiveTest',
+    required: true
   }
+}, {
+  timestamps: true
 });
 
-// Pre-save middleware to update timestamps
-SubjectiveQuestionSchema.pre('save', function(next) {
-  this.updatedAt = new Date();
+// Ensure keywords are unique and case-insensitive
+questionSchema.pre('save', function(next) {
+  if (this.metadata && this.metadata.keywords) {
+    const uniqueKeywords = [...new Set(
+      this.metadata.keywords.map(k => k.toLowerCase())
+    )];
+    this.metadata.keywords = uniqueKeywords;
+  }
+  
+  // Ensure custom params are unique
+  if (this.metadata && this.metadata.qualityParameters && this.metadata.qualityParameters.customParams) {
+    const uniqueParams = [...new Set(this.metadata.qualityParameters.customParams)];
+    this.metadata.qualityParameters.customParams = uniqueParams;
+  }
+  
+  // Ensure video URLs are unique
+  if (this.answerVideoUrls && this.answerVideoUrls.length > 0) {
+    const uniqueUrls = [...new Set(this.answerVideoUrls.filter(url => url && url.trim()))];
+    this.answerVideoUrls = uniqueUrls;
+  }
+  
   next();
 });
 
-// Virtual for getting the difficulty display name
-SubjectiveQuestionSchema.virtual('difficultyDisplay').get(function() {
-  switch(this.difficulty) {
-    case 'L1':
-      return 'Beginner';
-    case 'L2':
-      return 'Intermediate';
-    case 'L3':
-      return 'Advanced';
-    default:
-      return this.difficulty;
-  }
-});
-
-// Virtual for getting solution display info
-SubjectiveQuestionSchema.virtual('solutionDisplay').get(function() {
-  switch (this.solution.type) {
-    case 'text':
-      return {
-        type: 'text',
-        content: this.solution.text,
-        hasContent: !!this.solution.text
-      };
-    case 'video':
-      return {
-        type: 'video',
-        content: this.solution.video,
-        hasContent: !!this.solution.video.url
-      };
-    case 'image':
-      return {
-        type: 'image',
-        content: this.solution.image,
-        hasContent: !!this.solution.image.url
-      };
-    default:
-      return {
-        type: 'none',
-        content: null,
-        hasContent: false
-      };
-  }
-});
-
-// Method to set text solution
-SubjectiveQuestionSchema.methods.setTextSolution = function(text) {
-  this.solution.type = 'text';
-  this.solution.text = text;
-  this.solution.video = { url: "", title: "", description: "", duration: 0 };
-  this.solution.image = { url: "", caption: "" };
-  return this.save();
-};
-
-// Method to set video solution
-SubjectiveQuestionSchema.methods.setVideoSolution = function(videoData) {
-  this.solution.type = 'video';
-  this.solution.video = {
-    url: videoData.url || "",
-    title: videoData.title || "",
-    description: videoData.description || "",
-    duration: videoData.duration || 0
-  };
-  this.solution.text = "";
-  this.solution.image = { url: "", caption: "" };
-  return this.save();
-};
-
-// Method to set image solution
-SubjectiveQuestionSchema.methods.setImageSolution = function(imageData) {
-  this.solution.type = 'image';
-  this.solution.image = {
-    url: imageData.url || "",
-    caption: imageData.caption || ""
-  };
-  this.solution.text = "";
-  this.solution.video = { url: "", title: "", description: "", duration: 0 };
-  return this.save();
-};
-
-// Method to get solution content
-SubjectiveQuestionSchema.methods.getSolutionContent = function() {
-  switch (this.solution.type) {
-    case 'text':
-      return this.solution.text;
-    case 'video':
-      return this.solution.video;
-    case 'image':
-      return this.solution.image;
-    default:
-      return null;
-  }
-};
-
-module.exports = mongoose.model('SubjectiveQuestion', SubjectiveQuestionSchema);
+module.exports = mongoose.model('SubjectiveTestQuestion', questionSchema);

@@ -92,6 +92,13 @@ exports.createQuestion = async (req, res) => {
         const newQuestion = new ObjectiveTestQuestion(questionData);
         const savedQuestion = await newQuestion.save();
 
+        // If testId provided, add question to test
+        if (testId) {
+            await ObjectiveTest.findByIdAndUpdate(
+              testId,
+              { $push: { questions: savedQuestion._id } }
+            );
+          }
         // Populate the test reference for response
         await savedQuestion.populate('test', 'name');
 
@@ -145,7 +152,7 @@ exports.getQuestionsByTest = async (req, res) => {
         
         // Get questions with pagination
         const questions = await ObjectiveTestQuestion.find(query)
-            .populate('test', 'name')
+            .populate('test', 'name description imageUrl category subcategory instructions Estimated_time isActive createdAt updatedAt')
             .skip(skip)
             .limit(parseInt(limit));
 
@@ -373,6 +380,12 @@ exports.deleteQuestion = async (req, res) => {
 
         // Soft delete by setting isActive to false
         await ObjectiveTestQuestion.findByIdAndUpdate(questionId, { isActive: false });
+
+        // Remove question from any sets
+      await ObjectiveTest.updateMany(
+        { questions: questionId },
+        { $pull: { questions: questionId } }
+      );
 
         res.json({
             success: true,

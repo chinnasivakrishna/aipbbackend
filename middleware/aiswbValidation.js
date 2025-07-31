@@ -140,7 +140,11 @@ const validateSetId = [
     .isMongoId()
     .withMessage('Set ID must be a valid MongoDB ObjectId')
 ];
-
+const validateTestId = [
+  param('testId')
+    .isMongoId()
+    .withMessage('Test ID must be a valid MongoDB ObjectId')
+];
 const validateQuestionId = [
   param('questionId')
     .isMongoId()
@@ -277,5 +281,6 @@ module.exports = {
   validateSetId,
   validateQuestionId,
   validateQuestionToSet,
-  validateQuestionSubmissionsQuery
+  validateQuestionSubmissionsQuery,
+  validateTestId
 };
