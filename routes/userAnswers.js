@@ -12,6 +12,8 @@ const crud = require("./answerapis");
 const { submitEvaluationFeedback } = require("../controllers/userAnswers");
 const { refreshAnnotatedImageUrls } = require("../utils/s3");
 const axios = require("axios");
+const SubjectiveTest = require("../models/SubjectiveTest");
+const SubjectiveTestQuestion = require("../models/SubjectiveTestQuestion");
 const {
   validateTextRelevanceToQuestion,
   extractTextFromImagesWithFallback,
@@ -660,6 +662,478 @@ router.post(
           id: setInfo._id,
           name: setInfo.name,
           itemType: setInfo.itemType,
+        };
+      }
+
+      if (evaluation) {
+        responseData.evaluation = evaluation;
+      }
+      if (extractedTexts.length > 0) {
+        responseData.extractedTexts = extractedTexts;
+      }
+
+      let successMessage;
+      if (isManualEvaluation) {
+        if (evaluation) {
+          successMessage = "Answer submitted successfully with AI pre-evaluation. Manual review pending.";
+        } else {
+          successMessage = "Answer submitted successfully and will be evaluated manually";
+        }
+      } else {
+        successMessage = "Answer submitted and evaluated successfully";
+      }
+
+      res.status(200).json({
+        success: true,
+        message: successMessage,
+        responseCode: 1579,
+        data: responseData,
+      });
+    } catch (error) {
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          try {
+            await cloudinary.uploader.destroy(file.filename);
+          } catch (cleanupError) {
+            console.error("Error cleaning up file:", cleanupError);
+          }
+        }
+      }
+
+      if (error.name === "ValidationError") {
+        const validationErrors = Object.values(error.errors).map((err) => ({
+          field: err.path,
+          message: err.message,
+          value: err.value,
+        }));
+        return res.status(400).json({
+          success: false,
+          message: "Validation failed",
+          responseCode: 1580,
+          error: {
+            code: "VALIDATION_ERROR",
+            details: validationErrors,
+          },
+        });
+      }
+
+      if (error.code === "SUBMISSION_LIMIT_EXCEEDED") {
+        return res.status(400).json({
+          success: false,
+          message: error.message,
+          responseCode: 1581,
+          error: {
+            code: error.code,
+            details: "Maximum 15 attempts allowed per question",
+          },
+        });
+      }
+
+      if (error.code === "CREATION_FAILED") {
+        return res.status(409).json({
+          success: false,
+          message: "Unable to create submission after multiple attempts",
+          responseCode: 1582,
+          error: {
+            code: "SUBMISSION_PROCESSING_ERROR",
+            details: "Please try again in a moment",
+          },
+        });
+      }
+
+      if (error.code === 11000 || error.message.includes("E11000")) {
+        return res.status(409).json({
+          success: false,
+          message: "Submission processing failed due to duplicate entry",
+          responseCode: 1583,
+          error: {
+            code: "DUPLICATE_SUBMISSION_ERROR",
+            details: "This submission already exists. Please refresh and try again.",
+          },
+        });
+      }
+
+      console.error("Answer submission error:", error);
+      res.status(500).json({
+        success: false,
+        message: "Internal server error",
+        responseCode: 1584,
+        error: {
+          code: "SERVER_ERROR",
+          details: error.message,
+        },
+      });
+    }
+  },
+);
+
+router.post(
+  "/subjective-tests/:testId/questions/:questionId/answers",
+  authenticateMobileUser,
+  validateQuestionId,
+  upload.array("images", 10),
+  validateAnswerSubmission,
+  async (req, res, next) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        if (req.files && req.files.length > 0) {
+          for (const file of req.files) {
+            try {
+              await cloudinary.uploader.destroy(file.filename);
+            } catch (cleanupError) {
+              console.error("Error cleaning up file:", cleanupError);
+            }
+          }
+        }
+        return res.status(400).json({
+          success: false,
+          message: "Invalid input data",
+          responseCode: 1571,
+          error: {
+            code: "INVALID_INPUT",
+            details: errors.array(),
+          },
+        });
+      }
+
+      const { questionId, testId } = req.params;
+      console.log("questionId", questionId);
+      const userId = req.user.id;
+      const { textAnswer, timeSpent, sourceType, deviceInfo, appVersion } = req.body;
+
+      if ((!req.files || req.files.length === 0) && (!textAnswer || textAnswer.trim() === "")) {
+        return res.status(400).json({
+          success: false,
+          message: "Either images or text answer must be provided",
+          responseCode: 1572,
+          error: {
+            code: "NO_ANSWER_PROVIDED",
+            details: "At least one form of answer (image or text) is required",
+          },
+        });
+      }
+
+      const submissionStatus = await UserAnswer.canUserSubmit(userId, questionId);
+      if (!submissionStatus.canSubmit) {
+        if (req.files && req.files.length > 0) {
+          for (const file of req.files) {
+            try {
+              await cloudinary.uploader.destroy(file.filename);
+            } catch (cleanupError) {
+              console.error("Error cleaning up file:", cleanupError);
+            }
+          }
+        }
+        return res.status(555).json({
+          success: false,
+          message: "Maximum submission limit reached",
+          responseCode: 1573,
+          error: {
+            code: "SUBMISSION_LIMIT_EXCEEDED",
+            details: "Maximum 15 attempts allowed per question",
+          },
+        });
+      }
+      console.log("questionId", questionId);
+      const question = await SubjectiveTestQuestion.findById(questionId);
+      console.log("question", question);
+      if (!question) {
+        if (req.files && req.files.length > 0) {
+          for (const file of req.files) {
+            try {
+              await cloudinary.uploader.destroy(file.filename);
+            } catch (cleanupError) {
+              console.error("Error cleaning up file:", cleanupError);
+            }
+          }
+        }
+        return res.status(404).json({
+          success: false,
+          message: "Question not found",
+          responseCode: 1574,
+          error: {
+            code: "QUESTION_NOT_FOUND",
+            details: "The specified question does not exist",
+          },
+        });
+      }
+      let testInfo = null;
+      if (testId) {
+        testInfo = await SubjectiveTest.findById(testId);
+        console.log("testInfo", testInfo);
+        if (!testInfo) {
+          return res.status(404).json({
+            success: false,
+            message: "Test not found",
+            responseCode: 1575,
+            error: {
+              code: "TEST_NOT_FOUND",
+              details: "The specified test does not exist",
+            },
+          });
+        }
+      }
+
+      const answerImages = [];
+      if (req.files && req.files.length > 0) {
+        for (const file of req.files) {
+          answerImages.push({
+            imageUrl: file.path,
+            cloudinaryPublicId: file.filename,
+            originalName: file.originalname,
+            uploadedAt: new Date(),
+          });
+        }
+      }
+
+      const isManualEvaluation = question.evaluationMode === "manual";
+      let evaluation = null;
+      let extractedTexts = [];
+
+      if (answerImages.length > 0) {
+        try {
+          const imageUrls = answerImages.map((img) => img.imageUrl);
+          extractedTexts = await extractTextFromImagesWithFallback(imageUrls);
+          extractedTexts = cleanExtractedTexts(extractedTexts);
+
+          const relevanceValidation = await validateTextRelevanceToQuestion(question, extractedTexts);
+
+          if (!relevanceValidation.isValid) {
+            if (req.files && req.files.length > 0) {
+              for (const file of req.files) {
+                try {
+                  await cloudinary.uploader.destroy(file.filename);
+                } catch (cleanupError) {
+                  console.error("Error cleaning up invalid image:", cleanupError);
+                }
+              }
+            }
+
+            return res.status(400).json({
+              success: false,
+              message: "Invalid image content",
+              responseCode: 1576,
+              error: {
+                code: "INVALID_IMAGE_CONTENT",
+                details: relevanceValidation.reason,
+                aiResponse: relevanceValidation.aiResponse || null,
+              },
+            });
+          }
+
+          const hasValidText = extractedTexts.some(
+            (text) =>
+              text &&
+              text.trim().length > 0 &&
+              !text.startsWith("Failed to extract text") &&
+              !text.startsWith("No readable text found") &&
+              !text.includes("Text extraction failed"),
+          );
+
+          if (hasValidText) {
+            try {
+              const evaluationService = await getServiceForTask("evaluation");
+              const prompt = generateEvaluationPrompt(question, extractedTexts);
+
+              if (evaluationService.serviceName === "gemini") {
+                const response = await axios.post(
+                  `${evaluationService.apiUrl}?key=${evaluationService.apiKey}`,
+                  {
+                    contents: [
+                      {
+                        parts: [
+                          {
+                            text: prompt,
+                          },
+                        ],
+                      },
+                    ],
+                    generationConfig: {
+                      temperature: 0.7,
+                      topK: 40,
+                      topP: 0.95,
+                      maxOutputTokens: 2048,
+                    },
+                  },
+                  {
+                    headers: { "Content-Type": "application/json" },
+                    timeout: 30000,
+                  },
+                );
+
+                if (response.status === 200 && response.data?.candidates?.[0]?.content) {
+                  const evaluationText = response.data.candidates[0].content.parts[0].text;
+                  evaluation = parseEvaluationResponse(evaluationText, question);
+                  evaluation.evaluationMethod = "gemini";
+                } else {
+                  throw new Error("Invalid response from Gemini API");
+                }
+              } else if (evaluationService.serviceName === "openai") {
+                const response = await axios.post(
+                  evaluationService.apiUrl,
+                  {
+                    model: "gpt-4o-mini",
+                    messages: [
+                      {
+                        role: "user",
+                        content: prompt,
+                      },
+                    ],
+                    max_tokens: 1500,
+                    temperature: 0.7,
+                  },
+                  {
+                    headers: {
+                      "Content-Type": "application/json",
+                      Authorization: `Bearer ${evaluationService.apiKey}`,
+                    },
+                    timeout: 30000,
+                  },
+                );
+
+                if (response.data?.choices?.[0]?.message?.content) {
+                  const evaluationText = response.data.choices[0].message.content;
+                  evaluation = parseEvaluationResponse(evaluationText, question);
+                  evaluation.evaluationMethod = "openai";
+                } else {
+                  throw new Error("Invalid response from OpenAI API");
+                }
+              } else if (evaluationService.serviceName === "agentic") {
+                evaluation = generateMockEvaluation(question);
+                evaluation.evaluationMethod = "agentic_mock";
+              }
+
+              if (!evaluation) {
+                evaluation = generateMockEvaluation(question);
+              }
+            } catch (evaluationError) {
+              console.error("AI evaluation failed:", evaluationError.message);
+              evaluation = generateMockEvaluation(question);
+            }
+          } else {
+            if (req.files && req.files.length > 0) {
+              for (const file of req.files) {
+                try {
+                  await cloudinary.uploader.destroy(file.filename);
+                } catch (cleanupError) {
+                  console.error("Error cleaning up unreadable image:", cleanupError);
+                }
+              }
+            }
+
+            return res.status(400).json({
+              success: false,
+              message: "Invalid image content",
+              responseCode: 1577,
+              error: {
+                code: "UNREADABLE_IMAGE_CONTENT",
+                details:
+                  "No readable text could be extracted from the uploaded images. Please ensure images are clear and contain relevant answer content.",
+              },
+            });
+          }
+        } catch (extractionError) {
+          if (req.files && req.files.length > 0) {
+            for (const file of req.files) {
+              try {
+                await cloudinary.uploader.destroy(file.filename);
+              } catch (cleanupError) {
+                console.error("Error cleaning up image after extraction error:", cleanupError);
+              }
+            }
+          }
+
+          return res.status(500).json({
+            success: false,
+            message: "Text extraction failed",
+            responseCode: 1578,
+            error: {
+              code: "TEXT_EXTRACTION_ERROR",
+              details: `Text extraction service error: ${extractionError.message}. Please try again or contact support if the issue persists.`,
+            },
+          });
+        }
+      }
+
+      const userAnswerData = {
+        userId: userId,
+        subjectiveTest: {
+          questionId: questionId,
+        },
+        clientId: req.user.clientId,
+        answerImages: answerImages,
+        textAnswer: textAnswer || "",
+        submissionStatus: "submitted",
+        reviewStatus: null,
+        metadata: {
+          timeSpent: Number.parseInt(timeSpent) || 0,
+          deviceInfo: deviceInfo || "",
+          appVersion: appVersion || "",
+          sourceType: sourceType || "qr_scan",
+        },
+        submittedAt: new Date(),
+      };
+
+      if (evaluation) {
+        userAnswerData.evaluation = evaluation;
+        if (!isManualEvaluation) {
+          userAnswerData.submissionStatus = "evaluated";
+          userAnswerData.publishStatus = "published";
+          userAnswerData.reviewStatus = null;
+        } else {
+          userAnswerData.submissionStatus = "submitted";
+          userAnswerData.reviewStatus = null;
+        }
+      }
+
+      if (extractedTexts.length > 0) {
+        userAnswerData.extractedTexts = extractedTexts;
+      }
+
+      if (testId) {
+        userAnswerData.subjectiveTest.testId = testId;
+      }
+
+      let userAnswer;
+      try {
+        userAnswer = await UserAnswer.createNewAttemptSafe(userAnswerData);
+      } catch (saferError) {
+        if (saferError.code === "SUBMISSION_LIMIT_EXCEEDED") {
+          throw saferError;
+        }
+        try {
+          userAnswer = await UserAnswer.createNewAttempt(userAnswerData);
+        } catch (transactionError) {
+          throw transactionError;
+        }
+      }
+
+      const responseData = {
+        answerId: userAnswer._id,
+        attemptNumber: userAnswer.attemptNumber,
+        questionId: question._id,
+        userId: userId,
+        imagesCount: answerImages.length,
+        submissionStatus: userAnswer.submissionStatus,
+        reviewStatus: userAnswer.reviewStatus,
+        submittedAt: userAnswer.submittedAt,
+        isFinalAttempt: userAnswer.isFinalAttempt(),
+        remainingAttempts: Math.max(0, 15 - userAnswer.attemptNumber),
+        evaluationMode: question.evaluationMode,
+        question: {
+          id: question._id,
+          question: question.question,
+          difficultyLevel: question.metadata?.difficultyLevel,
+          maximumMarks: question.metadata?.maximumMarks,
+          estimatedTime: question.metadata?.estimatedTime,
+        },
+      };
+
+      if (testInfo) {
+        responseData.subjectiveTest = {
+          id: testInfo._id,
+          name: testInfo.name,
         };
       }
 

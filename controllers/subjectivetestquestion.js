@@ -1,9 +1,7 @@
 const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
 const SubjectiveTest = require('../models/SubjectiveTest');
 const { validationResult } = require('express-validator');
-const Client = require('../models/Client');
 const { getEvaluationFrameworkText } = require('../services/aiServices');
-const SubjectiveQuestion = require('../models/SubjectiveQuestion');
 
 // Question Controllers
 const addQuestion = async (req, res) => {
@@ -16,18 +14,6 @@ const addQuestion = async (req, res) => {
           error: {
             code: "INVALID_INPUT",
             details: errors.array()
-          }
-        });
-      }
-      const clientId = req.user.userId;
-      const client = await Client.findById(clientId);
-      if (!client) {
-        return res.status(404).json({
-          success: false,
-          message: "Client not found",
-          error: {
-            code: "CLIENT_NOT_FOUND",   
-            details: "The specified client does not exist"
           }
         });
       }
@@ -119,7 +105,7 @@ const getAllQuestionsByTest = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Questions fetched successfully",
-      data: questions
+      questions
     });
   } catch (error) {
     console.error('Get all questions by test error:', error);

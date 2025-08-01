@@ -10,7 +10,19 @@ const userAnswerSchema = new mongoose.Schema({
   questionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AiswbQuestion',
-    required: true
+    required: false
+  },
+  subjectiveTest: {
+    testId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SubjectiveTest',
+      required: false
+    },
+    questionId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'SubjectiveTestQuestion',
+      required: false
+    },
   },
   setId: {
     type: mongoose.Schema.Types.ObjectId,
