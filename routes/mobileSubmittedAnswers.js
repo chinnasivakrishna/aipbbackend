@@ -180,11 +180,20 @@ router.get('/', async (req, res) => {
         path: 'questionId',
         select: 'question metadata.difficultyLevel metadata.maximumMarks metadata.wordLimit metadata.estimatedTime languageMode evaluationMode setId book chapter topic subtopic'
       })
+      .populate({
+        path: 'subjectiveTest.testId',
+        select: 'name description category subcategory Estimated_time imageUrl instructions'
+      })
+      .populate({
+        path: 'subjectiveTest.questionId',
+        select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode test'
+      })
       .select(`
         questionId attemptNumber answerImages textAnswer submissionStatus 
         submittedAt acceptedAt feedback evaluation publishStatus reviewStatus 
         popularityStatus metadata.timeSpent metadata.sourceType evaluatedAt
-        requestID requestnote  annotations reviewRequestedAt reviewAssignedAt reviewCompletedAt
+        requestID requestnote annotations reviewRequestedAt reviewAssignedAt reviewCompletedAt
+        subjectiveTest
       `)
       .sort(sort)
       .skip(skip)
@@ -212,10 +221,41 @@ router.get('/', async (req, res) => {
     const transformedAnswers = await Promise.all(submittedAnswers.map(async (answer) => {
       const bookWorkbookInfo = await getBookWorkbookInfo(answer.questionId);
       
-             return {
-        _id: answer._id,
-        questionId: answer.questionId?._id,
-        question: {
+      // Determine if this is a subjective test submission
+      const isSubjectiveTest = answer.subjectiveTest && answer.subjectiveTest.testId;
+      
+      // Get question information based on type
+      let questionInfo = null;
+      let testInfo = null;
+      
+      if (isSubjectiveTest) {
+        // Subjective test submission
+        questionInfo = {
+          text: answer.subjectiveTest.questionId?.question,
+          difficultyLevel: answer.subjectiveTest.questionId?.metadata?.difficultyLevel,
+          maximumMarks: answer.subjectiveTest.questionId?.metadata?.maximumMarks,
+          wordLimit: answer.subjectiveTest.questionId?.metadata?.wordLimit,
+          estimatedTime: answer.subjectiveTest.questionId?.metadata?.estimatedTime,
+          languageMode: answer.subjectiveTest.questionId?.languageMode,
+          evaluationMode: answer.subjectiveTest.questionId?.evaluationMode,
+          detailedAnswer: answer.subjectiveTest.questionId?.detailedAnswer,
+          modalAnswer: answer.subjectiveTest.questionId?.modalAnswer,
+          answerVideoUrls: answer.subjectiveTest.questionId?.answerVideoUrls || []
+        };
+        
+        testInfo = {
+          id: answer.subjectiveTest.testId?._id,
+          name: answer.subjectiveTest.testId?.name,
+          description: answer.subjectiveTest.testId?.description,
+          category: answer.subjectiveTest.testId?.category,
+          subcategory: answer.subjectiveTest.testId?.subcategory,
+          estimatedTime: answer.subjectiveTest.testId?.Estimated_time,
+          imageUrl: answer.subjectiveTest.testId?.imageUrl,
+          instructions: answer.subjectiveTest.testId?.instructions
+        };
+      } else {
+        // AISWB submission
+        questionInfo = {
           text: answer.questionId?.question,
           difficultyLevel: answer.questionId?.metadata?.difficultyLevel,
           maximumMarks: answer.questionId?.metadata?.maximumMarks,
@@ -223,10 +263,22 @@ router.get('/', async (req, res) => {
           estimatedTime: answer.questionId?.metadata?.estimatedTime,
           languageMode: answer.questionId?.languageMode,
           evaluationMode: answer.questionId?.evaluationMode
-        },
+        };
+      }
+      
+      return {
+        _id: answer._id,
+        questionId: isSubjectiveTest ? answer.subjectiveTest.questionId?._id : answer.questionId?._id,
+        question: questionInfo,
         
-        // Book/Workbook information
+        // Test information (for subjective tests)
+        testInfo: testInfo,
+        
+        // Book/Workbook information (for AISWB)
         bookWorkbookInfo: bookWorkbookInfo,
+        
+        // Submission type
+        submissionType: isSubjectiveTest ? 'subjective_test' : 'aiswb',
         
         attemptNumber: answer.attemptNumber,
         submissionStatus: answer.submissionStatus,
@@ -342,6 +394,12 @@ router.get('/:answerId', async (req, res) => {
     }).populate({
       path: 'questionId',
       select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode setId book chapter topic subtopic'
+    }).populate({
+      path: 'subjectiveTest.testId',
+      select: 'name description category subcategory Estimated_time imageUrl instructions'
+    }).populate({
+      path: 'subjectiveTest.questionId',
+      select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode test'
     });
 
     if (!userAnswer) {
@@ -404,11 +462,53 @@ router.get('/:answerId', async (req, res) => {
     // Get book/workbook information
     const bookWorkbookInfo = await getBookWorkbookInfo(userAnswer.questionId);
 
+    // Determine if this is a subjective test submission
+    const isSubjectiveTest = userAnswer.subjectiveTest && userAnswer.subjectiveTest.testId;
+    
+    // Get question information based on type
+    let questionInfo = null;
+    let testInfo = null;
+    
+    if (isSubjectiveTest) {
+      // Subjective test submission
+      questionInfo = {
+        text: userAnswer.subjectiveTest.questionId?.question,
+        detailedAnswer: userAnswer.subjectiveTest.questionId?.detailedAnswer,
+        modalAnswer: userAnswer.subjectiveTest.questionId?.modalAnswer,
+        answerVideoUrls: userAnswer.subjectiveTest.questionId?.answerVideoUrls || [],
+        metadata: userAnswer.subjectiveTest.questionId?.metadata,
+        languageMode: userAnswer.subjectiveTest.questionId?.languageMode,
+        evaluationMode: userAnswer.subjectiveTest.questionId?.evaluationMode
+      };
+      
+      testInfo = {
+        id: userAnswer.subjectiveTest.testId?._id,
+        name: userAnswer.subjectiveTest.testId?.name,
+        description: userAnswer.subjectiveTest.testId?.description,
+        category: userAnswer.subjectiveTest.testId?.category,
+        subcategory: userAnswer.subjectiveTest.testId?.subcategory,
+        estimatedTime: userAnswer.subjectiveTest.testId?.Estimated_time,
+        imageUrl: userAnswer.subjectiveTest.testId?.imageUrl,
+        instructions: userAnswer.subjectiveTest.testId?.instructions
+      };
+    } else {
+      // AISWB submission
+      questionInfo = {
+        text: userAnswer.questionId?.question,
+        detailedAnswer: userAnswer.questionId?.detailedAnswer,
+        modalAnswer: userAnswer.questionId?.modalAnswer,
+        answerVideoUrls: userAnswer.questionId?.answerVideoUrls || [],
+        metadata: userAnswer.questionId?.metadata,
+        languageMode: userAnswer.questionId?.languageMode,
+        evaluationMode: userAnswer.questionId?.evaluationMode
+      };
+    }
+
     // Prepare the detailed response with analysis
     const responseData = {
       answer: {
         _id: userAnswer._id,
-        questionId: userAnswer.questionId._id,
+        questionId: isSubjectiveTest ? userAnswer.subjectiveTest.questionId?._id : userAnswer.questionId?._id,
         attemptNumber: userAnswer.attemptNumber,
         submissionStatus: userAnswer.submissionStatus,
         reviewStatus: userAnswer.reviewStatus,
@@ -422,20 +522,17 @@ router.get('/:answerId', async (req, res) => {
         analysisAvailable: true,
         annotations: userAnswer.annotations,
         
-        // Book/Workbook information
+        // Test information (for subjective tests)
+        testInfo: testInfo,
+        
+        // Book/Workbook information (for AISWB)
         bookWorkbookInfo: bookWorkbookInfo,
-
+        
+        // Submission type
+        submissionType: isSubjectiveTest ? 'subjective_test' : 'aiswb',
         
         // Question details
-        question: {
-          text: userAnswer.questionId.question,
-          detailedAnswer: userAnswer.questionId.detailedAnswer,
-          modalAnswer: userAnswer.questionId.modalAnswer,
-          answerVideoUrls: userAnswer.questionId.answerVideoUrls || [],
-          metadata: userAnswer.questionId.metadata,
-          languageMode: userAnswer.questionId.languageMode,
-          evaluationMode: userAnswer.questionId.evaluationMode
-        },
+        question: questionInfo,
         
         // User's submission
         submission: {
