@@ -13,12 +13,12 @@ router.post('/:testId/start', authenticateMobileUser, testController.startTest);
 // Submit test with all answers
 router.post('/:testId/submit', authenticateMobileUser, testController.submitTest);
 
+router.get('/results/:testId',authenticateMobileUser, testController.getUserTestResults);
+
+
 
 // Apply authentication middleware to all routes
 router.use(verifyToken);
-
-// Start test (authenticated route)
-router.post('/:testId/start', testController.startTest);
 
 // Get presigned URL for image upload
 router.post('/upload-image', testController.uploadImage);
@@ -28,16 +28,6 @@ router.post('/', testController.createTest);
 
 // Get all tests
 router.get('/', testController.getAllTests);
-
-// Get user's test results (specific routes first)
-// router.get('/results', testController.getUserTestResults);
-router.get('/results/:testId', testController.getUserTestResults);
-
-// Get user's test results with completion time
-router.get('/results-with-time', testController.getUserTestResultsWithTime);
-
-// Get specific test completion time
-router.get('/completion-time/:testResultId', testController.getTestCompletionTime);
 
 // Get test analytics (for admin/client)
 router.get('/:testId/analytics', testController.getTestAnalytics);

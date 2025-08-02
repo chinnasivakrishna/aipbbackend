@@ -2,6 +2,7 @@ const ObjectiveTest = require("../models/ObjectiveTest");
 const ObjectiveTestQuestion = require("../models/ObjectiveTestQuestion");
 const TestResult = require("../models/TestResult");
 const User = require("../models/User");
+const UserProfile = require("../models/UserProfile");
 const path = require("path");
 const {
   generatePresignedUrl,
@@ -636,17 +637,121 @@ exports.submitTest = async (req, res) => {
 
     await existingResult.save();
 
-    // Update user stats (optional)
+    // Update user profile with comprehensive test data
     try {
-      await UserProfile.findByIdAndUpdate(userId, {
-        $inc: {
-          completedTests: 1,
-          testId: existingResult._id,
-          totalTestScore: Math.round(overallScore),
-        },
+      // Get current user profile
+      const userProfile = await UserProfile.findOne({ userId: userId });
+      if (!userProfile) {
+        console.error("User profile not found for userId:", userId);
+        return res.status(404).json({
+          success: false,
+          message: "User profile not found",
+        });
+      }
+
+      // Calculate new averages and stats
+      const newTotalScore = userProfile.totalTestScore + Math.round(overallScore);
+      const newCompletedTests = userProfile.completedTests + 1;
+      const newAverageScore = newTotalScore / newCompletedTests;
+
+      // Calculate new accuracy rate
+      const newTotalQuestions = userProfile.performanceStats.totalQuestionsAttempted + totalQuestions;
+      const newTotalCorrect = userProfile.performanceStats.totalCorrectAnswers + correctAnswers;
+      const newAccuracyRate = newTotalQuestions > 0 ? (newTotalCorrect / newTotalQuestions) * 100 : 0;
+
+      // Update best/worst scores
+      const newBestScore = Math.max(userProfile.performanceStats.bestScore, Math.round(overallScore));
+      const newWorstScore = Math.min(userProfile.performanceStats.worstScore, Math.round(overallScore));
+
+      // Calculate average completion time
+      const currentAvgTime = parseFloat(userProfile.performanceStats.averageCompletionTime) || 0;
+      const newAvgTime = newCompletedTests > 1 
+        ? ((currentAvgTime * (newCompletedTests - 1)) + parseFloat(completionTimeSeconds)) / newCompletedTests
+        : parseFloat(completionTimeSeconds);
+
+      // Update level performance
+      const updatedLevelPerformance = { ...userProfile.levelPerformance };
+      Object.keys(levelResults).forEach(level => {
+        if (levelResults[level].total > 0) {
+          const levelStats = updatedLevelPerformance[level];
+          const newTotalTests = levelStats.totalTests + 1;
+          const newTotalQuestions = levelStats.totalQuestions + levelResults[level].total;
+          const newCorrectAnswers = levelStats.correctAnswers + levelResults[level].correct;
+          const newAvgScore = newTotalTests > 1 
+            ? ((levelStats.averageScore * (newTotalTests - 1)) + levelResults[level].score) / newTotalTests
+            : levelResults[level].score;
+          const newBestScore = Math.max(levelStats.bestScore, levelResults[level].score);
+
+          updatedLevelPerformance[level] = {
+            totalTests: newTotalTests,
+            averageScore: newAvgScore,
+            bestScore: newBestScore,
+            totalQuestions: newTotalQuestions,
+            correctAnswers: newCorrectAnswers
+          };
+        }
       });
+
+      // Update study progress
+      const today = new Date();
+      const lastTestDate = userProfile.studyProgress.lastTestDate;
+      const newTestStreak = lastTestDate && 
+        Math.floor((today - new Date(lastTestDate)) / (1000 * 60 * 60 * 24)) === 1 
+        ? userProfile.studyProgress.testStreak + 1 
+        : 1;
+
+      // Prepare test history entry
+      const testHistoryEntry = {
+        testId: testId,
+        testResultId: existingResult._id,
+        score: Math.round(overallScore),
+        completionTime: completionTimeSeconds,
+        submittedAt: existingResult.submittedAt,
+        totalQuestions: totalQuestions,
+        correctAnswers: correctAnswers,
+        levelBreakdown: levelResults
+      };
+
+      // Update user profile with all new data
+      await UserProfile.findOneAndUpdate(
+        { userId: userId },
+        {
+          $inc: {
+            completedTests: 1,
+            totalTestScore: Math.round(overallScore),
+          },
+          $set: {
+            averageTestScore: newAverageScore,
+            testId: existingResult._id,
+            performanceStats: {
+              bestScore: newBestScore,
+              worstScore: newWorstScore,
+              averageCompletionTime: newAvgTime.toString(),
+              totalQuestionsAttempted: newTotalQuestions,
+              totalCorrectAnswers: newTotalCorrect,
+              accuracyRate: newAccuracyRate
+            },
+            levelPerformance: updatedLevelPerformance,
+            studyProgress: {
+              lastTestDate: today,
+              testStreak: newTestStreak,
+              weeklyGoal: userProfile.studyProgress.weeklyGoal,
+              weeklyProgress: userProfile.studyProgress.weeklyProgress + 1,
+              monthlyTests: userProfile.studyProgress.monthlyTests + 1,
+              yearlyTests: userProfile.studyProgress.yearlyTests + 1
+            }
+          },
+          $push: {
+            testHistory: testHistoryEntry
+          }
+        },
+        { new: true } // Return the updated document
+      );
+
+      console.log("User profile updated successfully");
     } catch (error) {
-      console.error("Error updating user stats:", error);
+      console.error("Error updating user profile:", error);
+      // Don't fail the test submission if profile update fails
     }
 
     res.json({
@@ -743,10 +848,10 @@ exports.getUserTestResults = async (req, res) => {
     console.log(userId, testId);
 
     // Query with proper structure
-const results = await TestResult.find({
-    userId: userId,
-    testId: testId
-})
+    const results = await TestResult.findOne({
+      userId: userId,
+      testId: testId,
+    })
       .populate("testId", "name category subcategory")
       .sort({ submittedAt: -1 });
 
@@ -770,7 +875,8 @@ const results = await TestResult.find({
 exports.getTestAnalytics = async (req, res) => {
   try {
     const { testId } = req.params;
-    const clientId = req.user.clientId;
+    const clientId = req.user.userId;
+    console.log(clientId);
 
     const results = await TestResult.find({
       testId,
@@ -847,93 +953,4 @@ exports.getTestAnalytics = async (req, res) => {
   }
 };
 
-// Get test completion time for a specific test result
-exports.getTestCompletionTime = async (req, res) => {
-  try {
-    const { testResultId } = req.params;
-    const userId = req.user.id;
 
-    const testResult = await TestResult.findOne({
-      _id: testResultId,
-      userId: userId,
-    });
-
-    if (!testResult) {
-      return res.status(404).json({
-        success: false,
-        message: "Test result not found",
-      });
-    }
-
-    if (testResult.status !== "completed") {
-      return res.status(400).json({
-        success: false,
-        message: "Test not completed yet",
-      });
-    }
-
-    res.json({
-      success: true,
-      data: {
-        testResultId: testResult._id,
-        startTime: testResult.startTime,
-        completionTime: testResult.completionTime, // Raw milliseconds
-        completionTimeFormatted: formatCompletionTime(
-          testResult.completionTime
-        ),
-        submittedAt: testResult.submittedAt,
-      },
-    });
-  } catch (error) {
-    console.error("Error getting test completion time:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get test completion time",
-      error: error.message,
-    });
-  }
-};
-
-// Get all test results with completion times for a user
-exports.getUserTestResultsWithTime = async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { page = 1, limit = 10 } = req.query;
-
-    const testResults = await TestResult.find({
-      userId: userId,
-      status: "completed",
-    })
-      .populate("testId", "name description")
-      .sort({ submittedAt: -1 })
-      .limit(limit * 1)
-      .skip((page - 1) * limit);
-
-    const total = await TestResult.countDocuments({
-      userId: userId,
-      status: "completed",
-    });
-
-    const resultsWithTime = testResults.map((result) => ({
-      ...result.toObject(),
-      completionTimeFormatted: formatCompletionTime(result.completionTime),
-    }));
-
-    res.json({
-      success: true,
-      data: {
-        results: resultsWithTime,
-        totalPages: Math.ceil(total / limit),
-        currentPage: page,
-        totalResults: total,
-      },
-    });
-  } catch (error) {
-    console.error("Error getting user test results with time:", error);
-    res.status(500).json({
-      success: false,
-      message: "Failed to get test results",
-      error: error.message,
-    });
-  }
-};
