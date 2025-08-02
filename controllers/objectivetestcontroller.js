@@ -854,12 +854,33 @@ exports.getUserTestResults = async (req, res) => {
     })
       .populate("testId", "name category subcategory")
       .sort({ submittedAt: -1 });
-
-    console.log(results);
+    
+    if (!results) {
+      return res.status(404).json({
+        success: false,
+        message: "Test results not found",
+      });
+    }
+      
+    let answers = results.answers;
+    console.log(answers);
+    
+    // Convert Map keys to array of question IDs
+    const questionIds = Array.from(answers.keys());
+    console.log("Question IDs:", questionIds);
+    
+    const questions = await ObjectiveTestQuestion.find({
+      _id: { $in: questionIds },
+    });
+    console.log("Questions found:", questions.length);
 
     res.json({
       success: true,
-      data: results,
+      data: {
+        ...results.toObject(),
+        questions: questions,
+        userAnswers: Object.fromEntries(answers) // Convert Map to regular object for JSON response
+      },
     });
   } catch (error) {
     console.error("Error fetching test results:", error);
