@@ -43,6 +43,19 @@ const UserProfileSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+    // Test statistics
+    completedTests: {
+      type: Number,
+      default: 0
+    },
+    totalTestScore: {
+      type: Number,
+      default: 0
+    },
+    averageTestScore: {
+      type: Number,
+      default: 0
+    },
   createdAt: {
     type: Date,
     default: Date.now

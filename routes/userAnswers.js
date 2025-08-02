@@ -588,6 +588,7 @@ router.post(
       const userAnswerData = {
         userId: userId,
         questionId: questionId,
+        testType: 'aiswb',
         clientId: req.user.clientId,
         answerImages: answerImages,
         textAnswer: textAnswer || "",
@@ -1058,9 +1059,9 @@ router.post(
 
       const userAnswerData = {
         userId: userId,
-        subjectiveTest: {
-          questionId: questionId,
-        },
+        questionId: questionId,
+        testType: 'subjective',
+        testId: testId,
         clientId: req.user.clientId,
         answerImages: answerImages,
         textAnswer: textAnswer || "",
@@ -1091,9 +1092,7 @@ router.post(
         userAnswerData.extractedTexts = extractedTexts;
       }
 
-      if (testId) {
-        userAnswerData.subjectiveTest.testId = testId;
-      }
+      // testId is already set in userAnswerData above
 
       let userAnswer;
       try {
@@ -1131,9 +1130,10 @@ router.post(
       };
 
       if (testInfo) {
-        responseData.subjectiveTest = {
+        responseData.test = {
           id: testInfo._id,
           name: testInfo.name,
+          type: 'subjective'
         };
       }
 

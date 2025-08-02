@@ -99,6 +99,8 @@ const UserSchema = new mongoose.Schema({
     sparse: true // Only unique if not null
   },
   
+
+  
   createdAt: {
     type: Date,
     default: Date.now

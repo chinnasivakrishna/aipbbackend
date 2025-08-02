@@ -6,6 +6,7 @@ const UserAnswer = require('../models/UserAnswer');
 const Evaluator = require('../models/Evaluator');
 const { verifyTokenforevaluator } = require('../middleware/auth'); // Assuming evaluators use regular auth
 const AiswbQuestion = require('../models/AiswbQuestion');
+const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
 const { generatePresignedUrl, generateAnnotatedImageUrl } = require('../utils/s3');
 const path = require('path');
 
@@ -2238,7 +2239,7 @@ router.post('/annotated-image-upload-url', async (req, res) => {
 router.post('/publishwithannotation', async (req,res) => {
   try {
     const { answerId, annotatedImageKey } = req.body;
-
+    console.log(req.body)
     if (!answerId || !annotatedImageKey) {
       return res.status(400).json({
         success: false,
@@ -2246,14 +2247,30 @@ router.post('/publishwithannotation', async (req,res) => {
       });
     }
 
-    const userAnswer = await UserAnswer.findById(answerId).populate('questionId');
-
+    const userAnswer = await UserAnswer.findById(answerId);
+    console.log(userAnswer)
     if (!userAnswer) {
       return res.status(404).json({ success: false, message: 'UserAnswer not found' });
     }
 
-    const question = userAnswer.questionId;
+    // Dynamically populate question based on testType
+    let question;
+    if (userAnswer.testType === 'aiswb') {
+      const AiswbQuestion = require('../models/AiswbQuestion');
+      question = await AiswbQuestion.findById(userAnswer.questionId);
+    } else if (userAnswer.testType === 'subjective') {
+      const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+      question = await SubjectiveTestQuestion.findById(userAnswer.questionId);
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid test type for this answer.'
+      });
+    }
 
+    console.log(question)
+    console.log(question.evaluationMode)
+    console.log(question.evaluationType)
     if (!question || question.evaluationMode !== 'manual' || question.evaluationType !== 'with annotation') {
       return res.status(400).json({
         success: false,
@@ -2262,7 +2279,7 @@ router.post('/publishwithannotation', async (req,res) => {
     }
 
     const downloadUrl = await generateAnnotatedImageUrl(annotatedImageKey);
-    
+    console.log(downloadUrl)
     userAnswer.annotations.push({
       s3Key: annotatedImageKey,
       downloadUrl: downloadUrl,

@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const UserAnswer = require('../models/UserAnswer');
 const AiswbQuestion = require('../models/AiswbQuestion');
+const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
 const AISWBSet = require('../models/AISWBSet');
 const { validationResult, param, body, query } = require('express-validator');
 const { verifyTokenforevaluator } = require('../middleware/auth');
@@ -75,12 +76,30 @@ router.get('/answers', [
     // Build aggregation pipeline
     const pipeline = [
       { $match: filter },
+      // Lookup questions based on testType
       {
         $lookup: {
           from: 'aiswbquestions',
           localField: 'questionId',
           foreignField: '_id',
-          as: 'question'
+          as: 'aiswbQuestion'
+        }
+      },
+      {
+        $lookup: {
+          from: 'subjectivetestquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'subjectiveQuestion'
+        }
+      },
+      // Lookup test info for subjective questions
+      {
+        $lookup: {
+          from: 'subjectivetests',
+          localField: 'testId',
+          foreignField: '_id',
+          as: 'test'
         }
       },
       {
@@ -97,6 +116,18 @@ router.get('/answers', [
           localField: 'setId',
           foreignField: '_id',
           as: 'set'
+        }
+      },
+      // Combine question data based on testType
+      {
+        $addFields: {
+          question: {
+            $cond: {
+              if: { $eq: ['$testType', 'subjective'] },
+              then: { $arrayElemAt: ['$subjectiveQuestion', 0] },
+              else: { $arrayElemAt: ['$aiswbQuestion', 0] }
+            }
+          }
         }
       },
       {
@@ -149,6 +180,8 @@ router.get('/answers', [
         _id: 1,
         userId: 1,
         questionId: 1,
+        testType: 1,
+        testId: 1,
         setId: 1,
         attemptNumber: 1,
         answerImages: 1,
@@ -172,6 +205,11 @@ router.get('/answers', [
         'question.metadata.difficultyLevel': 1,
         'question.metadata.maximumMarks': 1,
         'question.metadata.estimatedTime': 1,
+        'test._id': 1,
+        'test.name': 1,
+        'test.description': 1,
+        'test.category': 1,
+        'test.subcategory': 1,
         'user._id': 1,
         'user.name': 1,
         'user.email': 1,
@@ -518,8 +556,8 @@ router.put('/answers/:answerId/evaluate', [
     const { answerId } = req.params;
     const { evaluation, publish = false } = req.body;
 
-    // Find the answer with question details
-    const answer = await UserAnswer.findById(answerId).populate('questionId');
+    // Find the answer first
+    const answer = await UserAnswer.findById(answerId);
     if (!answer) {
       return res.status(404).json({
         success: false,
@@ -531,8 +569,28 @@ router.put('/answers/:answerId/evaluate', [
       });
     }
 
+    // Dynamically populate question based on testType
+    let question;
+    if (answer.testType === 'aiswb') {
+      question = await AiswbQuestion.findById(answer.questionId);
+    } else if (answer.testType === 'subjective') {
+      const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+      question = await SubjectiveTestQuestion.findById(answer.questionId);
+    }
+
+    if (!question) {
+      return res.status(404).json({
+        success: false,
+        message: "Question not found",
+        error: {
+          code: "QUESTION_NOT_FOUND",
+          details: "The question associated with this answer does not exist"
+        }
+      });
+    }
+
     // Check if question is in manual evaluation mode
-    if (answer.questionId.evaluationMode !== 'manual') {
+    if (question.evaluationMode !== 'manual') {
       return res.status(400).json({
         success: false,
         message: "Answer is not in manual evaluation mode",
@@ -952,20 +1010,28 @@ router.put('/answers/:answerId/publish', [
         // reviewStatus: 'review_completed'
       },
       { new: true, runValidators: true }
-    ).populate([
-      {
-        path: 'questionId',
-        select: 'question evaluationMode metadata'
-      },
-      {
-        path: 'userId',
-        select: 'name email phoneNumber'
-      },
-      {
-        path: 'setId',
-        select: 'name itemType'
-      }
-    ]);
+    );
+
+    // Dynamically populate question based on testType
+    if (updatedAnswer.testType === 'aiswb') {
+      const question = await AiswbQuestion.findById(updatedAnswer.questionId).select('question evaluationMode metadata');
+      updatedAnswer.questionId = question;
+    } else if (updatedAnswer.testType === 'subjective') {
+      const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+      const question = await SubjectiveTestQuestion.findById(updatedAnswer.questionId).select('question evaluationMode metadata');
+      updatedAnswer.questionId = question;
+    }
+
+    // Populate other fields
+    const User = require('../models/User');
+    const user = await User.findById(updatedAnswer.userId).select('name email phoneNumber');
+    updatedAnswer.userId = user;
+
+    if (updatedAnswer.setId) {
+      const AISWBSet = require('../models/AISWBSet');
+      const setId = await AISWBSet.findById(updatedAnswer.setId).select('name itemType');
+      updatedAnswer.setId = setId;
+    }
 
     res.status(200).json({
       success: true,
@@ -1296,12 +1362,30 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
     // Build aggregation pipeline for accepted answers by this evaluator
     const pipeline = [
       { $match: filter },
+      // Lookup questions based on testType
       {
         $lookup: {
           from: 'aiswbquestions',
           localField: 'questionId',
           foreignField: '_id',
-          as: 'question'
+          as: 'aiswbQuestion'
+        }
+      },
+      {
+        $lookup: {
+          from: 'subjectivetestquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'subjectiveQuestion'
+        }
+      },
+      // Lookup test info for subjective questions
+      {
+        $lookup: {
+          from: 'subjectivetests',
+          localField: 'testId',
+          foreignField: '_id',
+          as: 'test'
         }
       },
       {
@@ -1318,6 +1402,18 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
           localField: 'setId',
           foreignField: '_id',
           as: 'set'
+        }
+      },
+      // Combine question data based on testType
+      {
+        $addFields: {
+          question: {
+            $cond: {
+              if: { $eq: ['$testType', 'subjective'] },
+              then: { $arrayElemAt: ['$subjectiveQuestion', 0] },
+              else: { $arrayElemAt: ['$aiswbQuestion', 0] }
+            }
+          }
         }
       },
       {
@@ -1361,6 +1457,8 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
         _id: 1,
         userId: 1,
         questionId: 1,
+        testType: 1,
+        testId: 1,
         setId: 1,
         attemptNumber: 1,
         answerImages: 1,
@@ -1384,6 +1482,11 @@ router.get('/answers/evaluator/evaluated', verifyTokenforevaluator, [
         'question.metadata.difficultyLevel': 1,
         'question.metadata.maximumMarks': 1,
         'question.metadata.estimatedTime': 1,
+        'test._id': 1,
+        'test.name': 1,
+        'test.description': 1,
+        'test.category': 1,
+        'test.subcategory': 1,
         'user._id': 1,
         'user.name': 1,
         'user.email': 1,
@@ -1509,12 +1612,30 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
     // Build aggregation pipeline for accepted answers by this evaluator
     const pipeline = [
       { $match: filter },
+      // Lookup questions based on testType
       {
         $lookup: {
           from: 'aiswbquestions',
           localField: 'questionId',
           foreignField: '_id',
-          as: 'question'
+          as: 'aiswbQuestion'
+        }
+      },
+      {
+        $lookup: {
+          from: 'subjectivetestquestions',
+          localField: 'questionId',
+          foreignField: '_id',
+          as: 'subjectiveQuestion'
+        }
+      },
+      // Lookup test info for subjective questions
+      {
+        $lookup: {
+          from: 'subjectivetests',
+          localField: 'testId',
+          foreignField: '_id',
+          as: 'test'
         }
       },
       {
@@ -1531,6 +1652,18 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
           localField: 'setId',
           foreignField: '_id',
           as: 'set'
+        }
+      },
+      // Combine question data based on testType
+      {
+        $addFields: {
+          question: {
+            $cond: {
+              if: { $eq: ['$testType', 'subjective'] },
+              then: { $arrayElemAt: ['$subjectiveQuestion', 0] },
+              else: { $arrayElemAt: ['$aiswbQuestion', 0] }
+            }
+          }
         }
       },
       {
@@ -1574,6 +1707,8 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
         _id: 1,
         userId: 1,
         questionId: 1,
+        testType: 1,
+        testId: 1,
         setId: 1,
         attemptNumber: 1,
         answerImages: 1,
@@ -1596,6 +1731,11 @@ router.get('/answers/evaluator/accepted', verifyTokenforevaluator, [
         'question.metadata.difficultyLevel': 1,
         'question.metadata.maximumMarks': 1,
         'question.metadata.estimatedTime': 1,
+        'test._id': 1,
+        'test.name': 1,
+        'test.description': 1,
+        'test.category': 1,
+        'test.subcategory': 1,
         'user._id': 1,
         'user.name': 1,
         'user.email': 1,
@@ -1827,8 +1967,8 @@ router.put('/answers/:answerId/update', [
       reviewStatus 
     } = req.body;
 
-    // Find the answer with question details
-    const answer = await UserAnswer.findById(answerId).populate('questionId');
+    // Find the answer
+    const answer = await UserAnswer.findById(answerId);
     if (!answer) {
       return res.status(404).json({
         success: false,
@@ -1839,6 +1979,16 @@ router.put('/answers/:answerId/update', [
         }
       });
     }
+
+    // Dynamically populate question based on testType
+    let question;
+    if (answer.testType === 'aiswb') {
+      question = await AiswbQuestion.findById(answer.questionId);
+    } else if (answer.testType === 'subjective') {
+      const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+      question = await SubjectiveTestQuestion.findById(answer.questionId);
+    }
+    answer.questionId = question;
 
     // Prepare update data
     const updateData = {
@@ -1877,20 +2027,28 @@ router.put('/answers/:answerId/update', [
       answerId,
       updateData,
       { new: true, runValidators: true }
-    ).populate([
-      {
-        path: 'questionId',
-        select: 'question evaluationMode metadata'
-      },
-      {
-        path: 'userId',
-        select: 'name email phoneNumber'
-      },
-      {
-        path: 'setId',
-        select: 'name itemType'
-      }
-    ]);
+    );
+
+    // Dynamically populate question based on testType
+    if (updatedAnswer.testType === 'aiswb') {
+      const question = await AiswbQuestion.findById(updatedAnswer.questionId).select('question evaluationMode metadata');
+      updatedAnswer.questionId = question;
+    } else if (updatedAnswer.testType === 'subjective') {
+      const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+      const question = await SubjectiveTestQuestion.findById(updatedAnswer.questionId).select('question evaluationMode metadata');
+      updatedAnswer.questionId = question;
+    }
+
+    // Populate other fields
+    const User = require('../models/User');
+    const user = await User.findById(updatedAnswer.userId).select('name email phoneNumber');
+    updatedAnswer.userId = user;
+
+    if (updatedAnswer.setId) {
+      const AISWBSet = require('../models/AISWBSet');
+      const setId = await AISWBSet.findById(updatedAnswer.setId).select('name itemType');
+      updatedAnswer.setId = setId;
+    }
 
     res.status(200).json({
       success: true,

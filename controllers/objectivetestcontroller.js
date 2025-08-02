@@ -1,8 +1,23 @@
-const Test = require('../models/ObjectiveTest');
+const ObjectiveTest = require('../models/ObjectiveTest');
+const ObjectiveTestQuestion = require('../models/ObjectiveTestQuestion');
+const TestResult = require('../models/TestResult');
+const User = require('../models/User');
 const path = require('path');
 const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require('../utils/s3');
 const { Client } = require('twilio/lib/base/BaseTwilio');
-const User = require('../models/User');
+
+// Utility function to format completion time
+const formatCompletionTime = (milliseconds) => {
+    const totalSeconds = Math.floor(milliseconds / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    
+    if (minutes > 0) {
+        return `${minutes}m ${seconds}s`;
+    } else {
+        return `${seconds}s`;
+    }
+};
 
 exports.uploadImage = async (req, res) => {
    try {
@@ -75,7 +90,7 @@ exports.createTest = async (req, res) => {
         }
       }
 
-      const test = await Test.create({
+      const test = await ObjectiveTest.create({
         name,
         clientId,
         description,
@@ -124,7 +139,7 @@ exports.getTest = async (req, res) => {
             });
         }
 
-        const test = await Test.findById(id);
+        const test = await ObjectiveTest.findById(id);
         
         if (!test) {
             return res.status(404).json({
@@ -167,7 +182,7 @@ exports.getAllTests = async (req, res) => {
         {
             res.status(400).json({message:"client not found"})
         }
-        const tests = await Test.find({ isActive: true,clientId:clientId });
+        const tests = await ObjectiveTest.find({ isActive: true,clientId:clientId });
 
         // Generate fresh presigned URLs for all tests with images
         const testsWithUrls = await Promise.all(
@@ -232,7 +247,7 @@ exports.getAllTestsForMobile = async (req, res) => {
         if (subcategory) filter.subcategory = subcategory;
 
         // Get all tests for this client (without pagination for categorization)
-        const allTests = await Test.find({ 
+        const allTests = await ObjectiveTest.find({ 
             isActive: true, 
             clientId: clientId 
         });
@@ -367,7 +382,7 @@ exports.updateTest = async (req, res) => {
             });
         }
 
-        const test = await Test.findById(id);
+        const test = await ObjectiveTest.findById(id);
         if (!test) {
             return res.status(404).json({
                 success: false,
@@ -400,7 +415,7 @@ exports.updateTest = async (req, res) => {
             }
         }
 
-        const updatedTest = await Test.findByIdAndUpdate(
+        const updatedTest = await ObjectiveTest.findByIdAndUpdate(
             id,
             {
                 name,
@@ -449,7 +464,7 @@ exports.deleteTest = async (req, res) => {
             });
         }
 
-        const test = await Test.findById(id);
+        const test = await ObjectiveTest.findById(id);
         if (!test) {
             return res.status(404).json({
                 success: false,
@@ -467,7 +482,7 @@ exports.deleteTest = async (req, res) => {
             }
         }
 
-        await Test.findByIdAndDelete(id);
+        await ObjectiveTest.findByIdAndDelete(id);
 
         res.status(200).json({
             success: true,
@@ -482,3 +497,400 @@ exports.deleteTest = async (req, res) => {
         });
     }
 } 
+
+// Submit test with all answers
+exports.submitTest = async (req, res) => {
+    try {
+        const { testId } = req.params;
+        const { answers, totalQuestions, answeredQuestions} = req.body;
+        const userId = req.user.id;
+        const clientId = req.clientId;
+        console.log(testId,userId,clientId)
+        
+        // Validate test exists
+        const test = await ObjectiveTest.findById(testId);
+        if (!test) {
+            return res.status(404).json({
+                success: false,
+                message: 'Test not found'
+            });
+        }
+        console.log(test)
+        
+        // Get all questions for this test
+        const questions = await ObjectiveTestQuestion.find({ test:testId });
+        console.log(questions)
+        if (questions.length === 0) {
+            return res.status(400).json({
+                success: false,
+                message: 'No questions found for this test'
+            });
+        }
+
+        // Find existing test result (should be in_progress)
+        const existingResult = await TestResult.findOne({ 
+            userId, 
+            testId,
+            status: 'in_progress'
+        });
+
+        if (!existingResult) {
+            return res.status(400).json({
+                success: false,
+                message: 'Test not started. Please start the test first.'
+            });
+        }
+
+        // Calculate completion time
+        const endTime = new Date();
+        const completionTimeMs = endTime.getTime() - existingResult.startTime.getTime();
+        const completionTimeSeconds = Math.floor(completionTimeMs / 1000);
+
+        // Calculate results
+        let correctAnswers = 0;
+        let levelResults = {
+            L1: { total: 0, correct: 0, score: 0 },
+            L2: { total: 0, correct: 0, score: 0 },
+            L3: { total: 0, correct: 0, score: 0 }
+        };
+
+        // Process each question
+        questions.forEach(question => {
+            const userAnswer = answers[question._id];
+            const isCorrect = userAnswer === question.correctAnswer;
+            console.log(userAnswer,question.correctAnswer)
+            if (isCorrect) {
+                correctAnswers++;
+            }
+
+            // Update level breakdown
+            const level = question.difficulty || 'L1';
+            levelResults[level].total++;
+            if (isCorrect) {
+                levelResults[level].correct++;
+            }
+        });
+
+        // Calculate scores
+        const overallScore = (correctAnswers / totalQuestions) * 100;
+        
+        // Calculate level-specific scores
+        Object.keys(levelResults).forEach(level => {
+            if (levelResults[level].total > 0) {
+                levelResults[level].score = (levelResults[level].correct / levelResults[level].total) * 100;
+            }
+        });
+
+        // Update the existing test result with completion data
+        existingResult.answers = answers;
+        existingResult.score = Math.round(overallScore * 100) / 100; // Round to 2 decimal places
+        existingResult.totalQuestions = totalQuestions;
+        existingResult.answeredQuestions = answeredQuestions;
+        existingResult.correctAnswers = correctAnswers;
+        existingResult.levelBreakdown = levelResults;
+        existingResult.completionTime = completionTimeMs; // Store in milliseconds
+        existingResult.status = 'completed';
+        existingResult.submittedAt = new Date();
+
+        await existingResult.save();
+
+        // Update user stats (optional)
+        try {
+            await UserProfile.findByIdAndUpdate(userId, {
+                $inc: { 
+                    completedTests: 1,
+                    testId: existingResult._id,
+                    totalTestScore: Math.round(overallScore)
+                }
+            });
+        } catch (error) {
+            console.error('Error updating user stats:', error);
+        }
+
+        res.json({
+            success: true,
+            message: 'Test submitted successfully',
+            data: {
+                testResultId: existingResult._id,
+                score: existingResult.score,
+                correctAnswers,
+                totalQuestions,
+                answeredQuestions,
+                levelBreakdown: levelResults,
+                startTime: existingResult.startTime,
+                completionTime: existingResult.completionTime, // Raw milliseconds
+                completionTimeFormatted: formatCompletionTime(existingResult.completionTime),
+                submittedAt: existingResult.submittedAt
+            }
+        });
+
+    } catch (error) {
+        console.error('Error submitting test:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to submit test',
+            error: error.message
+        });
+    }
+};
+
+// Start test - track when user begins the test
+exports.startTest = async (req, res) => {
+    try {
+        const { testId } = req.params;
+        const userId = req.user.id;
+        const clientId = req.clientId;
+
+        // Validate test exists
+        const test = await ObjectiveTest.findById(testId);
+        if (!test) {
+            return res.status(404).json({
+                success: false,
+                message: 'Test not found'
+            });
+        }
+
+        // Check if user already has a result for this test
+        const existingResult = await TestResult.findOne({ 
+            userId, 
+            testId,
+            status: { $in: ['completed', 'in_progress'] }
+        });
+
+        if (existingResult) {
+            return res.status(400).json({
+                success: false,
+                message: 'Test already started or completed'
+            });
+        }
+
+        // Create a new test result with in_progress status
+        const testResult = new TestResult({
+            userId,
+            testId,
+            clientId,
+            startTime: new Date(),
+            status: 'in_progress'
+        });
+
+        await testResult.save();
+
+        res.json({
+            success: true,
+            message: 'Test started successfully',
+            data: {
+                testResultId: testResult._id,
+                startTime: testResult.startTime,
+                testId: testId
+            }
+        });
+
+    } catch (error) {
+        console.error('Error starting test:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to start test',
+            error: error.message
+        });
+    }
+};
+
+
+// Get user's test results
+exports.getUserTestResults = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { testId } = req.params;
+
+        const results = await TestResult.find({ 
+            userId,
+            ...(testId && { testId })
+        })
+        .populate('testId', 'name category')
+        .sort({ submittedAt: -1 });
+
+        res.json({
+            success: true,
+            data: results
+        });
+
+    } catch (error) {
+        console.error('Error fetching test results:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch test results',
+            error: error.message
+        });
+    }
+};
+
+// Get test analytics (for admin/client)
+exports.getTestAnalytics = async (req, res) => {
+    try {
+        const { testId } = req.params;
+        const clientId = req.user.clientId;
+
+        const results = await TestResult.find({ 
+            testId,
+            clientId,
+            status: 'completed'
+        });
+
+        if (results.length === 0) {
+            return res.json({
+                success: true,
+                data: {
+                    totalAttempts: 0,
+                    averageScore: 0,
+                    highestScore: 0,
+                    lowestScore: 0,
+                    levelBreakdown: {
+                        L1: { attempts: 0, averageScore: 0 },
+                        L2: { attempts: 0, averageScore: 0 },
+                        L3: { attempts: 0, averageScore: 0 }
+                    }
+                }
+            });
+        }
+
+        // Calculate analytics
+        const totalAttempts = results.length;
+        const scores = results.map(r => r.score);
+        const averageScore = scores.reduce((a, b) => a + b, 0) / scores.length;
+        const highestScore = Math.max(...scores);
+        const lowestScore = Math.min(...scores);
+
+        // Level breakdown
+        const levelBreakdown = {
+            L1: { attempts: 0, averageScore: 0 },
+            L2: { attempts: 0, averageScore: 0 },
+            L3: { attempts: 0, averageScore: 0 }
+        };
+
+        results.forEach(result => {
+            Object.keys(result.levelBreakdown).forEach(level => {
+                if (result.levelBreakdown[level].total > 0) {
+                    levelBreakdown[level].attempts++;
+                    levelBreakdown[level].averageScore += result.levelBreakdown[level].score;
+                }
+            });
+        });
+
+        // Calculate averages
+        Object.keys(levelBreakdown).forEach(level => {
+            if (levelBreakdown[level].attempts > 0) {
+                levelBreakdown[level].averageScore = levelBreakdown[level].averageScore / levelBreakdown[level].attempts;
+            }
+        });
+
+        res.json({
+            success: true,
+            data: {
+                totalAttempts,
+                averageScore: Math.round(averageScore * 100) / 100,
+                highestScore: Math.round(highestScore * 100) / 100,
+                lowestScore: Math.round(lowestScore * 100) / 100,
+                levelBreakdown
+            }
+        });
+
+    } catch (error) {
+        console.error('Error fetching test analytics:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to fetch test analytics',
+            error: error.message
+        });
+    }
+};
+
+// Get test completion time for a specific test result
+exports.getTestCompletionTime = async (req, res) => {
+    try {
+        const { testResultId } = req.params;
+        const userId = req.user.id;
+
+        const testResult = await TestResult.findOne({ 
+            _id: testResultId,
+            userId: userId
+        });
+
+        if (!testResult) {
+            return res.status(404).json({
+                success: false,
+                message: 'Test result not found'
+            });
+        }
+
+        if (testResult.status !== 'completed') {
+            return res.status(400).json({
+                success: false,
+                message: 'Test not completed yet'
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                testResultId: testResult._id,
+                startTime: testResult.startTime,
+                completionTime: testResult.completionTime, // Raw milliseconds
+                completionTimeFormatted: formatCompletionTime(testResult.completionTime),
+                submittedAt: testResult.submittedAt
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting test completion time:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get test completion time',
+            error: error.message
+        });
+    }
+};
+
+// Get all test results with completion times for a user
+exports.getUserTestResultsWithTime = async (req, res) => {
+    try {
+        const userId = req.user.id;
+        const { page = 1, limit = 10 } = req.query;
+
+        const testResults = await TestResult.find({ 
+            userId: userId,
+            status: 'completed'
+        })
+        .populate('testId', 'name description')
+        .sort({ submittedAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit);
+
+        const total = await TestResult.countDocuments({ 
+            userId: userId,
+            status: 'completed'
+        });
+
+        const resultsWithTime = testResults.map(result => ({
+            ...result.toObject(),
+            completionTimeFormatted: formatCompletionTime(result.completionTime)
+        }));
+
+        res.json({
+            success: true,
+            data: {
+                results: resultsWithTime,
+                totalPages: Math.ceil(total / limit),
+                currentPage: page,
+                totalResults: total
+            }
+        });
+
+    } catch (error) {
+        console.error('Error getting user test results with time:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get test results',
+            error: error.message
+        });
+    }
+};

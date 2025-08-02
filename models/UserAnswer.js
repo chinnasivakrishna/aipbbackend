@@ -9,20 +9,17 @@ const userAnswerSchema = new mongoose.Schema({
   },
   questionId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'AiswbQuestion',
-    required: false
+    required: true
   },
-  subjectiveTest: {
-    testId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'SubjectiveTest',
-      required: false
-    },
-    questionId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'SubjectiveTestQuestion',
-      required: false
-    },
+  testType: {
+    type: String,
+    enum: ['aiswb', 'subjective'],
+    required: true
+  },
+  testId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'SubjectiveTest',
+    required: false
   },
   setId: {
     type: mongoose.Schema.Types.ObjectId,
@@ -516,6 +513,21 @@ userAnswerSchema.statics.hasReviewRequest = async function(userId, clientId) {
     return false;
   }
 };
+
+// Add custom validation for testType and testId
+userAnswerSchema.pre('save', function(next) {
+  // Validate testId is required for subjective tests
+  if (this.testType === 'subjective' && !this.testId) {
+    return next(new Error('testId is required for subjective questions'));
+  }
+  
+  // Validate testId should not be provided for AISWB tests
+  if (this.testType === 'aiswb' && this.testId) {
+    return next(new Error('testId should not be provided for AISWB questions'));
+  }
+  
+  next();
+});
 
 const UserAnswer = mongoose.model('UserAnswer', userAnswerSchema);
 UserAnswer.cleanupOldIndexes().catch(console.error);
