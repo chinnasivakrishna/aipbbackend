@@ -416,11 +416,8 @@ router.get('/:answerId', async (req, res) => {
       path: 'questionId',
       select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode setId book chapter topic subtopic'
     }).populate({
-      path: 'subjectiveTest.testId',
+      path: 'testId',
       select: 'name description category subcategory Estimated_time imageUrl instructions'
-    }).populate({
-      path: 'subjectiveTest.questionId',
-      select: 'question detailedAnswer modalAnswer answerVideoUrls metadata languageMode evaluationMode test'
     });
 
     if (!userAnswer) {
@@ -464,7 +461,7 @@ router.get('/:answerId', async (req, res) => {
       });
     }
     
-    if(userAnswer.feedback.expertReview.annotatedImages){
+    if(userAnswer.feedback?.expertReview?.annotatedImages){
       for(const image of userAnswer.feedback.expertReview.annotatedImages){
           if(image.s3Key){
             image.downloadUrl = await generateAnnotatedImageUrl(image.s3Key);
@@ -477,14 +474,13 @@ router.get('/:answerId', async (req, res) => {
             annotation.downloadUrl = await generateAnnotatedImageUrl(annotation.s3Key);
         }
       }
-
     }
 
     // Get book/workbook information
     const bookWorkbookInfo = await getBookWorkbookInfo(userAnswer.questionId);
 
     // Determine if this is a subjective test submission
-    const isSubjectiveTest = userAnswer.subjectiveTest && userAnswer.subjectiveTest.testId;
+    const isSubjectiveTest = userAnswer.testType === 'subjective';
     
     // Get question information based on type
     let questionInfo = null;
@@ -493,24 +489,24 @@ router.get('/:answerId', async (req, res) => {
     if (isSubjectiveTest) {
       // Subjective test submission
       questionInfo = {
-        text: userAnswer.subjectiveTest.questionId?.question,
-        detailedAnswer: userAnswer.subjectiveTest.questionId?.detailedAnswer,
-        modalAnswer: userAnswer.subjectiveTest.questionId?.modalAnswer,
-        answerVideoUrls: userAnswer.subjectiveTest.questionId?.answerVideoUrls || [],
-        metadata: userAnswer.subjectiveTest.questionId?.metadata,
-        languageMode: userAnswer.subjectiveTest.questionId?.languageMode,
-        evaluationMode: userAnswer.subjectiveTest.questionId?.evaluationMode
+        text: userAnswer.questionId?.question,
+        detailedAnswer: userAnswer.questionId?.detailedAnswer,
+        modalAnswer: userAnswer.questionId?.modalAnswer,
+        answerVideoUrls: userAnswer.questionId?.answerVideoUrls || [],
+        metadata: userAnswer.questionId?.metadata,
+        languageMode: userAnswer.questionId?.languageMode,
+        evaluationMode: userAnswer.questionId?.evaluationMode
       };
       
       testInfo = {
-        id: userAnswer.subjectiveTest.testId?._id,
-        name: userAnswer.subjectiveTest.testId?.name,
-        description: userAnswer.subjectiveTest.testId?.description,
-        category: userAnswer.subjectiveTest.testId?.category,
-        subcategory: userAnswer.subjectiveTest.testId?.subcategory,
-        estimatedTime: userAnswer.subjectiveTest.testId?.Estimated_time,
-        imageUrl: userAnswer.subjectiveTest.testId?.imageUrl,
-        instructions: userAnswer.subjectiveTest.testId?.instructions
+        id: userAnswer.testId?._id,
+        name: userAnswer.testId?.name,
+        description: userAnswer.testId?.description,
+        category: userAnswer.testId?.category,
+        subcategory: userAnswer.testId?.subcategory,
+        estimatedTime: userAnswer.testId?.Estimated_time,
+        imageUrl: userAnswer.testId?.imageUrl,
+        instructions: userAnswer.testId?.instructions
       };
     } else {
       // AISWB submission
@@ -529,7 +525,9 @@ router.get('/:answerId', async (req, res) => {
     const responseData = {
       answer: {
         _id: userAnswer._id,
-        questionId: isSubjectiveTest ? userAnswer.subjectiveTest.questionId?._id : userAnswer.questionId?._id,
+        questionId: userAnswer.questionId?._id,
+        testType: userAnswer.testType,
+        setId: userAnswer.setId,
         attemptNumber: userAnswer.attemptNumber,
         submissionStatus: userAnswer.submissionStatus,
         reviewStatus: userAnswer.reviewStatus,
@@ -561,7 +559,9 @@ router.get('/:answerId', async (req, res) => {
           textAnswer: userAnswer.textAnswer,
           extractedTexts: userAnswer.extractedTexts || [],
           timeSpent: userAnswer.metadata?.timeSpent || 0,
-          sourceType: userAnswer.metadata?.sourceType || 'qr_scan'
+          sourceType: userAnswer.metadata?.sourceType || 'qr_scan',
+          deviceInfo: userAnswer.metadata?.deviceInfo,
+          appVersion: userAnswer.metadata?.appVersion
         },
         
         // AI/Manual Evaluation (updated to match new structure)
@@ -597,6 +597,8 @@ router.get('/:answerId', async (req, res) => {
           score: userAnswer.feedback.score,
           comments: userAnswer.feedback.comments,
           suggestions: userAnswer.feedback.suggestions || [],
+          feedbackStatus: userAnswer.feedback.feedbackStatus,
+          userFeedbackReview: userAnswer.feedback.userFeedbackReview,
           // Include full expert review data
           expertReview: userAnswer.feedback.expertReview ? {
             result: userAnswer.feedback.expertReview.result,
@@ -608,16 +610,15 @@ router.get('/:answerId', async (req, res) => {
         } : null,
         
         // Reviewer information (if reviewed manually)
-        reviewedBy: userAnswer.reviewedBy ? {
-          name: userAnswer.reviewedBy.name,
-          email: userAnswer.reviewedBy.email
-        } : null,
+        reviewedBy: userAnswer.reviewedBy,
+        reviewedByEvaluator: userAnswer.reviewedByEvaluator,
 
         // Add this line to include top-level annotations in the detail response
         annotations: userAnswer.annotations || [],
-        reviewRequestedAt:userAnswer.reviewRequestedAt,
-        reviewAcceptedAt:userAnswer.reviewAssignedAt,
-        reviewCompletedAt:userAnswer.reviewCompletedAt,
+        reviewRequestedAt: userAnswer.reviewRequestedAt,
+        reviewAcceptedAt: userAnswer.reviewAssignedAt,
+        reviewCompletedAt: userAnswer.reviewCompletedAt,
+        updatedAt: userAnswer.updatedAt
 
       }
     };

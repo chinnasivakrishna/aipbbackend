@@ -22,21 +22,21 @@ const testResultSchema = new mongoose.Schema({
     },
     score: {
         type: Number,
-        required: true,
+        // required: true,
         min: 0,
         max: 100
     },
     totalQuestions: {
         type: Number,
-        required: true
+        // required: true
     },
     answeredQuestions: {
         type: Number,
-        required: true
+        // required: true
     },
     correctAnswers: {
         type: Number,
-        required: true
+        // required: true
     },
     levelBreakdown: {
         L1: { total: Number, correct: Number, score: Number },
@@ -53,7 +53,7 @@ const testResultSchema = new mongoose.Schema({
     },
     completionTime: {
         type: Number, 
-        required: true
+        // required: true
     },
     status: {
         type: String,

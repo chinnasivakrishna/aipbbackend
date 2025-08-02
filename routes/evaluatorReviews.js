@@ -1876,11 +1876,11 @@ router.get('/pending-reviews', verifyTokenforevaluator, async (req, res) => {
       reviewStatus: 'review_pending',
       reviewedByEvaluator: evaluatorId
     };
+       
 
     // Get pending reviews with pagination
     const pendingReviews = await UserAnswer.find(filter)
       .populate('userId', 'mobile name')
-      .populate('questionId', 'question metadata difficultyLevel')
       .populate('setId', 'name')
       .sort({ submittedAt: -1 })
       .skip(skip)
@@ -1975,7 +1975,6 @@ router.get('/accepted-reviews', verifyTokenforevaluator, async (req, res) => {
     // Get accepted reviews with pagination
     const acceptedReviews = await UserAnswer.find(filter)
       .populate('userId', 'mobile name')
-      .populate('questionId', 'question metadata difficultyLevel')
       .populate('setId', 'name')
       .sort({ submittedAt: -1 })
       .skip(skip)
@@ -2065,7 +2064,6 @@ router.get('/completed-reviews', verifyTokenforevaluator, async (req, res) => {
     // Get completed reviews with pagination
     const completedReviews = await UserAnswer.find(filter)
       .populate('userId', 'mobile name')
-      .populate('questionId', 'question metadata difficultyLevel')
       .populate('setId', 'name')
       .sort({ submittedAt: -1 })
       .skip(skip)
