@@ -655,7 +655,7 @@ exports.submitTest = async (req, res) => {
       const newAverageScore = newTotalScore / newCompletedTests;
 
       // Calculate new accuracy rate
-      const newTotalQuestions = userProfile.performanceStats.totalQuestionsAttempted + totalQuestions;
+      const newTotalQuestions = userProfile.performanceStats.totalQuestionsAttempted + answeredQuestions;
       const newTotalCorrect = userProfile.performanceStats.totalCorrectAnswers + correctAnswers;
       const newAccuracyRate = newTotalQuestions > 0 ? (newTotalCorrect / newTotalQuestions) * 100 : 0;
 
