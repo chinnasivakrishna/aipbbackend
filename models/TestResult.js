@@ -52,7 +52,7 @@ const testResultSchema = new mongoose.Schema({
         default: Date.now
     },
     completionTime: {
-        type: Number, 
+        type: String, 
         // required: true
     },
     status: {

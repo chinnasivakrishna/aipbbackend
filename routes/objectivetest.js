@@ -30,7 +30,7 @@ router.post('/', testController.createTest);
 router.get('/', testController.getAllTests);
 
 // Get user's test results (specific routes first)
-router.get('/results', testController.getUserTestResults);
+// router.get('/results', testController.getUserTestResults);
 router.get('/results/:testId', testController.getUserTestResults);
 
 // Get user's test results with completion time
