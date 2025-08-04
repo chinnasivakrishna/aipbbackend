@@ -621,9 +621,25 @@ exports.startTest = async (req, res) => {
             const userId = req.user.id;
             const clientId = req.clientId;
     
+            console.log(userId)
+            console.log(testId)
+            console.log(clientId)
             // Get total questions
             const totalQuestions = await SubjectiveTestQuestion.countDocuments({ test: testId });
-    
+             
+            const existingTestResult = await SubjectiveTestResult.findOne({
+                userId: userId,
+                testId: testId,
+                status: { $in: ["completed","started"] },
+            });
+            console.log(existingTestResult)
+            if(existingTestResult)
+            {
+                return res.status(400).json({
+                    success: false,
+                    message: 'Test already started or completed'
+                });
+            }
             // Create test result
             const testResult = await SubjectiveTestResult.create({
                 userId: userId,
