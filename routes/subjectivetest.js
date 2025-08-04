@@ -27,5 +27,10 @@ router.delete('/:id', verifyToken, testController.deleteTest);
 // // Get a specific test by ID
 router.get('/:id', verifyToken, testController.getTest);
 
+// In your routes
+router.post('/tests/:testId/start', authenticateMobileUser, testController.startTest);
+
+router.post('/tests/:testId/submit', authenticateMobileUser, testController.submitTest);
+
 module.exports = router;
 

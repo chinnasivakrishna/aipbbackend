@@ -4,6 +4,7 @@ const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require(
 const User = require('../models/User');
 const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
 const UserAnswer = require('../models/UserAnswer');
+const SubjectiveTestResult = require('../models/SubjectiveTestResult');
 
 
 // Helper function to calculate test status
@@ -609,6 +610,111 @@ exports.deleteTest = async (req, res) => {
         res.status(500).json({
             success: false,
             message: 'Failed to delete test',
+            error: error.message
+        });
+    }
+}
+
+exports.startTest = async (req, res) => {
+        try {
+            const { testId } = req.params;
+            const userId = req.user.id;
+            const clientId = req.clientId;
+    
+            // Get total questions
+            const totalQuestions = await SubjectiveTestQuestion.countDocuments({ test: testId });
+    
+            // Create test result
+            const testResult = await SubjectiveTestResult.create({
+                userId: userId,
+                testId: testId,
+                clientId: clientId,
+                startTime: new Date(),
+                totalQuestions: totalQuestions,
+                attemptedQuestions: 0,
+                status: 'started'
+            });
+    
+            res.status(200).json({
+                success: true,
+                message: 'Test started',
+                resultId: testResult._id,
+                startTime: testResult.startTime
+            });
+    
+        } 
+        catch (error) {
+            res.status(500).json({
+                success: false,
+                message: 'Failed to start test',
+                error: error.message
+            });
+        }
+    
+    }
+
+exports.submitTest = async (req, res) => {
+    try {
+        const { testId } = req.params;
+        const userId = req.user.id;
+
+        // Find test result
+        const testResult = await SubjectiveTestResult.findOne({
+            userId: userId,
+            testId: testId,
+            status: 'started'
+        });
+
+        if (!testResult) {
+            return res.status(404).json({
+                success: false,
+                message: 'No active test found'
+            });
+        }
+
+        // Get all answers for this test
+        const answers = await UserAnswer.find({
+            userId: userId,
+            testId: testId,
+            testType: 'subjective'
+        });
+
+        // Calculate results
+        const attemptedQuestions = answers.length;
+        const totalScore = answers.reduce((sum, answer) => {
+            return sum + (answer.evaluation?.score || 0);
+        }, 0);
+        const averageScore = attemptedQuestions > 0 ? totalScore / attemptedQuestions : 0;
+
+        // Update test result
+        testResult.endTime = new Date();
+        testResult.completionTime = Math.floor((testResult.endTime - testResult.startTime) / 1000);
+        testResult.attemptedQuestions = attemptedQuestions;
+        testResult.totalScore = totalScore;
+        testResult.averageScore = averageScore;
+        testResult.status = 'completed';
+
+        await testResult.save();
+
+        res.status(200).json({
+            success: true,
+            message: 'Test submitted successfully',
+            data: {
+                resultId: testResult._id,
+                startTime: testResult.startTime,
+                endTime: testResult.endTime,
+                completionTime: testResult.completionTime,
+                totalQuestions: testResult.totalQuestions,
+                attemptedQuestions: testResult.attemptedQuestions,
+                totalScore: testResult.totalScore,
+                averageScore: testResult.averageScore
+            }
+        });
+
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            message: 'Failed to submit test',
             error: error.message
         });
     }
