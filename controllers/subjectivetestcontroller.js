@@ -47,7 +47,6 @@ const calculateSubmissionSummary = (questions, userAnswers) => {
     const totalQuestions = questions.length;
     const attemptedQuestions = userAnswers.length;
     const notAttemptedQuestions = totalQuestions - attemptedQuestions;
-    
     // Calculate total completion time (using the metadata.timeSpent field)
     const totalCompletionTime = userAnswers.reduce((total, answer) => {
         return total + (answer.metadata?.timeSpent || 0);
@@ -56,6 +55,9 @@ const calculateSubmissionSummary = (questions, userAnswers) => {
     // Get answer images and details for attempted questions
     const attemptedQuestionsDetails = userAnswers.map(answer => ({
         questionId: answer.questionId._id,
+        question: answer.questionId.question,
+        maximumMarks: answer.questionId.metadata?.maximumMarks || 0,
+        difficultyLevel: answer.questionId.metadata?.difficultyLevel || 0,  
         attemptNumber: answer.attemptNumber,
         submissionStatus: answer.submissionStatus,
         submittedAt: answer.submittedAt,
@@ -69,7 +71,7 @@ const calculateSubmissionSummary = (questions, userAnswers) => {
             analysis: answer.evaluation.analysis
         } : null,
     }));
-    
+
     // Get not attempted question IDs
     const attemptedQuestionIds = userAnswers.map(answer => answer.questionId._id.toString());
     const notAttemptedQuestionIds = questions
@@ -226,7 +228,11 @@ exports.getTest = async (req, res) => {
             userId: userId,
             testId: id,
             testType: 'subjective'
-        }).populate('questionId', 'question metadata');
+        }).populate({
+            path: 'questionId',
+            select: 'question metadata',
+            model: 'SubjectiveTestQuestion'
+        });
 
         // Calculate test status and summary
         const testStatus = calculateTestStatus(questions, userAnswers);
@@ -363,6 +369,9 @@ exports.getAllTestsForMobile = async (req, res) => {
                     testType: 'subjective'
                 });
                 console.log(questions.length)
+                console.log(userId)
+                console.log(userAnswers)
+                console.log(userAnswers.length)
                 // Calculate status
                 const testStatus = calculateTestStatus(questions, userAnswers);
                 
