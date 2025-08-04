@@ -16,13 +16,16 @@ router.post('/', verifyToken, testController.createTest);
 router.get('/', verifyToken, testController.getAllTests);
 
 // Get a specific test by ID
-router.get('/:id', verifyToken, testController.getTest);
+router.get('/get-test/:id', authenticateMobileUser, testController.getTest);
 
 // Update a test
 router.put('/:id', verifyToken, testController.updateTest);
 
 // Delete a test
 router.delete('/:id', verifyToken, testController.deleteTest);
+
+// // Get a specific test by ID
+router.get('/:id', verifyToken, testController.getTest);
 
 module.exports = router;
 

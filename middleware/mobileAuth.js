@@ -92,7 +92,7 @@ const authenticateMobileUser = async (req, res, next) => {
     req.user = {
       id: user._id,
       mobile: user.mobile,
-      clientId: user.clientId,
+      userId: user.clientId,
       isAuthenticated: true
     };
 

@@ -1,8 +1,92 @@
 const Test = require('../models/SubjectiveTest');
 const path = require('path');
 const { generatePresignedUrl, generateGetPresignedUrl, deleteObject } = require('../utils/s3');
-const { Client } = require('twilio/lib/base/BaseTwilio');
 const User = require('../models/User');
+const SubjectiveTestQuestion = require('../models/SubjectiveTestQuestion');
+const UserAnswer = require('../models/UserAnswer');
+
+
+// Helper function to calculate test status
+const calculateTestStatus = (questions, userAnswers) => {
+    const totalQuestions = questions.length;
+    const attemptedQuestions = userAnswers.length;
+    
+    if (attemptedQuestions === 0) {
+        return {
+            status: 'not_attempted',
+            attempted: false,
+            progress: 0,
+            totalQuestions: totalQuestions,
+            attemptedQuestions: 0
+        };
+    }
+    
+    const progress = (attemptedQuestions / totalQuestions) * 100;
+    
+    if (progress === 100) {
+        return {
+            status: 'completed',
+            attempted: true,
+            progress: 100,
+            totalQuestions: totalQuestions,
+            attemptedQuestions: attemptedQuestions
+        };
+    } else {
+        return {
+            status: 'in_progress',
+            attempted: true,
+            progress: Math.round(progress),
+            totalQuestions: totalQuestions,
+            attemptedQuestions: attemptedQuestions
+        };
+    }
+};
+
+// Helper function to calculate submission summary
+const calculateSubmissionSummary = (questions, userAnswers) => {
+    const totalQuestions = questions.length;
+    const attemptedQuestions = userAnswers.length;
+    const notAttemptedQuestions = totalQuestions - attemptedQuestions;
+    
+    // Calculate total completion time (using the metadata.timeSpent field)
+    const totalCompletionTime = userAnswers.reduce((total, answer) => {
+        return total + (answer.metadata?.timeSpent || 0);
+    }, 0);
+    
+    // Get answer images and details for attempted questions
+    const attemptedQuestionsDetails = userAnswers.map(answer => ({
+        questionId: answer.questionId._id,
+        attemptNumber: answer.attemptNumber,
+        submissionStatus: answer.submissionStatus,
+        submittedAt: answer.submittedAt,
+        timeSpent: answer.metadata?.timeSpent || 0,
+        answerImages: answer.answerImages.length,
+        evaluation: answer.evaluation ? {
+            relevancy: answer.evaluation.relevancy,
+            score: answer.evaluation.score,
+            remark: answer.evaluation.remark,
+            comments: answer.evaluation.comments,
+            analysis: answer.evaluation.analysis
+        } : null,
+    }));
+    
+    // Get not attempted question IDs
+    const attemptedQuestionIds = userAnswers.map(answer => answer.questionId._id.toString());
+    const notAttemptedQuestionIds = questions
+        .filter(q => !attemptedQuestionIds.includes(q._id.toString()))
+        .map(q => q._id.toString());
+    
+    return {
+        totalQuestions,
+        attemptedQuestions,
+        notAttemptedQuestions,
+        completionTime: totalCompletionTime, // in seconds
+        attemptedQuestionsDetails,
+        attemptedQuestionIds,
+        notAttemptedQuestionIds,
+        averageTimePerQuestion: attemptedQuestions > 0 ? Math.round(totalCompletionTime / attemptedQuestions) : 0
+    };
+};
 
 exports.uploadImage = async (req, res) => {
    try {
@@ -108,14 +192,15 @@ exports.createTest = async (req, res) => {
 
 exports.getTest = async (req, res) => {
     try {
-        const clientId = req.user.userId;
+        const clientId = req.user.userId || req.clientId;
+        const { id } = req.params;
+        const userId = req.user.id; // Get the current user ID
+        
         console.log(clientId);
         const client = await User.findOne({userId:clientId});
-        if(!client)
-        {
-            res.status(400).json({message:"client not found"})
+        if(!client) {
+            return res.status(400).json({message:"client not found"});
         }
-        const { id } = req.params;
         
         if (!id) {
             return res.status(400).json({
@@ -133,6 +218,20 @@ exports.getTest = async (req, res) => {
             });
         }
 
+        // Get all questions for this test
+        const questions = await SubjectiveTestQuestion.find({ test: id });
+        
+        // Get user's answers for this test (using the exact structure you showed)
+        const userAnswers = await UserAnswer.find({
+            userId: userId,
+            testId: id,
+            testType: 'subjective'
+        }).populate('questionId', 'question metadata');
+
+        // Calculate test status and summary
+        const testStatus = calculateTestStatus(questions, userAnswers);
+        const submissionSummary = calculateSubmissionSummary(questions, userAnswers);
+
         // Generate fresh presigned URL if imageKey exists
         if (test.imageKey) {
             try {
@@ -140,13 +239,16 @@ exports.getTest = async (req, res) => {
                 test.imageUrl = freshImageUrl;
             } catch (error) {
                 console.error('Error generating fresh presigned URL:', error);
-                // Keep existing URL if generation fails
             }
         }
 
         res.status(200).json({
             success: true,
-            test
+            TestStatus: testStatus,
+            TestSubmissionSummary: submissionSummary,
+            test: {
+                ...test.toObject(),
+            }
         });
     } catch (error) {
         console.error('Get test error:', error);
@@ -200,8 +302,9 @@ exports.getAllTests = async (req, res) => {
 
 exports.getAllTestsForMobile = async (req, res) => {
     try {
-        // Use req.clientId (set by middleware) or fallback to req.params.clientId
         const clientId = req.clientId || req.params.clientId;
+        const userId = req.user.id; // Get current user ID
+        
         const { 
             limit = 10, 
             page = 1,
@@ -231,15 +334,16 @@ exports.getAllTestsForMobile = async (req, res) => {
         if (category) filter.category = category;
         if (subcategory) filter.subcategory = subcategory;
 
-        // Get all tests for this client (without pagination for categorization)
+        // Get all tests for this client
         const allTests = await Test.find({ 
             isActive: true, 
             clientId: clientId 
         });
 
-        // Generate fresh presigned URLs for all tests with images
-        const testsWithUrls = await Promise.all(
+        // Generate fresh presigned URLs and get user status for each test
+        const testsWithUserStatus = await Promise.all(
             allTests.map(async (test) => {
+                // Generate fresh presigned URL
                 if (test.imageKey) {
                     try {
                         const freshImageUrl = await generateGetPresignedUrl(test.imageKey, 604800);
@@ -248,7 +352,24 @@ exports.getAllTestsForMobile = async (req, res) => {
                         console.error('Error generating presigned URL for test:', test._id, error);
                     }
                 }
-                return test;
+                
+                // Get questions for this test
+                const questions = await SubjectiveTestQuestion.find({ test: test._id });
+                
+                // Get user's answers for this test
+                const userAnswers = await UserAnswer.find({
+                    userId: userId,
+                    testId: test._id,
+                    testType: 'subjective'
+                });
+                console.log(questions.length)
+                // Calculate status
+                const testStatus = calculateTestStatus(questions, userAnswers);
+                
+                return {
+                    ...test.toObject(),
+                    userTestStatus: testStatus
+                };
             })
         );
 
@@ -267,13 +388,14 @@ exports.getAllTestsForMobile = async (req, res) => {
             is_highlighted: test.isHighlighted,
             is_active: test.isActive,
             created_at: test.createdAt,
-            updated_at: test.updatedAt
+            updated_at: test.updatedAt,
+            userTestStatus: test.userTestStatus // Include user status
         });
 
         // Group tests by category and subcategory
         const groupedTests = {};
         
-        testsWithUrls.forEach(test => {
+        testsWithUserStatus.forEach(test => {
             const category = test.category || 'Uncategorized';
             const subcategory = test.subcategory || 'General';
             
@@ -307,7 +429,7 @@ exports.getAllTestsForMobile = async (req, res) => {
         });
 
         // Calculate pagination metadata
-        const totalTests = testsWithUrls.length;
+        const totalTests = testsWithUserStatus.length;
         const totalPages = Math.ceil(totalTests / parseInt(limit));
         const hasNextPage = parseInt(page) < totalPages;
         const hasPrevPage = parseInt(page) > 1;
