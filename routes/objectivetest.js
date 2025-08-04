@@ -13,6 +13,10 @@ router.post('/:testId/start', authenticateMobileUser, testController.startTest);
 // Submit test with all answers
 router.post('/:testId/submit', authenticateMobileUser, testController.submitTest);
 
+// Get attempt status and history (mobile routes)
+router.get('/:testId/attempt-status', authenticateMobileUser, testController.getCurrentAttemptStatus);
+router.get('/:testId/history', authenticateMobileUser, testController.getUserTestHistory);
+
 router.get('/results/:testId',authenticateMobileUser, testController.getUserTestResults);
 
 

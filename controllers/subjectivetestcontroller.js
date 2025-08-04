@@ -49,9 +49,7 @@ const calculateSubmissionSummary = (questions, userAnswers) => {
     const attemptedQuestions = userAnswers.length;
     const notAttemptedQuestions = totalQuestions - attemptedQuestions;
     // Calculate total completion time (using the metadata.timeSpent field)
-    const totalCompletionTime = userAnswers.reduce((total, answer) => {
-        return total + (answer.metadata?.timeSpent || 0);
-    }, 0);
+    const totalCompletionTime = SubjectiveTestResult.completionTime;
     
     // Get answer images and details for attempted questions
     const attemptedQuestionsDetails = userAnswers.map(answer => ({

@@ -22,21 +22,17 @@ const testResultSchema = new mongoose.Schema({
     },
     score: {
         type: Number,
-        // required: true,
         min: 0,
         max: 100
     },
     totalQuestions: {
-        type: Number,
-        // required: true
+        type: Number
     },
     answeredQuestions: {
-        type: Number,
-        // required: true
+        type: Number
     },
     correctAnswers: {
-        type: Number,
-        // required: true
+        type: Number
     },
     levelBreakdown: {
         L1: { total: Number, correct: Number, score: Number },
@@ -52,14 +48,52 @@ const testResultSchema = new mongoose.Schema({
         default: Date.now
     },
     completionTime: {
-        type: String, 
-        // required: true
+        type: String
     },
     status: {
         type: String,
         enum: ['completed', 'in_progress', 'abandoned'],
         default: 'completed'
-    }
+    },
+    // NEW FIELDS FOR MULTIPLE ATTEMPTS
+    attemptNumber: {
+        type: Number,
+        required: true,
+        default: 1
+    },
+    maxAttempts: {
+        type: Number,
+        default: 5
+    },
+    attemptHistory: [{
+        attemptNumber: {
+            type: Number,
+            required: true
+        },
+        score: {
+            type: Number,
+            min: 0,
+            max: 100
+        },
+        completionTime: {
+            type: String
+        },
+        submittedAt: {
+            type: Date,
+            default: Date.now
+        },
+        correctAnswers: {
+            type: Number
+        },
+        totalQuestions: {
+            type: Number
+        },
+        levelBreakdown: {
+            L1: { total: Number, correct: Number, score: Number },
+            L2: { total: Number, correct: Number, score: Number },
+            L3: { total: Number, correct: Number, score: Number }
+        }
+    }]
 }, {
     timestamps: true
 });
@@ -68,5 +102,6 @@ const testResultSchema = new mongoose.Schema({
 testResultSchema.index({ userId: 1, testId: 1 });
 testResultSchema.index({ clientId: 1, testId: 1 });
 testResultSchema.index({ submittedAt: -1 });
+testResultSchema.index({ attemptNumber: 1 }); // New index for attempt tracking
 
-module.exports = mongoose.model('TestResult', testResultSchema); 
+module.exports = mongoose.model('TestResult', testResultSchema);

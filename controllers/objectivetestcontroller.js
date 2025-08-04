@@ -624,6 +624,17 @@ exports.submitTest = async (req, res) => {
       }
     });
 
+    // Add current attempt to history
+    existingResult.attemptHistory.push({
+      attemptNumber: existingResult.attemptNumber,
+      score: Math.round(overallScore * 100) / 100,
+      completionTime: completionTimeSeconds,
+      submittedAt: new Date(),
+      correctAnswers: correctAnswers,
+      totalQuestions: totalQuestions,
+      levelBreakdown: levelResults
+    });
+
     // Update the existing test result with completion data
     existingResult.answers = answers;
     existingResult.score = Math.round(overallScore * 100) / 100; // Round to 2 decimal places
@@ -637,128 +648,14 @@ exports.submitTest = async (req, res) => {
 
     await existingResult.save();
 
-    // Update user profile with comprehensive test data
-    try {
-      // Get current user profile
-      const userProfile = await UserProfile.findOne({ userId: userId });
-      if (!userProfile) {
-        console.error("User profile not found for userId:", userId);
-        return res.status(404).json({
-          success: false,
-          message: "User profile not found",
-        });
-      }
-
-      // Calculate new averages and stats
-      const newTotalScore = userProfile.totalTestScore + Math.round(overallScore);
-      const newCompletedTests = userProfile.completedTests + 1;
-      const newAverageScore = newTotalScore / newCompletedTests;
-
-      // Calculate new accuracy rate
-      const newTotalQuestions = userProfile.performanceStats.totalQuestionsAttempted + answeredQuestions;
-      const newTotalCorrect = userProfile.performanceStats.totalCorrectAnswers + correctAnswers;
-      const newAccuracyRate = newTotalQuestions > 0 ? (newTotalCorrect / newTotalQuestions) * 100 : 0;
-
-      // Update best/worst scores
-      const newBestScore = Math.max(userProfile.performanceStats.bestScore, Math.round(overallScore));
-      const newWorstScore = Math.min(userProfile.performanceStats.worstScore, Math.round(overallScore));
-
-      // Calculate average completion time
-      const currentAvgTime = parseFloat(userProfile.performanceStats.averageCompletionTime) || 0;
-      const newAvgTime = newCompletedTests > 1 
-        ? ((currentAvgTime * (newCompletedTests - 1)) + parseFloat(completionTimeSeconds)) / newCompletedTests
-        : parseFloat(completionTimeSeconds);
-
-      // Update level performance
-      const updatedLevelPerformance = { ...userProfile.levelPerformance };
-      Object.keys(levelResults).forEach(level => {
-        if (levelResults[level].total > 0) {
-          const levelStats = updatedLevelPerformance[level];
-          const newTotalTests = levelStats.totalTests + 1;
-          const newTotalQuestions = levelStats.totalQuestions + levelResults[level].total;
-          const newCorrectAnswers = levelStats.correctAnswers + levelResults[level].correct;
-          const newAvgScore = newTotalTests > 1 
-            ? ((levelStats.averageScore * (newTotalTests - 1)) + levelResults[level].score) / newTotalTests
-            : levelResults[level].score;
-          const newBestScore = Math.max(levelStats.bestScore, levelResults[level].score);
-
-          updatedLevelPerformance[level] = {
-            totalTests: newTotalTests,
-            averageScore: newAvgScore,
-            bestScore: newBestScore,
-            totalQuestions: newTotalQuestions,
-            correctAnswers: newCorrectAnswers
-          };
-        }
-      });
-
-      // Update study progress
-      const today = new Date();
-      const lastTestDate = userProfile.studyProgress.lastTestDate;
-      const newTestStreak = lastTestDate && 
-        Math.floor((today - new Date(lastTestDate)) / (1000 * 60 * 60 * 24)) === 1 
-        ? userProfile.studyProgress.testStreak + 1 
-        : 1;
-
-      // Prepare test history entry
-      const testHistoryEntry = {
-        testId: testId,
-        testResultId: existingResult._id,
-        score: Math.round(overallScore),
-        completionTime: completionTimeSeconds,
-        submittedAt: existingResult.submittedAt,
-        totalQuestions: totalQuestions,
-        correctAnswers: correctAnswers,
-        levelBreakdown: levelResults
-      };
-
-      // Update user profile with all new data
-      await UserProfile.findOneAndUpdate(
-        { userId: userId },
-        {
-          $inc: {
-            completedTests: 1,
-            totalTestScore: Math.round(overallScore),
-          },
-          $set: {
-            averageTestScore: newAverageScore,
-            testId: existingResult._id,
-            performanceStats: {
-              bestScore: newBestScore,
-              worstScore: newWorstScore,
-              averageCompletionTime: newAvgTime.toString(),
-              totalQuestionsAttempted: newTotalQuestions,
-              totalCorrectAnswers: newTotalCorrect,
-              accuracyRate: newAccuracyRate
-            },
-            levelPerformance: updatedLevelPerformance,
-            studyProgress: {
-              lastTestDate: today,
-              testStreak: newTestStreak,
-              weeklyGoal: userProfile.studyProgress.weeklyGoal,
-              weeklyProgress: userProfile.studyProgress.weeklyProgress + 1,
-              monthlyTests: userProfile.studyProgress.monthlyTests + 1,
-              yearlyTests: userProfile.studyProgress.yearlyTests + 1
-            }
-          },
-          $push: {
-            testHistory: testHistoryEntry
-          }
-        },
-        { new: true } // Return the updated document
-      );
-
-      console.log("User profile updated successfully");
-    } catch (error) {
-      console.error("Error updating user profile:", error);
-      // Don't fail the test submission if profile update fails
-    }
 
     res.json({
       success: true,
-      message: "Test submitted successfully",
+      message: `Test submitted successfully (Attempt ${existingResult.attemptNumber}/${existingResult.maxAttempts})`,
       data: {
         testResultId: existingResult._id,
+        attemptNumber: existingResult.attemptNumber,
+        maxAttempts: existingResult.maxAttempts,
         score: existingResult.score,
         correctAnswers,
         totalQuestions,
@@ -767,6 +664,7 @@ exports.submitTest = async (req, res) => {
         startTime: existingResult.startTime,
         completionTime: existingResult.completionTime, // Raw milliseconds
         submittedAt: existingResult.submittedAt,
+        remainingAttempts: existingResult.maxAttempts - existingResult.attemptNumber
       },
     });
   } catch (error) {
@@ -795,39 +693,79 @@ exports.startTest = async (req, res) => {
       });
     }
 
-    // Check if user already has a result for this test
-    const existingResult = await TestResult.findOne({
+    // Check if user already has a result document for this test
+    let existingResult = await TestResult.findOne({
       userId,
-      testId,
-      status: { $in: ["completed", "in_progress"] },
+      testId
     });
 
-    if (existingResult) {
-      return res.status(400).json({
-        success: false,
-        message: "Test already started or completed",
+    const maxAttempts = 5;
+    let currentAttempt;
+
+    if (!existingResult) {
+      // First time taking this test
+      currentAttempt = 1;
+      
+      // Create new test result
+      existingResult = new TestResult({
+        userId,
+        testId,
+        clientId,
+        attemptNumber: currentAttempt,
+        maxAttempts: maxAttempts,
+        startTime: new Date(),
+        status: "in_progress"
       });
+    } else {
+      // User has taken this test before
+      currentAttempt = existingResult.attemptHistory.length + 1;
+      
+      // Check if reached max attempts
+      if (currentAttempt > maxAttempts) {
+        return res.status(400).json({
+          success: false,
+          message: `Maximum attempts (${maxAttempts}) reached for this test`
+        });
+      }
+
+      // Check if there's an in_progress attempt
+      if (existingResult.status === "in_progress") {
+        return res.status(400).json({
+          success: false,
+          message: "You have an ongoing test. Please complete it first.",
+          data: {
+            testResultId: existingResult._id,
+            attemptNumber: existingResult.attemptNumber
+          }
+        });
+      }
+
+      // Update existing result for new attempt
+      existingResult.attemptNumber = currentAttempt;
+      existingResult.startTime = new Date();
+      existingResult.status = "in_progress";
+      existingResult.answers = new Map(); // Clear previous answers
+      existingResult.score = null;
+      existingResult.submittedAt = null;
+      existingResult.completionTime = null;
+      existingResult.correctAnswers = null;
+      existingResult.totalQuestions = null;
+      existingResult.answeredQuestions = null;
+      existingResult.levelBreakdown = null;
     }
 
-    // Create a new test result with in_progress status
-    const testResult = new TestResult({
-      userId,
-      testId,
-      clientId,
-      startTime: new Date(),
-      status: "in_progress",
-    });
-
-    await testResult.save();
+    await existingResult.save();
 
     res.json({
       success: true,
-      message: "Test started successfully",
+      message: `Test started (Attempt ${currentAttempt}/${maxAttempts})`,
       data: {
-        testResultId: testResult._id,
-        startTime: testResult.startTime,
-        testId: testId,
-      },
+        testResultId: existingResult._id,
+        attemptNumber: currentAttempt,
+        maxAttempts: maxAttempts,
+        startTime: existingResult.startTime,
+        remainingAttempts: maxAttempts - currentAttempt
+      }
     });
   } catch (error) {
     console.error("Error starting test:", error);
@@ -888,6 +826,121 @@ exports.getUserTestResults = async (req, res) => {
       success: false,
       message: "Failed to fetch test results",
       error: error.message,
+    });
+  }
+};
+
+// Get user's test attempt history
+exports.getUserTestHistory = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const userId = req.user.id;
+
+    // Find the single result document for this user and test
+    const result = await TestResult.findOne({
+      userId,
+      testId
+    });
+
+    if (!result || !result.attemptHistory || result.attemptHistory.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No test attempts found"
+      });
+    }
+
+    // Get attempt history from the single document
+    const attemptHistory = result.attemptHistory.map(attempt => ({
+      attemptNumber: attempt.attemptNumber,
+      score: attempt.score,
+      completionTime: attempt.completionTime,
+      submittedAt: attempt.submittedAt,
+      correctAnswers: attempt.correctAnswers,
+      totalQuestions: attempt.totalQuestions,
+      levelBreakdown: attempt.levelBreakdown
+    }));
+
+    const bestScore = Math.max(...attemptHistory.map(a => a.score));
+    const averageScore = attemptHistory.reduce((sum, a) => sum + a.score, 0) / attemptHistory.length;
+
+    res.json({
+      success: true,
+      data: {
+        testId,
+        totalAttempts: result.attemptHistory.length,
+        maxAttempts: result.maxAttempts || 5,
+        attemptHistory,
+        bestScore: Math.round(bestScore * 100) / 100,
+        averageScore: Math.round(averageScore * 100) / 100,
+        canTakeMoreAttempts: result.attemptHistory.length < result.maxAttempts
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching test history:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch test history",
+      error: error.message
+    });
+  }
+};
+
+// Get current attempt status
+exports.getCurrentAttemptStatus = async (req, res) => {
+  try {
+    const { testId } = req.params;
+    const userId = req.user.id;
+
+    // Find the single result document for this user and test
+    const result = await TestResult.findOne({
+      userId,
+      testId
+    });
+
+    if (!result) {
+      return res.json({
+        success: true,
+        data: {
+          testId,
+          completedAttempts: 0,
+          maxAttempts: 5,
+          canStartNewAttempt: true,
+          inProgressAttempt: null,
+          bestScore: 0
+        }
+      });
+    }
+
+    const completedAttempts = result.attemptHistory ? result.attemptHistory.length : 0;
+    const inProgressAttempt = result.status === "in_progress" ? {
+      attemptNumber: result.attemptNumber,
+      startTime: result.startTime
+    } : null;
+
+    // Calculate best score from attempt history
+    const bestScore = result.attemptHistory && result.attemptHistory.length > 0 
+      ? Math.max(...result.attemptHistory.map(attempt => attempt.score))
+      : 0;
+
+    res.json({
+      success: true,
+      data: {
+        testId,
+        completedAttempts: completedAttempts,
+        maxAttempts: result.maxAttempts || 5,
+        canStartNewAttempt: !inProgressAttempt && completedAttempts < (result.maxAttempts || 5),
+        inProgressAttempt: inProgressAttempt,
+        bestScore: bestScore
+      }
+    });
+
+  } catch (error) {
+    console.error("Error fetching attempt status:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch attempt status",
+      error: error.message
     });
   }
 };
