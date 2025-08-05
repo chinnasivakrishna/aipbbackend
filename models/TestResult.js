@@ -78,6 +78,10 @@ const testResultSchema = new mongoose.Schema({
         completionTime: {
             type: String
         },
+        answers: {
+            type: Map,
+            of: Number
+        },
         submittedAt: {
             type: Date,
             default: Date.now

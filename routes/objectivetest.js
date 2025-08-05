@@ -17,7 +17,7 @@ router.post('/:testId/submit', authenticateMobileUser, testController.submitTest
 router.get('/:testId/attempt-status', authenticateMobileUser, testController.getCurrentAttemptStatus);
 router.get('/:testId/history', authenticateMobileUser, testController.getUserTestHistory);
 
-router.get('/results/:testId',authenticateMobileUser, testController.getUserTestResults);
+router.get('/:testId/results',authenticateMobileUser, testController.getUserTestResults);
 
 
 

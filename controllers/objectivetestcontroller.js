@@ -629,6 +629,7 @@ exports.submitTest = async (req, res) => {
       attemptNumber: existingResult.attemptNumber,
       score: Math.round(overallScore * 100) / 100,
       completionTime: completionTimeSeconds,
+      answers: answers, // Save answers in attempt history
       submittedAt: new Date(),
       correctAnswers: correctAnswers,
       totalQuestions: totalQuestions,
@@ -785,39 +786,83 @@ exports.getUserTestResults = async (req, res) => {
 
     console.log(userId, testId);
 
-    // Query with proper structure
-    const results = await TestResult.findOne({
+    // Find the single result document for this user and test
+    const result = await TestResult.findOne({
       userId: userId,
       testId: testId,
     })
-      .populate("testId", "name category subcategory")
+      .populate("testId", "name category subcategory description Estimated_time")
       .sort({ submittedAt: -1 });
     
-    if (!results) {
+    if (!result) {
       return res.status(404).json({
         success: false,
         message: "Test results not found",
       });
     }
       
-    let answers = results.answers;
-    console.log(answers);
-    
-    // Convert Map keys to array of question IDs
-    const questionIds = Array.from(answers.keys());
-    console.log("Question IDs:", questionIds);
-    
-    const questions = await ObjectiveTestQuestion.find({
-      _id: { $in: questionIds },
+    // Get attempt history with answers
+    const attemptHistory = result.attemptHistory.map(attempt => ({
+      attemptNumber: attempt.attemptNumber,
+      score: attempt.score,
+      completionTime: attempt.completionTime,
+      answers: attempt.answers ? Object.fromEntries(attempt.answers) : {}, // Convert Map to object
+      submittedAt: attempt.submittedAt,
+      correctAnswers: attempt.correctAnswers,
+      totalQuestions: attempt.totalQuestions,
+      levelBreakdown: attempt.levelBreakdown
+    }));
+
+    // Get all unique question IDs from all attempts
+    const allQuestionIds = new Set();
+    attemptHistory.forEach(attempt => {
+      if (attempt.answers) {
+        Object.keys(attempt.answers).forEach(id => allQuestionIds.add(id));
+      }
     });
-    console.log("Questions found:", questions.length);
+
+    // Get questions for all attempts
+    const questions = await ObjectiveTestQuestion.find({
+      _id: { $in: Array.from(allQuestionIds) }
+    }).select("question options correctAnswer difficulty");
+
+    // Calculate overall statistics
+    const totalAttempts = result.attemptHistory.length;
+    const bestScore = Math.max(...attemptHistory.map(a => a.score));
+    const averageScore = attemptHistory.reduce((sum, a) => sum + a.score, 0) / totalAttempts;
+    const latestAttempt = attemptHistory[attemptHistory.length - 1];
 
     res.json({
       success: true,
       data: {
-        ...results.toObject(),
+        // Test Information
+        testInfo: {
+          id: result.testId._id,
+          name: result.testId.name,
+          category: result.testId.category,
+          subcategory: result.testId.subcategory,
+          description: result.testId.description,
+          estimatedTime: result.testId.Estimated_time
+        },
+        // Attempt Statistics
+        attemptStats: {
+          totalAttempts: totalAttempts,
+          maxAttempts: result.maxAttempts,
+          bestScore: Math.round(bestScore * 100) / 100,
+          averageScore: Math.round(averageScore * 100) / 100,
+          latestScore: latestAttempt ? latestAttempt.score : 0,
+          canTakeMoreAttempts: totalAttempts < result.maxAttempts
+        },
+        // Complete Attempt History
+        attemptHistory: attemptHistory,
+        // Questions Information
         questions: questions,
-        userAnswers: Object.fromEntries(answers) // Convert Map to regular object for JSON response
+        // Current Status
+        currentStatus: {
+          status: result.status,
+          lastAttemptNumber: result.attemptNumber,
+          lastAttemptDate: result.submittedAt
+        }
       },
     });
   } catch (error) {
@@ -854,11 +899,27 @@ exports.getUserTestHistory = async (req, res) => {
       attemptNumber: attempt.attemptNumber,
       score: attempt.score,
       completionTime: attempt.completionTime,
+      answers: attempt.answers, // Include answers from attempt history
       submittedAt: attempt.submittedAt,
       correctAnswers: attempt.correctAnswers,
       totalQuestions: attempt.totalQuestions,
       levelBreakdown: attempt.levelBreakdown
     }));
+
+    // Get all unique question IDs from all attempts
+    const allQuestionIds = new Set();
+    attemptHistory.forEach(attempt => {
+      if (attempt.answers) {
+        // Convert Map to array of question IDs
+        const questionIds = Array.from(attempt.answers.keys());
+        questionIds.forEach(id => allQuestionIds.add(id));
+      }
+    });
+
+    // Get questions for all attempts
+    const questions = await ObjectiveTestQuestion.find({
+      _id: { $in: Array.from(allQuestionIds) }
+    }).select("question options correctAnswer");
 
     const bestScore = Math.max(...attemptHistory.map(a => a.score));
     const averageScore = attemptHistory.reduce((sum, a) => sum + a.score, 0) / attemptHistory.length;
@@ -869,7 +930,8 @@ exports.getUserTestHistory = async (req, res) => {
         testId,
         totalAttempts: result.attemptHistory.length,
         maxAttempts: result.maxAttempts || 5,
-        attemptHistory,
+        attemptHistory: attemptHistory,
+        questions: questions,
         bestScore: Math.round(bestScore * 100) / 100,
         averageScore: Math.round(averageScore * 100) / 100,
         canTakeMoreAttempts: result.attemptHistory.length < result.maxAttempts
