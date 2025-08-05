@@ -821,7 +821,7 @@ exports.getUserTestResults = async (req, res) => {
       }
     });
 
-    // Get questions for all attempts
+    // Get questions based on test type (objective test)
     const questions = await ObjectiveTestQuestion.find({
       _id: { $in: Array.from(allQuestionIds) }
     }).select("question options correctAnswer difficulty");
@@ -831,6 +831,16 @@ exports.getUserTestResults = async (req, res) => {
     const bestScore = Math.max(...attemptHistory.map(a => a.score));
     const averageScore = attemptHistory.reduce((sum, a) => sum + a.score, 0) / totalAttempts;
     const latestAttempt = attemptHistory[attemptHistory.length - 1];
+
+    // Prepare question information for objective tests
+    const questionInfo = questions.map(question => ({
+      _id: question._id,
+      question: question.question,
+      options: question.options,
+      correctAnswer: question.correctAnswer,
+      difficulty: question.difficulty,
+      type: 'objective'
+    }));
 
     res.json({
       success: true,
@@ -842,7 +852,8 @@ exports.getUserTestResults = async (req, res) => {
           category: result.testId.category,
           subcategory: result.testId.subcategory,
           description: result.testId.description,
-          estimatedTime: result.testId.Estimated_time
+          estimatedTime: result.testId.Estimated_time,
+          type: 'objective'
         },
         // Attempt Statistics
         attemptStats: {
@@ -856,7 +867,7 @@ exports.getUserTestResults = async (req, res) => {
         // Complete Attempt History
         attemptHistory: attemptHistory,
         // Questions Information
-        questions: questions,
+        questions: questionInfo,
         // Current Status
         currentStatus: {
           status: result.status,
