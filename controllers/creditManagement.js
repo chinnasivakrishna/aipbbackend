@@ -5,7 +5,15 @@ const CreditTransaction = require("../models/CreditTransaction");
 
 exports.getCreditAccount = async (req, res) => {
   try {
-    const creditAccount = await CreditAccount.findOne({ userId: req.user.id });
+    const creditAccount = await CreditAccount.findOne({ userId: req.user.id })
+    .populate({
+      path: 'userId', 
+      model: 'UserProfile',
+      localField: 'userId',        
+      foreignField: 'userId',      
+      justOne: true,
+      select: 'name -_id'             
+    });
     res.json({
       success: true,
       data: creditAccount
