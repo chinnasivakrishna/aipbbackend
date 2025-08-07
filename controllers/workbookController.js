@@ -590,15 +590,27 @@ exports.addWorkbookToHighlights = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const clientId = req.user.id
-    const canHighlight = workbook.user._id.toString() === clientId 
+    
+    // Authorization check
+    const clientId = req.user.userId;
+    console.log('clientId:', clientId);
+    console.log('workbook.clientId:', workbook.clientId);
+    const canHighlight = workbook.clientId === clientId;
+    console.log('canHighlight:', canHighlight);
     if (!canHighlight) {
       return res.status(403).json({ success: false, message: 'Not authorized to highlight this workbook' });
     }
+    
     if (workbook.isHighlighted) {
       return res.status(400).json({ success: false, message: 'Workbook is already highlighted' });
     }
-    const userType = 'User'; // Assuming web users are 'User' type
+    
+    // Ensure userType is set on the workbook
+    if (!workbook.userType) {
+      workbook.userType = 'User';
+    }
+    
+    const userType = 'User';
     await workbook.toggleHighlight(currentUser._id, userType, note || '', order || 0);
     await workbook.save();
     await workbook.populate('highlightedBy', 'name email userId');
@@ -621,14 +633,26 @@ exports.removeWorkbookFromHighlights = async (req, res) => {
     if (!currentUser) {
       return res.status(404).json({ success: false, message: 'User not found' });
     }
-    const clientId = req.user.id
-    const canRemoveHighlight = workbook.user._id.toString() === clientId || workbook.user._id.toString() === req.user.id;
+    
+    // Authorization check
+    const clientId = req.user.userId;
+    console.log('clientId:', clientId);
+    console.log('workbook.clientId:', workbook.clientId);
+    const canRemoveHighlight = workbook.clientId === clientId;
+    console.log('canRemoveHighlight:', canRemoveHighlight);
     if (!canRemoveHighlight) {
       return res.status(403).json({ success: false, message: 'Not authorized to remove highlight from this workbook' });
     }
+    
     if (!workbook.isHighlighted) {
       return res.status(400).json({ success: false, message: 'Workbook is not highlighted' });
     }
+    
+    // Ensure userType is set on the workbook
+    if (!workbook.userType) {
+      workbook.userType = 'User';
+    }
+    
     await workbook.toggleHighlight(currentUser._id, 'User');
     await workbook.save();
     await workbook.populate('highlightedBy', 'name email userId');
@@ -636,6 +660,94 @@ exports.removeWorkbookFromHighlights = async (req, res) => {
     return res.status(200).json({ success: true, message: 'Workbook removed from highlights successfully', workbook: workbookWithUserInfo });
   } catch (error) {
     console.error('Remove workbook from highlights error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Add workbook to trending
+exports.addWorkbookToTrending = async (req, res) => {
+  try {
+    const { score, endDate } = req.body;
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Authorization check
+    const clientId = req.user.userId;
+    console.log('clientId:', clientId);
+    console.log('workbook.clientId:', workbook.clientId);
+    const canMakeTrending = workbook.clientId === clientId;
+    console.log('canMakeTrending:', canMakeTrending);
+    if (!canMakeTrending) {
+      return res.status(403).json({ success: false, message: 'Not authorized to make this workbook trending' });
+    }
+    
+    if (workbook.isTrending) {
+      return res.status(400).json({ success: false, message: 'Workbook is already trending' });
+    }
+    
+    // Ensure userType is set on the workbook
+    if (!workbook.userType) {
+      workbook.userType = 'User';
+    }
+    
+    const userType = 'User';
+    const parsedScore = score ? parseInt(score) : 0;
+    const parsedEndDate = endDate ? new Date(endDate) : null;
+    await workbook.toggleTrending(currentUser._id, userType, parsedScore, parsedEndDate);
+    await workbook.save();
+    await workbook.populate('trendingBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook added to trending successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Add workbook to trending error:', error);
+    return res.status(500).json({ success: false, message: 'Server Error' });
+  }
+};
+
+// Remove workbook from trending
+exports.removeWorkbookFromTrending = async (req, res) => {
+  try {
+    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
+    if (!workbook) {
+      return res.status(404).json({ success: false, message: 'Workbook not found' });
+    }
+    const currentUser = await User.findById(req.user.id);
+    if (!currentUser) {
+      return res.status(404).json({ success: false, message: 'User not found' });
+    }
+    
+    // Authorization check
+    const clientId = req.user.userId;
+    console.log('clientId:', clientId);
+    console.log('workbook.clientId:', workbook.clientId);
+    const canRemoveTrending = workbook.clientId === clientId;
+    console.log('canRemoveTrending:', canRemoveTrending);
+    if (!canRemoveTrending) {
+      return res.status(403).json({ success: false, message: 'Not authorized to remove trending from this workbook' });
+    }
+    
+    if (!workbook.isTrending) {
+      return res.status(400).json({ success: false, message: 'Workbook is not trending' });
+    }
+    
+    // Ensure userType is set on the workbook
+    if (!workbook.userType) {
+      workbook.userType = 'User';
+    }
+    
+    await workbook.toggleTrending(currentUser._id, 'User');
+    await workbook.save();
+    await workbook.populate('trendingBy', 'name email userId');
+    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
+    return res.status(200).json({ success: true, message: 'Workbook removed from trending successfully', workbook: workbookWithUserInfo });
+  } catch (error) {
+    console.error('Remove workbook from trending error:', error);
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
@@ -662,70 +774,6 @@ exports.getTrendingWorkbooks = async (req, res) => {
     return res.status(500).json({ success: false, message: 'Server Error' });
   }
 };
-// Add workbook to trending
-exports.addWorkbookToTrending = async (req, res) => {
-  try {
-    const { score, endDate } = req.body;
-    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
-    if (!workbook) {
-      return res.status(404).json({ success: false, message: 'Workbook not found' });
-    }
-    const currentUser = await User.findById(req.user.id);
-    if (!currentUser) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-    const clientId = req.user.id
-    const canMakeTrending = workbook.user._id.toString() === clientId || workbook.user._id.toString() === req.user.id;
-    if (!canMakeTrending) {
-      return res.status(403).json({ success: false, message: 'Not authorized to make this workbook trending' });
-    }
-    if (workbook.isTrending) {
-      return res.status(400).json({ success: false, message: 'Workbook is already trending' });
-    }
-    const userType = 'User';
-    const parsedScore = score ? parseInt(score) : 0;
-    const parsedEndDate = endDate ? new Date(endDate) : null;
-    await workbook.toggleTrending(currentUser._id, userType , parsedScore, parsedEndDate);
-    await workbook.save();
-    await workbook.populate('trendingBy', 'name email userId');
-    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
-    return res.status(200).json({ success: true, message: 'Workbook added to trending successfully', workbook: workbookWithUserInfo });
-  } catch (error) {
-    console.error('Add workbook to trending error:', error);
-    return res.status(500).json({ success: false, message: 'Server Error' });
-  }
-};
-
-// Remove workbook from trending
-exports.removeWorkbookFromTrending = async (req, res) => {
-  try {
-    const workbook = await Workbook.findById(req.params.id).populate('user', 'name email userId');
-    if (!workbook) {
-      return res.status(404).json({ success: false, message: 'Workbook not found' });
-    }
-    const currentUser = await User.findById(req.user.id);
-    if (!currentUser) {
-      return res.status(404).json({ success: false, message: 'User not found' });
-    }
-    const clientId = getClientId(currentUser);
-    const canRemoveTrending = workbook.clientId === clientId || workbook.user._id.toString() === req.user.id;
-    if (!canRemoveTrending) {
-      return res.status(403).json({ success: false, message: 'Not authorized to remove trending from this workbook' });
-    }
-    if (!workbook.isTrending) {
-      return res.status(400).json({ success: false, message: 'Workbook is not trending' });
-    }
-    await workbook.toggleTrending(currentUser._id, 'User');
-    await workbook.save();
-    await workbook.populate('trendingBy', 'name email userId');
-    const workbookWithUserInfo = await formatWorkbookWithUserInfo(workbook);
-    return res.status(200).json({ success: true, message: 'Workbook removed from trending successfully', workbook: workbookWithUserInfo });
-  } catch (error) {
-    console.error('Remove workbook from trending error:', error);
-    return res.status(500).json({ success: false, message: 'Server Error' });
-  }
-};
-
 // Get all sets for a specific workbook (with details)
 exports.getWorkbookSets = async (req, res) => {
   try {
