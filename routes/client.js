@@ -17,6 +17,12 @@ router.get('/users', clientController.getAllUsers);
 // POST /api/clients/:clientId/mobile/auth/profile
 router.get('/userprofile', clientController.getuserprofile);
 
+//get all credit recharge plans
+router.get('/credit-recharge-plans', clientController.getCreditRechargePlans);
+
+//create credit recharge plan
+router.post('/credit-recharge-plans', clientController.createCreditRechargePlan);
+
 
 // Additional routes would go here
 // Such as routes for managing AI books, workbooks, agents, users, etc.

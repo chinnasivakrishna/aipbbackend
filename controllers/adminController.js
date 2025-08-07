@@ -7,6 +7,7 @@ const MobileUser = require('../models/MobileUser');
 const CreditAccount = require('../models/CreditAccount');
 const CreditTransaction = require('../models/CreditTransaction');
 const Client = require('../models/Client');
+const CreditRechargePlan = require('../models/CreditRechargePlan');
 
 // Generate JWT Token for admin
 const generateAdminToken = (id) => {
@@ -452,7 +453,6 @@ exports.addCredit = async (req,res) => {
   }
 }
 
-// In aipbbackend/controllers/adminController.js
 exports.getCreditAccountById = async (req, res) => {
   try {
     if (!req.admin) {
@@ -506,3 +506,26 @@ exports.getCreditAccountById = async (req, res) => {
     });
   }
 };
+
+exports.getCreditRechargePlans = async (req,res) => {
+  try {
+    if (!req.admin){
+      return res.status(403).json({
+        success : false,
+        message : 'Admin access required'
+      })
+    }
+    const plans = await CreditRechargePlan.find().sort({ createdAt: -1 });
+
+    res.json({
+      success : true,
+      data : plans
+    })
+  } 
+  catch (error) {
+    res.status(500).json({
+      success : false,
+      message : error.message
+    })
+  }
+}

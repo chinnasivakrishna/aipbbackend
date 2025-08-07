@@ -1,4 +1,5 @@
 // controllers/clientController.js - Updated Client controller with enhanced user ID handling
+const CreditRechargePlan = require('../models/CreditRechargePlan');
 const User = require('../models/User');
 const UserProfile = require('../models/UserProfile');
 
@@ -341,3 +342,76 @@ exports.deleteClient = async (req, res) => {
     res.status(500).json({ success: false, message: 'Server error' });
   }
 };
+
+exports.createCreditRechargePlan = async (req, res) => {
+  try {
+    const clientId  = req.user.userId;
+    const {
+      name,
+      description,
+      credits,
+      MRP,
+      offerPrice,
+      status
+    } = req.body;
+
+    const plan = new CreditRechargePlan({
+      name,
+      description,
+      clientId,
+      credits,
+      MRP,
+      offerPrice,
+      status
+    });
+
+    await plan.save();
+
+    res.json({
+      success: true,
+      message: 'Credit recharge plan created successfully',
+      data: plan
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}   
+
+exports.getCreditRechargePlans = async (req,res) => {
+  try {
+    const clientId = req.user.userId
+    const plans = await CreditRechargePlan.find({clientId:clientId});
+
+    res.json({
+      success : true,
+      data : plans
+    })
+  } 
+  catch (error) {
+    res.status(500).json({
+      success : false,
+      message : error.message
+    })
+  }
+}
+
+exports.deleteCreditRechargePlans = async (req,res) => {
+  try {
+    const clientId = req.clientId;
+  } 
+  catch (error) {
+    
+  }
+}
+
+exports.updateCreditRechargePlans = async (req,res) => {
+  try {
+    
+  } 
+  catch (error) {
+    
+  }
+}

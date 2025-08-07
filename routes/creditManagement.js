@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { authenticateMobileUser } = require('../middleware/mobileAuth');
-const { getCreditAccount, getCreditPlans, buyCredits, getCredit, getCreditTransactions, getCreditBalance, useCreditsForService } = require('../controllers/creditManagement');
+const { getCreditAccount, getCreditPlans, buyCredits, getCredit, getCreditTransactions, getCreditBalance, useCreditsForService , getCreditRechargePlans} = require('../controllers/creditManagement');
 
 router.get('/account',authenticateMobileUser, getCreditAccount );
 
@@ -16,5 +16,7 @@ router.get('/transactions', authenticateMobileUser, getCreditTransactions );
 router.get('/:creditId/balance', authenticateMobileUser, getCreditBalance );
 
 router.post('/use-credits', authenticateMobileUser, useCreditsForService );
+
+router.get('/recharge-plans',authenticateMobileUser, getCreditRechargePlans)
 
 module.exports = router;

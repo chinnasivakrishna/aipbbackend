@@ -1,5 +1,6 @@
 const CreditAccount = require("../models/CreditAccount");
 const CreditPlan = require("../models/CreditPlan");
+const CreditRechargePlan = require("../models/CreditRechargePlan");
 const CreditTransaction = require("../models/CreditTransaction");
 
 exports.getCreditAccount = async (req, res) => {
@@ -245,3 +246,22 @@ exports.useCreditsForService = async (req, res) => {
         });
     }
 };
+
+exports.getCreditRechargePlans = async (req,res) => {
+  try {
+    const clientId = req.clientId
+    console.log(clientId)
+    const plans = await CreditRechargePlan.find({clientId:clientId});
+
+    res.json({
+      success : true,
+      data : plans
+    })
+  } 
+  catch (error) {
+    res.status(500).json({
+      success : false,
+      message : error.message
+    })
+  }
+}
