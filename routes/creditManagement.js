@@ -1,0 +1,20 @@
+const express = require('express');
+const router = express.Router();
+const { authenticateMobileUser } = require('../middleware/mobileAuth');
+const { getCreditAccount, getCreditPlans, buyCredits, getCredit, getCreditTransactions, getCreditBalance, useCreditsForService } = require('../controllers/creditManagement');
+
+router.get('/account',authenticateMobileUser, getCreditAccount );
+
+router.get('/plans', authenticateMobileUser, getCreditPlans );
+
+router.post('/buy-credits', authenticateMobileUser, buyCredits );
+
+router.get('/get-credits', authenticateMobileUser, getCredit );
+
+router.get('/transactions', authenticateMobileUser, getCreditTransactions );
+
+router.get('/:creditId/balance', authenticateMobileUser, getCreditBalance );
+
+router.post('/use-credits', authenticateMobileUser, useCreditsForService );
+
+module.exports = router;

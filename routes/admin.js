@@ -25,4 +25,19 @@ router.delete('/clients/:id', clientsController.deleteClient);
 // Generate login token for a client (for admin impersonation)
 router.post('/clients/:id/login-token', adminController.generateClientLoginToken);
 
+// Create a new credit plan (admin only)
+router.post('/plans',verifyAdminToken, adminController.createCreditPlan);
+  
+// Get all credit plans (admin)
+router.get('/plans',verifyAdminToken, adminController.getCreditPlans);
+
+router.post('/add-credit',verifyAdminToken, adminController.addCredit);
+
+router.get('/credit-account',verifyAdminToken, adminController.getCreditAccount);
+
+router.get('/credit-account/:id',verifyAdminToken, adminController.getCreditAccountById);
+
+// router.patch('/credit-account/:id/status',verifyAdminToken, adminController.updateCreditAccountStatus);
+
+
 module.exports = router;

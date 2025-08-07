@@ -2,6 +2,11 @@
 const jwt = require('jsonwebtoken');
 const Admin = require('../models/Admin');
 const User = require('../models/User');
+const CreditPlan = require('../models/CreditPlan');
+const MobileUser = require('../models/MobileUser');
+const CreditAccount = require('../models/CreditAccount');
+const CreditTransaction = require('../models/CreditTransaction');
+const Client = require('../models/Client');
 
 // Generate JWT Token for admin
 const generateAdminToken = (id) => {
@@ -272,5 +277,232 @@ exports.generateClientLoginToken = async (req, res) => {
   } catch (error) {
     console.error('Generate client login token error:', error);
     res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+exports.createCreditPlan = async (req, res) => {
+  try {
+    // Check if user is admin
+    console.log(req.admin);
+    if (!req.admin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const {
+      name,
+      description,
+      credits,
+      price,
+      currency,
+      discount,
+      isPopular,
+      features
+    } = req.body;
+
+    const plan = new CreditPlan({
+      name,
+      description,
+      credits,
+      price,
+      currency,
+      discount,
+      isPopular,
+      features
+    });
+
+    await plan.save();
+
+    res.json({
+      success: true,
+      message: 'Credit plan created successfully',
+      data: plan
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+exports.getCreditPlans =  async (req, res) => {
+  try {
+    if (!req.admin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const plans = await CreditPlan.find().sort({ sortOrder: 1 });
+
+    res.json({
+      success: true,
+      data: plans
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+exports.getCreditAccount = async (req,res) => {
+  try {
+    if(!req.admin){
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+    const creditAccounts = await CreditAccount.find()
+    .sort({ createdAt: -1 })
+    .populate({
+      path: 'userId', 
+      model: 'UserProfile',
+      localField: 'userId',        
+      foreignField: 'userId',      
+      justOne: true,
+      select: 'name'             
+    });
+    
+    // Fetch client information for each credit account
+    const accountsWithClientInfo = await Promise.all(
+      creditAccounts.map(async (account) => {
+        let clientInfo = null;
+        if (account.clientId) {
+          clientInfo = await User.findOne({userId:account.clientId}).select('businessName name email');
+        }
+        return {
+          ...account.toObject(),
+          client: clientInfo
+        };
+      })
+    );
+    
+  res.json({
+    success: true,
+    data: accountsWithClientInfo,
+  });
+  }
+  catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+exports.addCredit = async (req,res) => {
+  try {
+    if(!req.admin){
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+    const {userId, credits, adminMessage} = req.body;
+    const user = await MobileUser.findById(userId);
+    if(!user){
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+    const creditAccount = await CreditAccount.findOne({userId: user._id});
+    if(!creditAccount){
+      return res.status(404).json({
+        success: false,
+        message: 'Credit account not found'
+      });
+    }
+    
+    const transaction = new CreditTransaction({
+      userId,
+      type: 'credit',
+      amount: credits,
+      balanceBefore: creditAccount.balance,
+      balanceAfter: creditAccount.balance + credits,
+      category: 'admin_adjustment',
+      description: 'Admin added credits',
+      addedBy: req.admin._id,
+      adminMessage: adminMessage || null,
+    });
+
+    await transaction.save();
+
+    creditAccount.balance += credits;
+    await creditAccount.save();
+
+    res.json({
+      success: true,
+      message: 'Credit added successfully',
+      data: creditAccount
+    });
+  } 
+  catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
+  }
+}
+
+// In aipbbackend/controllers/adminController.js
+exports.getCreditAccountById = async (req, res) => {
+  try {
+    if (!req.admin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Admin access required'
+      });
+    }
+
+    const { id } = req.params;
+    
+    // Find the credit account
+    const creditAccount = await CreditAccount.findById(id)
+    .populate({
+      path: 'userId', 
+      model: 'UserProfile',
+      localField: 'userId',        
+      foreignField: 'userId',      
+      justOne: true,
+      select: 'name'             
+    });
+    if (!creditAccount) {
+      return res.status(404).json({
+        success: false,
+        message: 'Credit account not found'
+      });
+    }
+
+    // Fetch client information
+    let clientInfo = null;
+    if (creditAccount.clientId) {
+      clientInfo = await User.findOne({userId:creditAccount.clientId}).select('businessName name email');
+    }
+
+   const transactions = await CreditTransaction.find({userId: creditAccount.userId.userId})
+   .sort({ createdAt: -1 })
+   .populate('addedBy', 'name email');
+
+    res.json({
+      success: true,
+      data: {
+        ...creditAccount.toObject(),
+        client: clientInfo,
+        transactions
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: error.message
+    });
   }
 };

@@ -48,6 +48,7 @@ const objectiveTestRoutes = require('./routes/objectivetest');
 const objectiveTestQuestionRoutes = require('./routes/objectivetestquestion');
 const subjectiveTestQuestionRoutes = require('./routes/subjectivetestquestion');
 const testResultsRoutes = require('./routes/testResults');
+const creditManagementRoutes = require('./routes/creditManagement');
 
 app.use(cors())
 app.use(express.json({ limit: "50mb" }))
@@ -128,6 +129,16 @@ app.use(
     next()
   },
   mobileAuthRoutes,
+)
+
+app.use(
+  "/api/clients/:clientId/mobile/credit",
+  checkClientAccess(),
+  (req, res, next) => {
+    req.clientId = req.params.clientId
+    next()
+  },
+  creditManagementRoutes,
 )
 
 app.use(
