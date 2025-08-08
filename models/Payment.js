@@ -8,6 +8,13 @@ const paymentSchema = new mongoose.Schema({
     unique: true,
     index: true
   },
+  // Link to the platform user who is purchasing credits (optional but recommended)
+  userId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'MobileUser',
+    index: true,
+    default: null
+  },
   transactionId: { 
     type: String,
     index: true
@@ -32,6 +39,28 @@ const paymentSchema = new mongoose.Schema({
   customerName: { 
     type: String, 
     required: true 
+  },
+  // Recharge plan purchased (optional)
+  planId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'CreditRechargePlan',
+    default: null
+  },
+  // Number of credits intended to be credited on success (snapshot at initiation)
+  creditsPurchased: {
+    type: Number,
+    default: null
+  },
+  // Admin who initiated the payment
+  adminId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+    default: null
+  },
+  // Admin message for the transaction
+  adminMessage: {
+    type: String,
+    default: null
   },
   projectId: {
     type: String,
