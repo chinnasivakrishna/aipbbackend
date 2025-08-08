@@ -9,13 +9,16 @@ const { sendSuccessResponse, sendErrorResponse, sendValidationError } = require(
 const router = express.Router();
 
 // 1. Initialize Payment
-router.post('/initiate', async (req, res) => {
+router.post('/api/paytm/initiate', async (req, res) => {
   try {
-    const { amount, customerEmail, customerPhone, customerName } = req.body;
+    const { amount, customerEmail, customerPhone, customerName, projectId } = req.body;
     
     // Validate required fields
     if (!amount || !customerEmail || !customerPhone || !customerName) {
-      return sendValidationError(res, 'Missing required fields: amount, customerEmail, customerPhone, customerName');
+      return res.status(400).json({
+        success: false,
+        message: 'Missing required fields: amount, customerEmail, customerPhone, customerName'
+      });
     }
 
     // Generate unique order ID
@@ -28,6 +31,7 @@ router.post('/initiate', async (req, res) => {
       customerEmail,
       customerPhone,
       customerName,
+      projectId: projectId || 'default',
       status: 'PENDING'
     });
 
@@ -47,9 +51,13 @@ router.post('/initiate', async (req, res) => {
       MOBILE_NO: customerPhone
     };
 
-    // Generate checksum
+    console.log('Paytm Parameters before checksum:', paytmParams);
+
+    // Generate checksum using official Paytm package
     const checksum = await PaytmChecksum.generateSignature(paytmParams, PaytmConfig.MERCHANT_KEY);
     paytmParams.CHECKSUMHASH = checksum;
+
+    console.log('Generated Checksum:', checksum);
 
     // Update payment record with checksum
     await Payment.findOneAndUpdate(
@@ -61,17 +69,27 @@ router.post('/initiate', async (req, res) => {
       }
     );
 
-    console.log('Payment initiated:', { orderId, amount: paytmParams.TXN_AMOUNT, customerEmail });
+    console.log('Payment initiated successfully:', {
+      orderId,
+      amount: paytmParams.TXN_AMOUNT,
+      customerEmail,
+      checksum
+    });
 
-    return sendSuccessResponse(res, {
+    res.json({
+      success: true,
       orderId,
       paytmParams,
       paytmUrl: PaytmConfig.PAYTM_URL
-    }, 'Payment initiated successfully');
+    });
 
   } catch (error) {
     console.error('Payment initiation error:', error);
-    return sendErrorResponse(res, 'Payment initiation failed', error);
+    res.status(500).json({
+      success: false,
+      message: 'Payment initiation failed',
+      error: error.message
+    });
   }
 });
 
