@@ -50,7 +50,7 @@ router.get('/get-recharge-plan',verifyAdminToken, adminController.getCreditRecha
 router.post('/paytm/initiate',async (req, res) => {
     try {
       const { amount, customerEmail, customerPhone, customerName, projectId, userId, planId, credits, adminId, adminMessage } = req.body;
-      
+      console.log(req.body)
       // Validate required fields
       if (!amount || !customerEmail || !customerPhone || !customerName) {
         return res.status(400).json({
@@ -69,7 +69,7 @@ router.post('/paytm/initiate',async (req, res) => {
         userId: userId || null,
         planId: planId || null,
         creditsPurchased: credits || null,
-        adminId: adminId || req.admin._id, // Use provided adminId or current admin
+        adminId: adminId, // Use provided adminId or current admin
         adminMessage: adminMessage || null,
         customerEmail,
         customerPhone,
