@@ -8,6 +8,7 @@ const CreditAccount = require('../models/CreditAccount');
 const CreditTransaction = require('../models/CreditTransaction');
 const Client = require('../models/Client');
 const CreditRechargePlan = require('../models/CreditRechargePlan');
+const Payment = require('../models/Payment');
 
 // Generate JWT Token for admin
 const generateAdminToken = (id) => {
@@ -422,28 +423,39 @@ exports.addCredit = async (req,res) => {
       });
     }
     
-    const transaction = new CreditTransaction({
-      userId,
-      type: 'credit',
-      amount: credits,
-      balanceBefore: creditAccount.balance,
-      balanceAfter: creditAccount.balance + credits,
-      category: 'admin_adjustment',
-      description: 'Admin added credits',
-      addedBy: req.admin._id,
-      adminMessage: adminMessage || null,
-    });
-
-    await transaction.save();
-
-    creditAccount.balance += credits;
-    await creditAccount.save();
-
-    res.json({
-      success: true,
-      message: 'Credit added successfully',
-      data: creditAccount
-    });
+    if(Payment.status === "SUCCESS")
+    {
+      const transaction = new CreditTransaction({
+        userId,
+        type: 'credit',
+        amount: credits,
+        balanceBefore: creditAccount.balance,
+        balanceAfter: creditAccount.balance + credits,
+        category: 'admin_adjustment',
+        description: 'Admin added credits',
+        addedBy: req.admin._id,
+        adminMessage: adminMessage || null,
+      });
+  
+      await transaction.save();
+  
+      creditAccount.balance += credits;
+      await creditAccount.save();
+  
+      res.json({
+        success: true,
+        message: 'Credit added successfully',
+        data: creditAccount
+      });
+    }
+    else
+    {
+      res.status(400).json({
+        success: false,
+        message: 'Payment failed'
+      });
+    }
+    
   } 
   catch (error) {
     res.status(500).json({

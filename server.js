@@ -49,6 +49,7 @@ const objectiveTestQuestionRoutes = require('./routes/objectivetestquestion');
 const subjectiveTestQuestionRoutes = require('./routes/subjectivetestquestion');
 const testResultsRoutes = require('./routes/testResults');
 const creditManagementRoutes = require('./routes/creditManagement');
+const paytmRoutes = require('./routes/paytm')
 
 app.use(cors())
 app.use(express.json({ limit: "50mb" }))
@@ -110,6 +111,7 @@ app.use('/api/objectivetests', objectiveTestRoutes);
 app.use('/api/objectivetest-questions', objectiveTestQuestionRoutes);
 app.use('/api/subjectivetest-questions', subjectiveTestQuestionRoutes);
 app.use('/api/test-results', testResultsRoutes);
+app.use('/api/paytm',paytmRoutes)
 
 
 // Enhanced PDF processing routes with clustering and optional auth

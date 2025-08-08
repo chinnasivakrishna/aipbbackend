@@ -37,6 +37,6 @@ router.get('/credit-account',verifyAdminToken, adminController.getCreditAccount)
 
 router.get('/credit-account/:id',verifyAdminToken, adminController.getCreditAccountById);
 
-router.post('/get-recharge-plan',verifyAdminToken, adminController.getCreditRechargePlans);
+router.get('/get-recharge-plan',verifyAdminToken, adminController.getCreditRechargePlans);
 
 module.exports = router;
