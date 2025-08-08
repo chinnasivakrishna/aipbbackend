@@ -205,7 +205,8 @@ router.post('/paytm/callback',async (req, res) => {
         responseCode: paytmResponse.RESPCODE,
         checksumValid: isValidChecksum
       });
-  
+      let creditAccount = null;
+
       // Idempotent crediting on successful payment
       try {
         // Fetch current payment after update
@@ -215,7 +216,6 @@ router.post('/paytm/callback',async (req, res) => {
           const existingTx = await CreditTransaction.findOne({ userId: paymentDoc.userId });
           if (!existingTx) {
             // Resolve user and credit account
-            let creditAccount = null;
             if (paymentDoc.userId) {
               creditAccount = await CreditAccount.findOne({ userId: paymentDoc.userId });
             }
@@ -280,7 +280,7 @@ router.post('/paytm/callback',async (req, res) => {
   
       // Redirect to frontend with payment status
       const frontendUrl = process.env.FRONTEND_URL;
-      const redirectUrl = `${frontendUrl}/admin/credit-account?payment_status=${paymentStatus}&orderId=${orderId}&transactionId=${updateData.transactionId}`;
+      const redirectUrl = `${frontendUrl}/admin/credit-account/${creditAccount._id}?payment_status=${paymentStatus}&orderId=${orderId}&transactionId=${updateData.transactionId}`;
       
       console.log('Redirecting to:', redirectUrl);
       res.redirect(redirectUrl);
@@ -288,7 +288,7 @@ router.post('/paytm/callback',async (req, res) => {
     } catch (error) {
       console.error('Payment callback error:', error);
       const frontendUrl = process.env.FRONTEND_URL;
-      const redirectUrl = `${frontendUrl}/admin/credit-account?payment_status=FAILED&orderId=${req.body.ORDERID || 'unknown'}`;
+      const redirectUrl = `${frontendUrl}/admin/credit-account/${CreditAccount._id}?payment_status=FAILED&orderId=${req.body.ORDERID || 'unknown'}`;
       res.redirect(redirectUrl);
     }
 });
