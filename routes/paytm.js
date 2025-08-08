@@ -9,7 +9,7 @@ const { sendSuccessResponse, sendErrorResponse, sendValidationError } = require(
 const router = express.Router();
 
 // 1. Initialize Payment
-router.post('/api/paytm/initiate', async (req, res) => {
+router.post('/initiate', async (req, res) => {
   try {
     const { amount, customerEmail, customerPhone, customerName, projectId } = req.body;
     
