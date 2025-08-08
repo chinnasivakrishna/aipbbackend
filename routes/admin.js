@@ -89,7 +89,7 @@ router.post('/paytm/initiate',async (req, res) => {
         ORDER_ID: orderId,
         CUST_ID: customerEmail,
         TXN_AMOUNT: parseFloat(amount).toFixed(2),
-        CALLBACK_URL: PaytmConfig.CALLBACK_URL,
+        CALLBACK_URL: 'https://aipbbackend-c5ed.onrender.com/api/admin/paytm/callback',
         EMAIL: customerEmail,
         MOBILE_NO: customerPhone
       };
@@ -205,11 +205,11 @@ router.post('/paytm/callback',async (req, res) => {
         responseCode: paytmResponse.RESPCODE,
         checksumValid: isValidChecksum
       });
-      let creditAccount = null;
 
       // Idempotent crediting on successful payment
       try {
         // Fetch current payment after update
+        let creditAccount = null;
         const paymentDoc = await Payment.findOne({ orderId });
         if (paymentDoc && paymentDoc.status === 'SUCCESS') {
           // Check if transaction already exists for this order
@@ -280,7 +280,7 @@ router.post('/paytm/callback',async (req, res) => {
   
       // Redirect to frontend with payment status
       const frontendUrl = process.env.FRONTEND_URL;
-      const redirectUrl = `${frontendUrl}/admin/credit-account/${creditAccount._id}?payment_status=${paymentStatus}&orderId=${orderId}&transactionId=${updateData.transactionId}`;
+      const redirectUrl = `${frontendUrl}/admin/credit-account/?payment_status=${paymentStatus}&orderId=${orderId}&transactionId=${updateData.transactionId}`;
       
       console.log('Redirecting to:', redirectUrl);
       res.redirect(redirectUrl);
@@ -288,7 +288,7 @@ router.post('/paytm/callback',async (req, res) => {
     } catch (error) {
       console.error('Payment callback error:', error);
       const frontendUrl = process.env.FRONTEND_URL;
-      const redirectUrl = `${frontendUrl}/admin/credit-account/${CreditAccount._id}?payment_status=FAILED&orderId=${req.body.ORDERID || 'unknown'}`;
+      const redirectUrl = `${frontendUrl}/admin/credit-account/?payment_status=FAILED&orderId=${req.body.ORDERID || 'unknown'}`;
       res.redirect(redirectUrl);
     }
 });
